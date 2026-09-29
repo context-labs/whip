@@ -3,10 +3,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { chromium, firefox, expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { defineAgent } from '../../../packages/sdk/dist/agents.js';
+import { deadline, eventually, startFixture } from './native-fixture.mjs';
+import { startHistoryFixture } from './native-history-fixture.mjs';
 
-// Production renderer + isolated daemon histories. No product state is injected.
+// Production renderer/runtime and canonical synthetic store history. Live cells
+// below execute normally; historical seed records do not claim prior effects.
 const directory = process.env.WHIP_SETTINGS_CONVERSATION_RESULTS ?? '/tmp/whip-settings-conversation-results';
 await mkdir(directory, { recursive: true });
 const leaves = node => node.type === 'pane' ? [node] : [...leaves(node.first), ...leaves(node.second)];
@@ -14,138 +16,180 @@ const engines = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',')
 const results = {};
 async function scenario(engine, mode, run) {
   if (process.env.WHIP_SETTINGS_CONVERSATION_MODE && process.env.WHIP_SETTINGS_CONVERSATION_MODE !== mode) return;
-  process.env.WHIP_WEB_REPL_FIXTURE = mode === 'repl' ? '1' : '';
-  process.env.WHIP_WEB_PERF_FIXTURE = mode === 'body' ? '1' : '';
   const manifest = JSON.parse(await readFile(new URL('../renderer-manifest.json', import.meta.url), 'utf8'));
-  const fixture = await startFixture({ lifetimeMs: 600_000 });
-  const browser = await ({ chromium, firefox }[engine]).launch();
-  const page = await browser.newPage({ viewport: { width: 1800, height: 1120 } });
-  page.setDefaultTimeout(15_000);
-  const client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: `settings-${crypto.randomUUID()}`, clientKind: 'human' });
-  const frames = [], httpReads = [], replies = new Set(), errors = [], csp = [], checks = [];
-  const subscriptions = new Map();
-  page.on('pageerror', error => errors.push(error.message));
-  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/v3/content/')) httpReads.push(request.url()); });
-  await page.addInitScript(() => { window.__settingsCSP = []; document.addEventListener('securitypolicyviolation', event => window.__settingsCSP.push(event.violatedDirective)); });
-  page.on('websocket', socket => {
-    const active = new Set(); subscriptions.set(socket, active);
-    socket.on('framesent', ({ payload }) => {
-      const value = JSON.parse(String(payload)); frames.push(value);
-      if (value.method === 'events.subscribe') active.add(value.params.subscription_id);
-      if (value.method === 'events.unsubscribe') active.delete(value.params.subscription_id);
-    });
-    socket.on('framereceived', ({ payload }) => { const value = JSON.parse(String(payload)); if (value.id && !value.method) replies.add(value.id); });
-    socket.on('close', () => subscriptions.delete(socket));
-  });
-  const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
-  const root = fixture.info.root_id;
-  const rootURL = `${origin}/h/${fixture.info.runtime_id}/s/${root}`;
-  const workspace = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('whip.web.workspace.v3')).workspace);
-  const panel = id => page.locator(`[data-workspace-view="${id}"]`);
-  const chat = id => panel(id).getByRole('region', { name: 'Conversation', exact: true });
-  const notebook = id => panel(id).getByRole('region', { name: 'REPL executions', exact: true });
-  const tab = id => page.locator(`[id="whip-workspace-tab-${encodeURIComponent(id)}"]`);
-  const contentReads = () => httpReads.length + frames.filter(frame => frame.method === 'content.read').length;
-  const action = async (id, label) => {
-    await page.locator(`[data-workspace-tab="${id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
-    await page.getByRole('menuitem', { name: label, exact: true }).click();
-    await page.getByRole('menu').waitFor({ state: 'hidden' });
-  };
-  let checkedRelease = false;
-  const settings = async () => {
-    await page.locator('#whip-settings-link').click();
-    await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
-    await expect(page.locator('[data-workspace-view]')).toHaveCount(0);
-    if (!checkedRelease) {
-      await eventually(() => [...subscriptions.values()].every(active => active.size === 0), { timeout: 40_000, description: 'Settings releases root subscriptions after the existing 30-second idle grace' });
-      checkedRelease = true; checks.push('Settings removes transcript consumers and releases idle root subscriptions after the bounded grace');
-    }
-  };
-  const back = async () => { await page.getByRole('button', { name: 'Back to workspace', exact: true }).click(); await page.locator('[data-workspace-frame]').first().waitFor(); };
-  const density = async value => {
-    const slider = page.getByRole('slider', { name: 'Tool call density', exact: true });
-    await slider.focus(); await page.keyboard.press('Home');
-    for (let step = 0; step < value; step++) await page.keyboard.press('ArrowRight');
-    await expect(slider).toHaveAttribute('aria-valuetext', ['Compact', 'Comfortable', 'Detailed'][value]);
-  };
-  const select = async (scope, label, value) => { await scope.getByRole('combobox', { name: label, exact: true }).click(); await page.getByRole('option', { name: value, exact: true }).click(); };
-  const anchor = region => region.evaluate(element => {
-    const top = element.getBoundingClientRect().top;
-    const row = [...element.querySelectorAll('[data-reading-id]')].find(item => item.getBoundingClientRect().bottom > top);
-    return row ? { id: row.dataset.readingId, offset: row.getBoundingClientRect().top - top } : null;
-  });
-  const stableAnchor = async region => {
-    let previous, since = performance.now();
-    return eventually(async () => {
-      const value = await anchor(region);
-      if (!value || value.id !== previous?.id || Math.abs(value.offset - previous.offset) >= 1) since = performance.now();
-      previous = value;
-      return value && performance.now() - since >= 350 ? value : false;
-    }, { description: 'settled reading anchor' });
-  };
-  const exactReturn = async (label, ready) => {
-    const url = page.url(), saved = await workspace();
-    await settings();
-    assert.deepEqual((await workspace()).layout, saved.layout, `${label}: Settings changed the split layout`);
-    await back(); await ready();
-    await expect(page).toHaveURL(url);
-    const returned = await workspace();
-    assert.deepEqual(returned.layout, saved.layout, `${label}: Back changed the split layout`);
-    assert.equal(returned.focusedPaneId, saved.focusedPaneId, `${label}: Back changed focused pane`);
-    checks.push(`${label}: exact URL, agent/mode/view identity, split layout and focus restored`);
-  };
+  const fixture = await (mode === 'body' ? startHistoryFixture : startFixture)({ lifetimeMs: 600_000, executeCode: true });
+  let browser;
   try {
-    await Promise.all(Object.entries(manifest.files).map(async ([path, file]) => {
-      const response = await fetch(`${origin}/${path}`);
-      assert.equal(response.status, 200);
-      assert.equal(createHash('sha256').update(new Uint8Array(await response.arrayBuffer())).digest('hex'), file.sha256, `Fixture renderer differs: ${path}`);
-    }));
-    await client.connect();
-    await page.goto(rootURL);
-    await panel(root).locator('[data-whip-composer]').waitFor();
-    await page.evaluate(() => document.fonts.ready);
-    await run({ fixture, page, client, root, rootURL, frames, replies, checks, workspace, panel, chat, notebook, tab, action, settings, back, density, select, anchor, stableAnchor, exactReturn, contentReads });
-    assert.deepEqual(errors, []);
-    csp.push(...await page.evaluate(() => window.__settingsCSP)); assert.deepEqual(csp, []);
-    await page.screenshot({ path: join(directory, `${engine}-${mode}.png`) });
-    results[`${engine}-${mode}`] = { rendererDigest: manifest.digest, checks, pageErrors: errors, cspErrors: csp, frameCount: frames.length, contentReads: contentReads() };
-    await writeFile(join(directory, 'results.json'), JSON.stringify(results, null, 2));
-    console.log(`${engine}/${mode}: ${checks.length} production conversation checks passed`);
-  } catch (error) {
-    await page.screenshot({ path: join(directory, `${engine}-${mode}-failure.png`) }).catch(() => {});
-    await writeFile(join(directory, `${engine}-${mode}-failure.txt`), `${error.stack}\nCompleted checks: ${JSON.stringify(checks)}\nPage errors: ${JSON.stringify(errors)}\n${await page.locator('body').innerText().catch(() => '')}`);
-    throw error;
-  } finally { client.close(); await browser.close(); await fixture.close(); }
+    browser = await ({ chromium, firefox }[engine]).launch();
+    const page = await browser.newPage({ viewport: { width: 1800, height: 1120 } });
+    page.setDefaultTimeout(15_000);
+    const client = await fixture.connect(`settings-${crypto.randomUUID()}`);
+    const frames = [], replies = new Set(), errors = [], csp = [], checks = [];
+    const problem = text => { if (errors.length < 64) errors.push(text.slice(0, 2048)); };
+    let httpReads = 0;
+    let lastObserve = 0;
+    page.on('pageerror', error => problem(error.message));
+    page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/v4/content/')) httpReads++; });
+    await page.addInitScript(() => { window.__settingsCSP = []; document.addEventListener('securitypolicyviolation', event => { if (window.__settingsCSP.length < 64) window.__settingsCSP.push(event.violatedDirective); }); });
+    page.on('websocket', socket => {
+      socket.on('framesent', ({ payload }) => {
+        const value = JSON.parse(String(payload));
+        if (frames.length === 25_000) { problem('Probe exceeded its frame observation bound'); return; }
+        frames.push({ id: value.id, method: value.method });
+        if (value.method === 'sessions.observe') lastObserve = Date.now();
+      });
+      socket.on('framereceived', ({ payload }) => { const value = JSON.parse(String(payload)); if (value.id && !value.method) { if (replies.size < 25_000) replies.add(value.id); else problem('Probe exceeded its reply observation bound'); } });
+    });
+    const origin = fixture.info.web;
+    const root = mode === 'body' ? fixture.history.root_id : (await fixture.createRoot(client, { title: 'Native settings conversation' })).root.id;
+    const rootURL = `${origin}/h/${fixture.info.runtime_id}/s/${root}`;
+    const workspace = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('whip.web.workspace.v3')).workspace);
+    const panel = id => page.locator(`[data-workspace-view="${id}"]`);
+    const chat = id => panel(id).getByRole('region', { name: 'Conversation', exact: true });
+    const notebook = id => panel(id).getByRole('region', { name: 'REPL executions', exact: true });
+    const tab = id => page.locator(`[id="whip-workspace-tab-${encodeURIComponent(id)}"]`);
+    const contentReads = () => httpReads + frames.filter(frame => frame.method === 'content.read').length;
+    const action = async (id, label) => {
+      await page.locator(`[data-workspace-tab="${id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
+      await page.getByRole('menuitem', { name: label, exact: true }).click();
+      await page.getByRole('menu').waitFor({ state: 'hidden' });
+    };
+    let checkedRelease = false;
+    const settings = async () => {
+      await page.locator('#whip-settings-link').click();
+      await page.getByRole('navigation', { name: 'Settings categories', exact: true }).getByRole('button', { name: 'Appearance', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
+      await expect(page.locator('[data-workspace-view]')).toHaveCount(0);
+      if (!checkedRelease) {
+        await eventually(() => Date.now() - lastObserve > 2500, { timeout: 40_000, description: 'Settings stops native observation after the 30-second idle grace' });
+        checkedRelease = true; checks.push('Settings removes transcript consumers and releases idle native observers after the bounded grace');
+      }
+    };
+    const back = async () => { await page.getByRole('button', { name: 'Back to workspace', exact: true }).click(); await page.locator('[data-workspace-frame]').first().waitFor(); };
+    const density = async value => {
+      const slider = page.getByRole('slider', { name: 'Tool call density', exact: true });
+      await slider.focus(); await page.keyboard.press('Home');
+      for (let step = 0; step < value; step++) await page.keyboard.press('ArrowRight');
+      await expect(slider).toHaveAttribute('aria-valuetext', ['Compact', 'Comfortable', 'Detailed'][value]);
+    };
+    const select = async (scope, label, value) => { await scope.getByRole('combobox', { name: label, exact: true }).click(); await page.getByRole('option', { name: value, exact: true }).click(); };
+    const anchor = region => region.evaluate(element => {
+      const top = element.getBoundingClientRect().top;
+      const row = [...element.querySelectorAll('[data-reading-id]')].find(item => item.getBoundingClientRect().bottom > top);
+      return row ? { id: row.dataset.readingId, offset: row.getBoundingClientRect().top - top } : null;
+    });
+    const stableAnchor = async region => {
+      let previous, since = performance.now();
+      return eventually(async () => {
+        const value = await anchor(region);
+        if (!value || value.id !== previous?.id || Math.abs(value.offset - previous.offset) >= 1) since = performance.now();
+        previous = value;
+        return value && performance.now() - since >= 350 ? value : false;
+      }, { description: 'settled reading anchor' });
+    };
+    const exactReturn = async (label, ready) => {
+      const url = page.url(), saved = await workspace();
+      await settings();
+      assert.deepEqual((await workspace()).layout, saved.layout, `${label}: Settings changed the split layout`);
+      await back(); await ready();
+      await expect(page).toHaveURL(url);
+      const returned = await workspace();
+      assert.deepEqual(returned.layout, saved.layout, `${label}: Back changed the split layout`);
+      assert.equal(returned.focusedPaneId, saved.focusedPaneId, `${label}: Back changed focused pane`);
+      checks.push(`${label}: exact URL, agent/mode/view identity, split layout and focus restored`);
+    };
+    try {
+      await Promise.all(Object.entries(manifest.files).map(async ([path, file]) => {
+        const response = await fetch(`${origin}/${path}`);
+        assert.equal(response.status, 200);
+        assert.equal(createHash('sha256').update(new Uint8Array(await response.arrayBuffer())).digest('hex'), file.sha256, `Fixture renderer differs: ${path}`);
+      }));
+      if (mode === 'repl') {
+        const definition = await client.agents.register(defineAgent({ id: 'repl-child', name: 'repl-child' }), deadline());
+        const childRequest = crypto.randomUUID();
+        await client.session(root).spawn({ definition: definition.ref, overrides: {}, grant_ids: [], budgets: [{ kind: 'model_calls', limit: '8' }], parts: [{ type: 'text', text: 'Child-only settings transcript.' }] }, childRequest, deadline());
+        assert.equal((await client.wait(childRequest, deadline())).turn.state, 'succeeded');
+        for (let index = 0; index < 20; index++) {
+          const historyRequest = crypto.randomUUID();
+          await client.session(root).submit([{ type: 'text', text: `Reading message ${index + 1}. **Retained history**\n\n` + 'Bounded native history preserves the reading position. '.repeat(16) }], historyRequest, deadline());
+          assert.equal((await client.wait(historyRequest, deadline())).turn.state, 'succeeded');
+        }
+        const request = crypto.randomUUID();
+        await client.session(root).submit([{ type: 'text', text: '```starlark\nprint("Recorded density preview")\n```' }], request, deadline());
+        assert.equal((await client.wait(request, deadline())).turn.state, 'succeeded');
+      }
+      await page.goto(rootURL);
+      await panel(root).locator('[data-whip-composer]').waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await run({ fixture, page, client, root, rootURL, frames, replies, checks, workspace, panel, chat, notebook, tab, action, settings, back, density, select, anchor, stableAnchor, exactReturn, contentReads });
+      assert.deepEqual(errors, []);
+      csp.push(...await page.evaluate(() => window.__settingsCSP)); assert.deepEqual(csp, []);
+      await page.screenshot({ path: join(directory, `${engine}-${mode}.png`) });
+      results[`${engine}-${mode}`] = { rendererDigest: manifest.digest, checks, pageErrors: errors, cspErrors: csp, frameCount: frames.length, contentReads: contentReads() };
+      await writeFile(join(directory, 'results.json'), JSON.stringify(results, null, 2));
+      console.log(`${engine}/${mode}: ${checks.length} production conversation checks passed`);
+    } catch (error) {
+      await page.screenshot({ path: join(directory, `${engine}-${mode}-failure.png`) }).catch(() => {});
+      await writeFile(join(directory, `${engine}-${mode}-failure.txt`), `${error.stack}\nCompleted checks: ${JSON.stringify(checks)}\nPage errors: ${JSON.stringify(errors)}\n${await page.locator('body').innerText().catch(() => '')}`);
+      throw error;
+    }
+  } finally { try { await browser?.close(); } finally { await fixture.close(); } }
 }
 
 for (const engine of engines) {
   await scenario(engine, 'repl', async ({ fixture, page, client, root, frames, replies, checks, workspace, panel, chat, notebook, tab, action, settings, back, density, select, stableAnchor, exactReturn, contentReads }) => {
     await panel(root).locator('[data-whip-composer]').fill('Root draft survives Settings and split changes.');
-    const tools = () => chat(root).locator('[data-message-role="tool"] details');
-    await expect(tools().last()).not.toHaveAttribute('open');
+    const tools = () => chat(root).locator('[data-activity-group] [data-activity-content]');
+    await expect(tools().last()).toHaveAttribute('aria-expanded', 'false');
     const reads = contentReads();
     await settings(); await density(1); await back();
     await expect(chat(root).locator('[data-tool-preview]').last()).toBeVisible();
     const preview = await chat(root).locator('[data-tool-preview]').last().textContent();
     assert.ok(preview.length <= 512 && preview.split('\n').length <= 3, 'Comfortable real-tool preview exceeded bounds');
     await settings(); await density(2); await back();
-    await expect(tools().last()).toHaveAttribute('open', '');
+    await expect(tools().last()).toHaveAttribute('aria-expanded', 'true');
     assert.equal(contentReads(), reads, 'Tool density automatically read a stored body');
-    checks.push('real recorded tools obey Compact/Comfortable/Detailed; previews are bounded and density performs no content reads');
+    checks.push('canonical recorded tools obey Compact/Comfortable/Detailed; previews are bounded and density performs no content reads');
 
-    const step = async name => { const response = await fetch(`${fixture.info.frontend}/control/repl/${name}`, { method: 'POST' }); assert.equal(response.status, 204); };
-    await step('start');
-    const live = chat(root).locator('[data-message-id="live-tool:browser-live"] details');
-    await expect(live).toHaveAttribute('open', '');
-    await live.locator('summary').click(); await expect(live).not.toHaveAttribute('open');
-    await step('progress'); await expect(live).toContainText('in progress'); await expect(live).not.toHaveAttribute('open');
-    await step('complete'); await expect(live).not.toContainText('in progress'); await expect(live).not.toHaveAttribute('open');
-    await live.locator('summary').click(); await expect(live).toHaveAttribute('open', ''); await expect(live).toContainText('live line 8');
+    const key = `settings-live-${crypto.randomUUID()}`, requestID = crypto.randomUUID();
+    const guestCode = `print("live line 1\\nlive line 2\\nlive line 3\\nlive line 4\\nlive line 5\\nlive line 6\\nlive line 7\\nlive line 8")\ntools.fixture_wait(key="${key}-first")\nprint("live line 9")\ntools.fixture_wait(key="${key}-second")\nprint("live line 10")`;
+    await client.session(root).submit([{ type: 'text', text: '```starlark\n' + guestCode + '\n```' }], requestID, deadline());
+    const live = chat(root).locator('[data-activity-group]').filter({ hasText: /^Called/ }).last();
+    await expect(live.locator('[data-activity-content]')).toHaveAttribute('aria-expanded', 'true');
+    await live.locator('[data-activity-content]').click();
+    await expect(live.locator('[data-activity-content]')).toHaveAttribute('aria-expanded', 'false');
+    fixture.release(`${key}-first`);
+    await eventually(async () => {
+      const receipt = await client.recover(requestID, deadline());
+      if (!receipt.turn) return false;
+      const operations = (await client.session(root).turns.operations(receipt.turn.id, { limit: 100 }, deadline())).items;
+      return operations.some(operation => operation.arguments.key === `${key}-second` && operation.state === 'dispatched');
+    }, { description: 'second real executor hold and stdout update' });
+    await expect(live.locator('[data-activity-content]')).toHaveAttribute('aria-expanded', 'false');
+    await live.locator('[data-activity-content]').click();
+    await expect(chat(root).getByText('Provisional stdout; the committed result will replace it.', { exact: true })).toBeVisible();
+    await expect(chat(root)).toContainText('live line 9');
+    await live.locator('[data-activity-content]').click();
+    fixture.release(`${key}-second`);
+    const completed = await client.wait(requestID, deadline()); assert.equal(completed.turn.state, 'succeeded');
+    await expect(live.locator('[data-activity-content]')).toHaveAttribute('aria-expanded', 'false');
+    await live.locator('[data-activity-content]').click();
+    await expect(live.locator('[data-activity-content]')).toHaveAttribute('aria-expanded', 'true');
+    await expect(chat(root).getByText('Provisional stdout; the committed result will replace it.', { exact: true })).toHaveCount(0);
+    await action(root, 'Open REPL');
+    const liveRepl = leaves((await workspace()).layout)[0].selected;
+    const liveCell = notebook(liveRepl).locator('[data-repl-cell]').filter({ hasText: 'live line 10' }).last();
+    await expect(liveCell).toBeVisible();
+    await liveCell.getByRole('button', { name: /Show 4 more lines/ }).click();
+    await expect(liveCell).toContainText('live line 10');
+    await tab(root).click();
     assert.equal(contentReads(), reads, 'Explicit bounded disclosure read a body');
-    checks.push('manual disclosure overrides Detailed default during real in-progress/output/completion events');
+    checks.push('manual disclosure overrides Detailed through actual held operation/output/completion; committed cell stdout replaces provisional evidence and is inspectable in REPL');
 
     await action(root, 'Session details');
-    await page.getByRole('link', { name: 'repl-child', exact: true }).click();
+    const details = page.getByRole('dialog', { name: 'Session details', exact: true });
+    const childLink = details.getByRole('link', { name: 'repl-child', exact: true });
+    await childLink.click();
     await panel(root).getByLabel('Message this agent', { exact: true }).fill('Child draft is separate from the root.');
     await exactReturn('child chat', () => panel(root).getByLabel('Message this agent', { exact: true }).waitFor());
     await expect(panel(root).getByLabel('Message this agent', { exact: true })).toHaveValue('Child draft is separate from the root.');
@@ -168,7 +212,7 @@ for (const engine of engines) {
     checks.push('root and child drafts stay isolated across all Settings round trips');
 
     await tab(root).click();
-    await chat(root).evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
+    await chat(root).evaluate(element => { element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 })); element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
     await stableAnchor(chat(root));
     await chat(root).evaluate(element => {
       const top = element.getBoundingClientRect().top;
@@ -192,42 +236,50 @@ for (const engine of engines) {
     await settings(); await density(0); await back();
     await eventually(() => chat(root).evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 64), { description: 'follow-latest retained after Settings' });
     const start = frames.length;
-    await client.session(root).submit({ text: 'New work keeps following after Appearance changes.' }).result({ signal: AbortSignal.timeout(15_000) });
-    await eventually(() => frames.slice(start).some(frame => frame.method === 'root.snapshot' && replies.has(frame.id)), { description: 'new message snapshot' });
+    const followup = crypto.randomUUID();
+    await client.session(root).submit([{ type: 'text', text: 'New work keeps following after Appearance changes.' }], followup, deadline());
+    await client.wait(followup, deadline());
+    await eventually(() => frames.slice(start).some(frame => frame.method === 'sessions.observe' && replies.has(frame.id)), { description: 'new native observation' });
     await eventually(() => chat(root).evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 64), { description: 'following new output' });
     checks.push('follow-latest survives Settings and follows subsequent actual daemon output');
   });
 
-  await scenario(engine, 'body', async ({ page, root, frames, replies, chat, settings, density, back, contentReads, checks }) => {
+  await scenario(engine, 'body', async ({ page, client, root, chat, settings, density, back, stableAnchor, contentReads, checks }) => {
     await settings(); await density(2); await back();
-    // The initial snapshot stops after the oversized record. Load its history
-    // envelope explicitly, then inspect it near the end of the now-loaded page.
-    const beforePage = frames.length;
-    await chat(root).getByRole('button', { name: 'Load earlier messages', exact: true }).click();
-    await eventually(() => frames.slice(beforePage).some(frame => frame.method === 'history.page' && replies.has(frame.id)), { description: 'oversized history envelope loaded' });
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await chat(root).evaluate(element => { element.scrollTop = element.scrollHeight; });
-    await eventually(() => chat(root).evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 64), { description: 'settled latest body fixture position' });
-    const stored = chat(root).getByRole('button', { name: /^Read stored message · / });
-    for (let attempt = 0; attempt < 30 && !await stored.count(); attempt++) {
-      await chat(root).evaluate(element => { element.scrollTop -= 400; });
+    // The native message names a scoped 1.4MiB text reference. Metadata may load;
+    // Detailed presentation must never initiate a content byte read.
+    const pageEvidence = await client.session(root).history.page({ direction: 'forward', cursor: '9980', limit: 4 }, deadline());
+    assert.ok(pageEvidence.messages.some(message => message.id === 'root-answer-04990' && message.parts.some(part => part.type === 'content' && part.reference_id === 'fixture-large-content')));
+    const stored = chat(root).getByRole('button', { name: 'Preview Attachment 1', exact: true });
+    await stored.waitFor({ state: 'attached', timeout: 500 }).catch(() => {});
+    for (let attempt = 0; attempt < 200 && !await stored.count(); attempt++) {
+      await chat(root).evaluate(element => { element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 })); element.scrollTop -= 400; });
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      if (await chat(root).locator('[data-message-id="message:root-answer-04990:part:0"]').count()) {
+        // Stop on the canonical owner row so virtualization cannot cancel its
+        // metadata read while we continue scrolling through expanded details.
+        await stored.waitFor({ state: 'attached', timeout: 15000 });
+        break;
+      }
+      await stored.waitFor({ state: 'attached', timeout: 250 }).catch(() => {});
     }
-    await expect(stored.first()).toBeVisible();
-    assert.equal(contentReads(), 0, 'Detailed tool presentation automatically fetched an oversized body');
-    const row = stored.first().locator('xpath=ancestor::article');
-    assert.ok(!await row.innerText().then(text => text.includes('Large tool output stays on the host.')), 'Oversized body leaked into automatic details');
-    await stored.first().click();
-    const dialog = page.getByRole('dialog', { name: 'Stored message', exact: true });
+    await expect(stored).toBeVisible();
+    await stored.scrollIntoViewIfNeeded();
+    await stableAnchor(chat(root));
+    assert.equal(contentReads(), 0, 'Detailed presentation automatically fetched a scoped body');
+    await stored.click();
+    const dialog = page.getByRole('dialog', { name: 'Attachment 1', exact: true });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('alert')).toContainText('Content exceeds the requested byte limit');
-    assert.equal(contentReads(), 0, 'Oversized preview bypassed the 1 MiB bound');
+    await expect(dialog.getByRole('alert')).toContainText('Content exceeds read limit');
+    assert.equal(contentReads(), 0, 'Oversized preview bypassed the 1MiB bound');
     const download = page.waitForEvent('download');
-    await dialog.getByRole('button', { name: 'Download stored message', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Download', exact: true }).click();
     const downloaded = await download;
-    assert.equal(downloaded.suggestedFilename(), 'whip-message.json');
     assert.equal(await downloaded.failure(), null);
-    await eventually(() => contentReads() > 0, { description: 'explicit body download proves content-read observer' });
-    checks.push('actual oversized tool body stays behind a handle in Detailed mode; preview respects its byte limit, and only explicit download reads content');
+    const stream = await downloaded.createReadStream(); let bytes = 0;
+    for await (const chunk of stream) bytes += chunk.length;
+    assert.equal(bytes, 1_400_000);
+    await eventually(() => contentReads() > 0, { description: 'explicit body download proves scoped content reads' });
+    checks.push('native oversized scoped content remains behind explicit disclosure; 1 MiB preview refuses before bytes, while explicit 4 MiB download returns the verified full body');
   });
 }
