@@ -115,6 +115,36 @@ export const manifest = {
       "result": "MCPBrandIconsResult"
     },
     {
+      "name": "terminal.open",
+      "params": "TerminalOpenParams",
+      "result": "TerminalInfo"
+    },
+    {
+      "name": "terminal.list",
+      "params": "TerminalListParams",
+      "result": "TerminalList"
+    },
+    {
+      "name": "terminal.read",
+      "params": "TerminalReadParams",
+      "result": "TerminalPage"
+    },
+    {
+      "name": "terminal.write",
+      "params": "TerminalWriteParams",
+      "result": "TerminalAccepted"
+    },
+    {
+      "name": "terminal.resize",
+      "params": "TerminalResizeParams",
+      "result": "TerminalInfo"
+    },
+    {
+      "name": "terminal.close",
+      "params": "TerminalRef",
+      "result": "TerminalAccepted"
+    },
+    {
       "name": "workspace.capture",
       "params": "WorkspaceActionParams",
       "result": "WorkspaceResult"

@@ -28,6 +28,7 @@ import (
 	"github.com/context-labs/whip/internal/rpc"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/runtime"
+	"github.com/context-labs/whip/internal/terminal"
 )
 
 func main() {
@@ -130,7 +131,9 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		return err
 	}
 	defer providers.Close()
-	server, err := rpc.Listen(r, rpc.HostServices{NetworkTerminals: *webTerminals, OpenAI: accounts, Inference: inferenceAccounts, Config: authority, ProviderHost: providers})
+	terminals := terminal.NewManager(ctx)
+	defer terminals.Shutdown()
+	server, err := rpc.Listen(r, rpc.HostServices{Terminals: terminals, NetworkTerminals: *webTerminals, OpenAI: accounts, Inference: inferenceAccounts, Config: authority, ProviderHost: providers})
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
+import { terminalAcceptance } from './terminal-fixture.mjs';
 import { Client, DeliveryError } from '../../packages/sdk/dist/index.js';
 import { browserSocket, browserContent } from '../../packages/sdk/dist/browser.js';
 import { unixSocket } from '../../packages/sdk/dist/node.js';
@@ -26,8 +27,8 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
   };
   t.after(async () => { await stop(); await rm(directory, { recursive: true, force: true }); });
   await exec('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], { cwd: resolve('.'), timeout: 60_000 });
-  const start = async (web = true) => {
-    child = spawn(binary, ['-directory', join(directory, 'state'), '-scripted', '-scripted-delay', '300ms', ...(web ? ['-web', '-web-listen', '127.0.0.1:0'] : [])], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const start = async (web = true, terminals = false) => {
+    child = spawn(binary, ['-directory', join(directory, 'state'), '-scripted', '-scripted-delay', '300ms', ...(web ? ['-web', '-web-listen', '127.0.0.1:0'] : []), ...(terminals ? ['-web-terminals'] : [])], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, HOME: directory, SHELL: '/bin/sh', WHIP_FAKE_CREDENTIAL: 'opaque-fixture-value' } });
     child.stderr.on('data', record); child.stdout.on('data', record);
     return await new Promise((resolve, reject) => {
       let raw = '';
@@ -109,4 +110,5 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
   const closed = once(terminalSocket, 'close'); await stop(); await closed;
   assert.equal(child.exitCode, 0, output);
   await assert.rejects(fetch(ready.web + '/api/v4/web'));
+  await terminalAcceptance({ start, stop, directory });
 });

@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "process_epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "cursor": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32768
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/TerminalReadParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TerminalReadParams",
+  "required": [
+    "process_epoch",
+    "id",
+    "cursor",
+    "limit"
+  ],
+  "additionalProperties": false
+}

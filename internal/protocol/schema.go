@@ -44,6 +44,12 @@ func Operations() []Operation {
 		{"mcp.instructions", reflect.TypeFor[MCPServerParams](), reflect.TypeFor[MCPInstructionsResult]()},
 		{"mcp.brand.icons", reflect.TypeFor[MCPBrandIconsParams](), reflect.TypeFor[MCPBrandIconsResult]()},
 
+		{"terminal.open", reflect.TypeFor[TerminalOpenParams](), reflect.TypeFor[TerminalInfo]()},
+		{"terminal.list", reflect.TypeFor[TerminalListParams](), reflect.TypeFor[TerminalList]()},
+		{"terminal.read", reflect.TypeFor[TerminalReadParams](), reflect.TypeFor[TerminalPage]()},
+		{"terminal.write", reflect.TypeFor[TerminalWriteParams](), reflect.TypeFor[TerminalAccepted]()},
+		{"terminal.resize", reflect.TypeFor[TerminalResizeParams](), reflect.TypeFor[TerminalInfo]()},
+		{"terminal.close", reflect.TypeFor[TerminalRef](), reflect.TypeFor[TerminalAccepted]()},
 		{"workspace.capture", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
 		{"workspace.restore", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
 		{"workspace.release", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
@@ -268,6 +274,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		questionSchema(schema, t)
 		languageServerSchema(schema, t)
 		mcpSchema(schema, t)
+		terminalSchema(schema, t)
 		discoverySchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{

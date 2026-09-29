@@ -981,6 +981,40 @@
     "valid": true
   },
   {
+    "type": "TerminalList",
+    "value": {
+      "process_epoch": "boot_fixture",
+      "items": []
+    },
+    "valid": true
+  },
+  {
+    "type": "TerminalPage",
+    "value": {
+      "terminal": {
+        "process_epoch": "boot_fixture",
+        "id": "term_fixture",
+        "cwd": "/workspace",
+        "shell": "/bin/sh",
+        "cols": 80,
+        "rows": 24,
+        "closing": false,
+        "exited": false,
+        "exit_code": 0,
+        "signal": "",
+        "start": "9007199254740993",
+        "end": "9007199254740996",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "from": "9007199254740993",
+      "next": "9007199254740996",
+      "end": "9007199254740996",
+      "truncated": true,
+      "data_base64": "AAH/"
+    },
+    "valid": true
+  },
+  {
     "type": "TreeCatalog",
     "value": {
       "revision": "9007199254740993"

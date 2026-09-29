@@ -5823,6 +5823,7 @@ export interface RPCError {
     | "IDENTITY"
     | "METHOD"
     | "NETWORK_RESTRICTED"
+    | "TERMINAL_WRITE_UNCERTAIN"
     | "ACCOUNT_CREDENTIALS"
     | "ACCOUNT_SETUP"
     | "ACCOUNT_CONFIGURATION"
@@ -6050,6 +6051,7 @@ export type Response = {
       | "IDENTITY"
       | "METHOD"
       | "NETWORK_RESTRICTED"
+      | "TERMINAL_WRITE_UNCERTAIN"
       | "ACCOUNT_CREDENTIALS"
       | "ACCOUNT_SETUP"
       | "ACCOUNT_CONFIGURATION"
@@ -7140,6 +7142,97 @@ export interface SubscribeStateParams {
   after: string;
   delivery: "queued" | "steer" | "next_turn";
 }
+export interface TerminalAccepted {
+  accepted: boolean;
+}
+export interface TerminalInfo {
+  process_epoch: string;
+  id: string;
+  cwd: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  closing: boolean;
+  exited: boolean;
+  exit_code: number;
+  signal: string;
+  start: string;
+  end: string;
+  created_at: string;
+}
+export interface TerminalList {
+  process_epoch: string;
+  /**
+   * @maxItems 16
+   */
+  items: {
+    process_epoch: string;
+    id: string;
+    cwd: string;
+    shell: string;
+    cols: number;
+    rows: number;
+    closing: boolean;
+    exited: boolean;
+    exit_code: number;
+    signal: string;
+    start: string;
+    end: string;
+    created_at: string;
+  }[];
+}
+export interface TerminalListParams {
+  process_epoch: string;
+}
+export interface TerminalOpenParams {
+  process_epoch: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+}
+export interface TerminalPage {
+  terminal: {
+    process_epoch: string;
+    id: string;
+    cwd: string;
+    shell: string;
+    cols: number;
+    rows: number;
+    closing: boolean;
+    exited: boolean;
+    exit_code: number;
+    signal: string;
+    start: string;
+    end: string;
+    created_at: string;
+  };
+  from: string;
+  next: string;
+  end: string;
+  truncated: boolean;
+  data_base64: string;
+}
+export interface TerminalReadParams {
+  process_epoch: string;
+  id: string;
+  cursor: string;
+  limit: number;
+}
+export interface TerminalRef {
+  process_epoch: string;
+  id: string;
+}
+export interface TerminalResizeParams {
+  process_epoch: string;
+  id: string;
+  cols: number;
+  rows: number;
+}
+export interface TerminalWriteParams {
+  process_epoch: string;
+  id: string;
+  data_base64: string;
+}
 export interface ToolCall {
   arguments: {
     [k: string]: unknown;
@@ -7569,6 +7662,16 @@ export interface ContractTypes {
   StateVersionsResult: StateVersionsResult;
   SubmitParams: SubmitParams;
   SubscribeStateParams: SubscribeStateParams;
+  TerminalAccepted: TerminalAccepted;
+  TerminalInfo: TerminalInfo;
+  TerminalList: TerminalList;
+  TerminalListParams: TerminalListParams;
+  TerminalOpenParams: TerminalOpenParams;
+  TerminalPage: TerminalPage;
+  TerminalReadParams: TerminalReadParams;
+  TerminalRef: TerminalRef;
+  TerminalResizeParams: TerminalResizeParams;
+  TerminalWriteParams: TerminalWriteParams;
   ToolCall: ToolCall;
   ToolResult: ToolResult;
   Tree: Tree;
@@ -7613,6 +7716,12 @@ export interface Operations {
   "mcp.tools": { params: MCPServerParams; result: MCPToolsResult };
   "mcp.instructions": { params: MCPServerParams; result: MCPInstructionsResult };
   "mcp.brand.icons": { params: MCPBrandIconsParams; result: MCPBrandIconsResult };
+  "terminal.open": { params: TerminalOpenParams; result: TerminalInfo };
+  "terminal.list": { params: TerminalListParams; result: TerminalList };
+  "terminal.read": { params: TerminalReadParams; result: TerminalPage };
+  "terminal.write": { params: TerminalWriteParams; result: TerminalAccepted };
+  "terminal.resize": { params: TerminalResizeParams; result: TerminalInfo };
+  "terminal.close": { params: TerminalRef; result: TerminalAccepted };
   "workspace.capture": { params: WorkspaceActionParams; result: WorkspaceResult };
   "workspace.restore": { params: WorkspaceActionParams; result: WorkspaceResult };
   "workspace.release": { params: WorkspaceActionParams; result: WorkspaceResult };

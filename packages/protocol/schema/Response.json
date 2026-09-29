@@ -37,6 +37,7 @@
             "IDENTITY",
             "METHOD",
             "NETWORK_RESTRICTED",
+            "TERMINAL_WRITE_UNCERTAIN",
             "ACCOUNT_CREDENTIALS",
             "ACCOUNT_SETUP",
             "ACCOUNT_CONFIGURATION",

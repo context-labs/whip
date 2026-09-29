@@ -20,12 +20,14 @@ import (
 	"github.com/context-labs/whip/internal/providerhost"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/terminal"
 )
 
 var ErrNetworkRestricted = errors.New("human terminals are disabled for network clients")
 
 // HostServices are borrowed command-owned authorities, separate from sessions.
 type HostServices struct {
+	Terminals        *terminal.Manager
 	NetworkTerminals bool
 	OpenAI           *account.Service
 	Inference        *inferenceaccount.Service

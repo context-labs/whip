@@ -23,6 +23,7 @@ export class Client {
   }
 
   get runtimeID(): string { return this.initial.runtime_id; }
+  get processEpoch(): string { return this.initial.process_epoch; }
   get builtins(): NonNullable<InitializeResult['builtins']> { return structuredClone(this.initial.builtins ?? []); }
 
   async call<M extends Exclude<Method, 'initialize'>>(method: M, params: Operations[M]['params'], options: CallOptions = {}): Promise<Operations[M]['result']> {
@@ -36,6 +37,39 @@ export class Client {
   /** Bounded ephemeral executor progress/decisions; null after its owning turn ends. */
   executorActivity(sessionID: string, options: CallOptions = {}): Promise<Operations['executor.activity']['result']> {
     return this.call('executor.activity', { session_id: sessionID }, options);
+  }
+
+  /** Human workspace shell, independent of sessions. A lost open acknowledgement
+   * requires listTerminals inspection; never replay open automatically. */
+  openTerminal(params: Omit<Operations['terminal.open']['params'], 'process_epoch'>, options: CallOptions = {}): Promise<Operations['terminal.open']['result']> {
+    return this.call('terminal.open', { ...params, process_epoch: this.processEpoch }, options);
+  }
+
+  /** Ephemeral handles from this exact process generation, including retained exits. */
+  listTerminals(options: CallOptions = {}): Promise<Operations['terminal.list']['result']> {
+    return this.call('terminal.list', { process_epoch: this.processEpoch }, options);
+  }
+
+  /** Read one bounded replay page. A truncated page requires discarding the missing
+   * byte range; disconnecting or stopping reads leaves the shell running. */
+  readTerminal(ref: Operations['terminal.close']['params'], cursor: string, limit = 32768, options: CallOptions = {}): Promise<Operations['terminal.read']['result']> {
+    return this.call('terminal.read', { id: ref.id, process_epoch: ref.process_epoch, cursor, limit }, options);
+  }
+
+  /** Never replay keystrokes after any uncertain write outcome. No input receipt
+   * or terminal transcript is persisted, and aborting observation is not close. */
+  writeTerminal(ref: Operations['terminal.close']['params'], bytes: Uint8Array, options: CallOptions = {}): Promise<Operations['terminal.write']['result']> {
+    if (bytes.byteLength < 1 || bytes.byteLength > 16384) throw new TypeError('Terminal input requires 1..16384 bytes');
+    return this.call('terminal.write', { id: ref.id, process_epoch: ref.process_epoch, data_base64: btoa(String.fromCharCode(...bytes)) }, options);
+  }
+
+  resizeTerminal(ref: Operations['terminal.close']['params'], cols: number, rows: number, options: CallOptions = {}): Promise<Operations['terminal.resize']['result']> {
+    return this.call('terminal.resize', { id: ref.id, process_epoch: ref.process_epoch, cols, rows }, options);
+  }
+
+  /** Explicitly stops and forgets the shell after process and output owners join. */
+  closeTerminal(ref: Operations['terminal.close']['params'], options: CallOptions = {}): Promise<Operations['terminal.close']['result']> {
+    return this.call('terminal.close', { id: ref.id, process_epoch: ref.process_epoch }, options);
   }
 
   /** Offline setup templates. Does not discover routes or read credentials. */

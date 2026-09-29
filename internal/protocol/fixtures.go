@@ -129,6 +129,8 @@ func Fixtures() ([]Fixture, error) {
 		{"CreateTreeParams", CreateTreeParams{CreationID: "MiXeD:Creation", Engine: "quickjs", Definition: DefinitionRef{ID: ID(ref.ID), Revision: ref.Revision}, WorkingDirectory: "/workspace", Overrides: ConfigPatch{}}},
 		{"CreateTreeResult", CreateTreeResult{Creation: TreeCreation{ID: "MiXeD:Creation", TreeID: "tree_fixture", RootID: "session_root", CreatedAt: created.Format(time.RFC3339Nano)}, Tree: &Tree{ID: "tree_fixture", Engine: "quickjs", Revision: 1, CreatedAt: created.Format(time.RFC3339Nano)}, Root: &root}},
 		{"CreateTreeResult", CreateTreeResult{Creation: TreeCreation{ID: "Deleted:Creation", TreeID: "tree_fixture", RootID: "session_root", CreatedAt: created.Format(time.RFC3339Nano)}, Deleted: true}},
+		{"TerminalList", TerminalList{ProcessEpoch: "boot_fixture", Items: []TerminalInfo{}}},
+		{"TerminalPage", TerminalPage{Terminal: TerminalInfo{ProcessEpoch: "boot_fixture", ID: "term_fixture", Cwd: "/workspace", Shell: "/bin/sh", Cols: 80, Rows: 24, Start: 9007199254740993, End: 9007199254740996, CreatedAt: created.Format(time.RFC3339Nano)}, From: 9007199254740993, Next: 9007199254740996, End: 9007199254740996, Truncated: true, DataBase64: "AAH/"}},
 		{"TreeCatalog", TreeCatalog{Revision: 9007199254740993}},
 		{"ListTreesParams", ListTreesParams{Limit: 100, Archived: new(false), Pinned: new(true)}},
 		{"ListTreesResult", ListTreesResult{Revision: 9007199254740993, Items: []TreeSummary{{Tree: Tree{ID: "tree_fixture", Metadata: TreeMetadata{Title: new("Catalog title")}, Engine: "starlark", Revision: 9007199254740993, CreatedAt: created.Format(time.RFC3339Nano)}, RootID: "session_root"}}, NextCursor: new(ID("tree_fixture"))}},
