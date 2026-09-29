@@ -30,71 +30,18 @@ func validMetadata(metadata session.TreeMetadata) error {
 	return nil
 }
 
-func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree session.Tree, root session.Session, err error) {
-	if err := request.Engine.Validate(); err != nil {
-		return tree, root, err
-	}
-	limits, err := session.ResolveResourceLimits(nil, request.Resources)
+// CreateTree is the fresh-identity convenience for trusted in-process callers.
+// Public delivery uses CreateRoot with an identity persisted by the caller.
+func (s *Store) CreateTree(ctx context.Context, request CreateTree) (session.Tree, session.Session, error) {
+	result, err := s.CreateRoot(ctx, session.TreeCreationRequest{
+		ID: session.CreationID(newID("creation")), Metadata: request.Metadata, Engine: request.Engine,
+		Resources: request.Resources, Definition: request.Definition, Overrides: request.Overrides,
+		WorkingDirectory: request.WorkingDirectory, PermissionMode: request.PermissionMode,
+	}, session.TreeCreationDefaults{Configuration: request.Defaults})
 	if err != nil {
-		return tree, root, err
+		return session.Tree{}, session.Session{}, err
 	}
-	if err := validMetadata(request.Metadata); err != nil {
-		return tree, root, err
-	}
-	mode := session.PermissionPrompt
-	if request.PermissionMode != nil {
-		if err := request.PermissionMode.Validate(); err != nil {
-			return tree, root, err
-		}
-		mode = *request.PermissionMode
-	}
-	err = s.write(ctx, func(tx *sql.Tx) error {
-		def, err := definition(ctx, tx, request.Definition)
-		if err != nil {
-			return err
-		}
-		defaults := request.Defaults.Clone()
-		// Host configuration cannot claim a registered executor's identity.
-		defaults.ToolsDefinition, defaults.HooksDefinition = nil, nil
-		config, err := session.Resolve(defaults, def.Document, request.Overrides)
-		if err != nil {
-			return err
-		}
-		metadata, err := encode(request.Metadata)
-		if err != nil {
-			return err
-		}
-		treeID := session.TreeID(newID("tree"))
-		created := now()
-		if _, err := tx.ExecContext(ctx, "INSERT INTO session_trees VALUES (?,?,?,1,?)", treeID, metadata, request.Engine, created); err != nil {
-			return err
-		}
-		root, err = insertSession(ctx, tx, treeID, nil, request.Definition, config, request.WorkingDirectory)
-		if err != nil {
-			return err
-		}
-		if request.Metadata.Title != nil {
-			if err := initializeTitle(ctx, tx, root, nil, "manual"); err != nil {
-				return err
-			}
-		}
-		if err := insertPermissionPolicy(ctx, tx, treeID, mode); err != nil {
-			return err
-		}
-		for _, limit := range limits {
-			if _, err := setResource(ctx, tx, root.ID, 0, limit); err != nil {
-				return err
-			}
-		}
-		for _, limit := range session.DefaultWriteBudgets() {
-			if _, err := setBudget(ctx, tx, root.ID, 0, limit); err != nil {
-				return err
-			}
-		}
-		tree, err = readTree(ctx, tx, treeID)
-		return err
-	})
-	return
+	return *result.Tree, *result.Root, nil
 }
 
 func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string) (session.Session, error) {
@@ -491,6 +438,9 @@ func (s *Store) UpdateTree(ctx context.Context, id session.TreeID, expected sess
 			return err
 		}
 		if err := initializeTitle(ctx, tx, root, nil, "manual"); err != nil {
+			return err
+		}
+		if err := bumpTreeCatalog(ctx, tx); err != nil {
 			return err
 		}
 		result, err = readTree(ctx, tx, id)

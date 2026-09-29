@@ -192,7 +192,10 @@ func deleteSubtree(ctx context.Context, tx *sql.Tx, id session.SessionID) error 
 		if _, err := tx.ExecContext(ctx, "DELETE FROM model_attempts WHERE id IN (SELECT attempt_id FROM attempt_budget_ancestors WHERE session_id=?)", target.ID); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "DELETE FROM session_trees WHERE id=?", target.TreeID)
+		if _, err := tx.ExecContext(ctx, "DELETE FROM session_trees WHERE id=?", target.TreeID); err != nil {
+			return err
+		}
+		err = bumpTreeCatalog(ctx, tx)
 	} else {
 		_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id=?", id)
 	}

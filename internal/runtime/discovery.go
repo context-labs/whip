@@ -14,3 +14,7 @@ func (r *Runtime) Trees(ctx context.Context, request store.TreeList) (store.Tree
 func (r *Runtime) DefinitionSummaries(ctx context.Context, after *session.DefinitionRef, limit int) (store.DefinitionPage, error) {
 	return r.store.DefinitionSummaries(ctx, after, limit)
 }
+
+func (r *Runtime) TreeCatalog(ctx context.Context) (session.Revision, error) {
+	return r.store.TreeCatalog(ctx)
+}

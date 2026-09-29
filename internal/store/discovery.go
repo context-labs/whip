@@ -11,15 +11,18 @@ type TreeList struct {
 	After            session.TreeID
 	Archived, Pinned *bool
 	Limit            int
+	ExpectedRevision *session.Revision
 }
 
 type TreePage struct {
-	Items []session.TreeSummary
-	Next  *session.TreeID
+	Revision session.Revision
+	Items    []session.TreeSummary
+	Next     *session.TreeID
 }
 
-// Trees reads a live ID-ordered page. Cursors survive deletion, but do not freeze
-// catalog membership or metadata across calls. Restart from the beginning to refresh.
+// Trees reads the catalog revision and bounded metadata in one SQL snapshot.
+// A captured revision rejects changed membership or metadata across page calls.
+// Cursors remain ID keysets; callers restart from the beginning after a conflict.
 func (s *Store) Trees(ctx context.Context, request TreeList) (TreePage, error) {
 	result := TreePage{Items: []session.TreeSummary{}}
 	if err := pageLimit(request.Limit); err != nil {
@@ -30,11 +33,21 @@ func (s *Store) Trees(ctx context.Context, request TreeList) (TreePage, error) {
 			return result, err
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT t.id,t.metadata,t.engine,t.revision,t.created_at,s.id
+	if request.ExpectedRevision != nil && *request.ExpectedRevision < 1 {
+		return result, session.ErrInvalid
+	}
+	rows, err := s.db.QueryContext(ctx, `WITH page AS (
+ SELECT t.id,t.metadata,t.engine,t.revision,t.created_at,s.id AS root_id
  FROM session_trees t JOIN sessions s ON s.tree_id=t.id AND s.parent_id IS NULL
  WHERE t.id>? AND (? IS NULL OR json_extract(t.metadata,'$.archived')=?)
- AND (? IS NULL OR json_extract(t.metadata,'$.pinned')=?) ORDER BY t.id LIMIT ?`,
-		request.After, request.Archived, request.Archived, request.Pinned, request.Pinned, request.Limit+1)
+ AND (? IS NULL OR json_extract(t.metadata,'$.pinned')=?)
+ AND (? IS NULL OR ?=(SELECT revision FROM tree_catalog WHERE singleton=1))
+ ORDER BY t.id LIMIT ?)
+ SELECT c.revision,COALESCE(p.id,''),COALESCE(p.metadata,''),COALESCE(p.engine,''),
+ COALESCE(p.revision,0),COALESCE(p.created_at,0),COALESCE(p.root_id,'')
+ FROM tree_catalog c LEFT JOIN page p ON TRUE WHERE c.singleton=1 ORDER BY p.id`,
+		request.After, request.Archived, request.Archived, request.Pinned, request.Pinned,
+		request.ExpectedRevision, request.ExpectedRevision, request.Limit+1)
 	if err != nil {
 		return result, err
 	}
@@ -47,8 +60,14 @@ func (s *Store) Trees(ctx context.Context, request TreeList) (TreePage, error) {
 		var value session.TreeSummary
 		var raw string
 		var created int64
-		if err := rows.Scan(&value.ID, &raw, &value.Engine, &value.Revision, &created, &value.RootID); err != nil {
+		if err := rows.Scan(&result.Revision, &value.ID, &raw, &value.Engine, &value.Revision, &created, &value.RootID); err != nil {
 			return result, err
+		}
+		if request.ExpectedRevision != nil && *request.ExpectedRevision != result.Revision {
+			return result, ErrConflict
+		}
+		if value.ID == "" {
+			break
 		}
 		if err := json.Unmarshal([]byte(raw), &value.Metadata); err != nil {
 			return result, err

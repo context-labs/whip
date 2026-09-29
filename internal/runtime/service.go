@@ -31,6 +31,25 @@ func (r *Runtime) CreateTree(ctx context.Context, request store.CreateTree) (ses
 	return r.store.CreateTree(ctx, request)
 }
 
+// CreateRoot preserves the exact caller request across uncertain delivery.
+func (r *Runtime) CreateRoot(ctx context.Context, request session.TreeCreationRequest) (session.TreeCreationResult, error) {
+	if result, exists, err := r.store.CreationRetry(ctx, request); exists || err != nil {
+		return result, err
+	}
+	current, err := r.configuration.Snapshot(ctx)
+	if err != nil {
+		return session.TreeCreationResult{}, err
+	}
+	return r.store.CreateRoot(ctx, request, session.TreeCreationDefaults{
+		Configuration: current.Host.Defaults.Clone(), Resources: current.Host.Resources,
+		PermissionMode: current.Host.DefaultPermissionMode,
+	})
+}
+
+func (r *Runtime) TreeCreation(ctx context.Context, id session.CreationID) (session.TreeCreationResult, error) {
+	return r.store.TreeCreation(ctx, id)
+}
+
 func (r *Runtime) SpawnChild(ctx context.Context, identity session.RequestIdentity, request store.ChildRequest) (store.ChildAdmission, error) {
 	if err := r.Err(); err != nil {
 		return store.ChildAdmission{}, err

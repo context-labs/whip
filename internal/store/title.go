@@ -74,6 +74,9 @@ func initializeTitle(ctx context.Context, tx *sql.Tx, owner session.Session, inp
 		if _, err := tx.ExecContext(ctx, "UPDATE session_trees SET metadata=?,revision=revision+1 WHERE id=?", raw, tree.ID); err != nil {
 			return err
 		}
+		if err := bumpTreeCatalog(ctx, tx); err != nil {
+			return err
+		}
 		value.ExpectedRevision++
 		value.Reason = "eligible"
 		if !value.Enabled {
@@ -229,6 +232,14 @@ func (s *Store) SettleAutomaticTitle(ctx context.Context, id session.ModelAttemp
 			return err
 		}
 		applied := tree.Revision == decision.ExpectedRevision && tree.Revision < math.MaxInt64 && turn.State == session.Running
+		if applied {
+			if err := bumpTreeCatalog(ctx, tx); errors.Is(err, ErrConflict) {
+				// Exhausted metadata counters cannot prevent settlement of incurred billing.
+				applied = false
+			} else if err != nil {
+				return err
+			}
+		}
 		if applied {
 			tree.Metadata.Title = &draft.Text
 			raw, err := encode(tree.Metadata)
