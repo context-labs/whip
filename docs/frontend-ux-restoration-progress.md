@@ -40,6 +40,24 @@ renderer build and app TypeScript; the final narrow diff was rechecked with
 those 138 tests and app TypeScript. The build warns about existing large chunks;
 jsdom logs its existing unimplemented `scrollTo` warning. Neither is a failure.
 
+## Increment 2 — human terminal fidelity (G5 / A11)
+
+The human terminal manager restores the reference's full host environment and
+WHIP markers. The agent manager remains filtered. Read-only output waits wake
+on PTY output/exit/retirement (maximum five seconds), replacing the renderer's
+fixed 250ms polling delay. Epoch checks, byte cursors, one observer, no input
+replay and shell ownership remain unchanged. The actual host HOME is authoritative.
+
+Source leaf `c19e36aff`, generated leaf `a8249937d`; integrated as `1bfb669f0`
+and `373ef2d1a`. Focused Go tests and race tests pass across terminal, capability,
+RPC and protocol, including real concurrent read/write and fixture zsh
+profile/aliases/PATH tests. Protocol generation/drift and 18 interop tests pass.
+Full SDK checks pass (206 tests and source/test types). Terminal renderer tests
+pass (44); integration rebuild plus the same 44 tests pass on the combined stack.
+App TypeScript passes in the leaf. Real desktop comparison remains in final A11.
+
+Opening slice is draft [#288](https://github.com/context-labs/whip/pull/288).
+
 ## Remaining work
 
 Backend/provider/settings/terminal and durable presentation prerequisites are
