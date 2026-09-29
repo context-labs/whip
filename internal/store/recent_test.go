@@ -85,3 +85,58 @@ func TestRecentTreesTiesBoundsCancellationAndDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRecentTreePagesFilterPinAndAdvanceAdvisoryActivity(t *testing.T) {
+	s := fresh(t)
+	var ids []session.TreeID
+	for range 5 {
+		tree, _ := create(t, s, nil)
+		ids = append(ids, tree.ID)
+	}
+	slices.Sort(ids)
+	slices.Reverse(ids)
+	at := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+	execTest(t, s, "UPDATE session_trees SET created_at=?", at.UnixMicro())
+	execTest(t, s, "UPDATE session_trees SET metadata=json_set(metadata,'$.pinned',json('true')) WHERE id=?", ids[4])
+	execTest(t, s, "UPDATE session_trees SET metadata=json_set(metadata,'$.archived',json('true')) WHERE id=?", ids[0])
+	request := session.RecentTreeList{Limit: 2, Archived: new(false), PinnedFirst: true}
+	first, err := s.RecentTreesPage(t.Context(), request)
+	if err != nil || len(first.Items) != 2 || first.Items[0].ID != ids[4] || first.Items[1].ID != ids[1] || first.Next == nil || !first.HasMore {
+		t.Fatal(first, err)
+	}
+	request.After = first.Next
+	second, err := s.RecentTreesPage(t.Context(), request)
+	if err != nil || len(second.Items) != 2 || second.Items[0].ID != ids[2] || second.Items[1].ID != ids[3] || second.HasMore || second.Next != nil {
+		t.Fatal(second, err)
+	}
+	pinned, err := s.RecentTreesPage(t.Context(), session.RecentTreeList{Limit: 100, Pinned: new(true)})
+	if err != nil || len(pinned.Items) != 1 || pinned.Items[0].ID != ids[4] {
+		t.Fatal(pinned, err)
+	}
+	archived, err := s.RecentTreesPage(t.Context(), session.RecentTreeList{Limit: 100, Archived: new(true)})
+	if err != nil || len(archived.Items) != 1 || archived.Items[0].ID != ids[0] {
+		t.Fatal(archived, err)
+	}
+	// A newer durable clock moves this root before the captured advisory cursor.
+	// Refreshing discovers it; the stable-ID metadata catalog remains unchanged.
+	revision, err := s.TreeCatalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	execTest(t, s, "UPDATE session_trees SET created_at=? WHERE id=?", at.Add(time.Second).UnixMicro(), ids[3])
+	older, err := s.RecentTreesPage(t.Context(), request)
+	if err != nil || len(older.Items) != 1 || older.Items[0].ID != ids[2] {
+		t.Fatal(older, err)
+	}
+	request.After = nil
+	latest, err := s.RecentTreesPage(t.Context(), request)
+	if err != nil || latest.Items[1].ID != ids[3] || latest.CatalogRevision != revision {
+		t.Fatal(latest, err)
+	}
+	for _, cursor := range []session.RecentTreeCursor{{TreeID: "", LastActivityAt: at}, {TreeID: ids[0]}, {TreeID: ids[0], LastActivityAt: at.Add(time.Nanosecond)}} {
+		request.After = &cursor
+		if _, err := s.RecentTreesPage(t.Context(), request); !errors.Is(err, session.ErrInvalid) {
+			t.Fatalf("accepted cursor %+v: %v", cursor, err)
+		}
+	}
+}

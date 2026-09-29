@@ -1,4 +1,4 @@
-import type { ListTreesResult } from '@whip/protocol';
+import type { ListTreesResult, RecentTreesResult } from '@whip/protocol';
 import type { DeepReadonly } from '@whip/sdk/state';
 
 export const sidebarStorageKey = 'whip.web.sidebar.v1';
@@ -85,6 +85,45 @@ export function sidebarRows(items: readonly Session[], collapsed: readonly strin
     if (sessions.length > defaultDirectorySessionLimit) rows.push({ key: `more:${cwd}`, kind: 'more', cwd, expanded: visibleCount === sessions.length, visibleCount });
   }
   return rows;
+}
+
+export type HostSidebarRow = SidebarRow & { runtimeId: string; cwd: string; directoryKey: string };
+export const sidebarRowKey = (kind: SidebarRow['kind'], runtimeId: string, id: string) => JSON.stringify([kind, runtimeId, id]);
+
+/** Mix directories, not sessions: each daemon still owns its catalog's pin/recency order. */
+export function mixedSidebarRows(hosts: readonly {
+  runtimeId: string;
+  items: readonly RecentTreesResult['items'][number][];
+  collapsed?: readonly string[];
+  limits?: ReadonlyMap<string, number>;
+}[]): HostSidebarRow[] {
+  const groups: { key: string; updated: bigint; rows: HostSidebarRow[] }[] = [];
+  const oldest = -(1n << 63n);
+  for (const host of hosts) {
+    const latest = new Map<string, bigint>();
+    for (const session of host.items) {
+      if (session.tree.metadata.archived) continue;
+      const milliseconds = Date.parse(session.last_activity_at);
+      if (!Number.isFinite(milliseconds)) continue;
+      // Native clocks have microsecond precision; Date alone loses clock ties.
+      const fraction = /\.(\d+)/.exec(session.last_activity_at)?.[1] ?? '';
+      const updated = BigInt(milliseconds) * 1000n + BigInt(fraction.padEnd(6, '0').slice(3, 6));
+      if (updated > (latest.get(session.working_directory) ?? oldest)) latest.set(session.working_directory, updated);
+    }
+    let group: typeof groups[number] | undefined;
+    for (const row of sidebarRows(host.items, host.collapsed, host.limits)) {
+      const cwd = row.kind === 'session' ? row.session.working_directory : row.cwd;
+      const directoryKey = sidebarRowKey('directory', host.runtimeId, cwd);
+      if (row.kind === 'directory') {
+        group = { key: directoryKey, updated: latest.get(cwd) ?? oldest, rows: [] };
+        groups.push(group);
+      }
+      group!.rows.push({ ...row, cwd, runtimeId: host.runtimeId, directoryKey,
+        key: sidebarRowKey(row.kind, host.runtimeId, row.kind === 'session' ? row.session.root_id : cwd) });
+    }
+  }
+  return groups.sort((a, b) => (a.updated === b.updated ? 0 : a.updated > b.updated ? -1 : 1)
+    || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)).flatMap(group => group.rows);
 }
 
 export function newSessionSearch(search: Record<string, unknown>): { new?: 1; cwd?: string; runtimeId?: string } {

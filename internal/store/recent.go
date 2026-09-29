@@ -11,11 +11,28 @@ import (
 // RecentTrees is an advisory fresh read. Activity comes from canonical creation,
 // configuration, input, message and turn timestamps throughout each live tree.
 // CatalogRevision describes membership/metadata only: activity can change while
-// it stays equal. There is deliberately no cursor or promise of a frozen order.
+// it stays equal. There is deliberately no promise of a frozen order.
 func (s *Store) RecentTrees(ctx context.Context, limit int) (session.RecentTreePage, error) {
+	return s.RecentTreesPage(ctx, session.RecentTreeList{Limit: limit})
+}
+
+// RecentTreesPage advances through current activity. A tree can move ahead of a
+// captured cursor while work runs; callers refresh from the start to see it.
+// This does not change the revision-consistent, ID-keyed Trees contract.
+func (s *Store) RecentTreesPage(ctx context.Context, request session.RecentTreeList) (session.RecentTreePage, error) {
 	result := session.RecentTreePage{Items: []session.RecentTree{}}
-	if err := pageLimit(limit); err != nil {
+	if err := pageLimit(request.Limit); err != nil {
 		return result, err
+	}
+	var afterID session.TreeID
+	var afterTime int64
+	var afterPinned bool
+	if request.After != nil {
+		cursor := request.After
+		if err := session.ValidateID(string(cursor.TreeID)); err != nil || cursor.LastActivityAt.IsZero() || !timestamp(cursor.LastActivityAt.UnixMicro()).Equal(cursor.LastActivityAt) {
+			return result, session.ErrInvalid
+		}
+		afterID, afterTime, afterPinned = cursor.TreeID, cursor.LastActivityAt.UnixMicro(), request.PinnedFirst && cursor.Pinned
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -27,23 +44,32 @@ func (s *Store) RecentTrees(ctx context.Context, limit int) (session.RecentTreeP
  UNION ALL SELECT session_id,MAX(started_at,COALESCE(finished_at,started_at)) FROM turns
  ), activity AS (
  SELECT s.tree_id,MAX(c.at) AS at FROM clocks c JOIN sessions s ON s.id=c.session_id GROUP BY s.tree_id
- ), page AS (
+ ), candidates AS (
  SELECT t.id,t.metadata,t.engine,t.revision,t.created_at,s.id AS root_id,c.working_directory,
- json_extract(c.configuration,'$.model') AS model,MAX(t.created_at,a.at) AS activity_at
+ json_extract(c.configuration,'$.model') AS model,MAX(t.created_at,a.at) AS activity_at,
+ CASE WHEN ? THEN json_extract(t.metadata,'$.pinned') ELSE 0 END AS pin_order
  FROM session_trees t JOIN sessions s ON s.tree_id=t.id AND s.parent_id IS NULL
  JOIN session_configurations c ON c.session_id=s.id AND c.revision=s.config_revision
- JOIN activity a ON a.tree_id=t.id ORDER BY activity_at DESC,t.id DESC LIMIT ?
+ JOIN activity a ON a.tree_id=t.id
+ WHERE (? IS NULL OR json_extract(t.metadata,'$.archived')=?)
+ AND (? IS NULL OR json_extract(t.metadata,'$.pinned')=?)
+ ), page AS (
+ SELECT * FROM candidates WHERE (?='' OR (pin_order,activity_at,id)<(?,?,?))
+ ORDER BY pin_order DESC,activity_at DESC,id DESC LIMIT ?
  ) SELECT catalog.revision,COALESCE(p.id,''),COALESCE(p.metadata,''),COALESCE(p.engine,''),
  COALESCE(p.revision,0),COALESCE(p.created_at,0),COALESCE(p.root_id,''),COALESCE(p.working_directory,''),
  COALESCE(p.model,''),COALESCE(p.activity_at,0)
  FROM tree_catalog catalog LEFT JOIN page p ON TRUE WHERE catalog.singleton=1
- ORDER BY p.activity_at DESC,p.id DESC`, limit+1)
+ ORDER BY p.pin_order DESC,p.activity_at DESC,p.id DESC`, request.PinnedFirst,
+		request.Archived, request.Archived, request.Pinned, request.Pinned,
+		afterID, afterPinned, afterTime, afterID, request.Limit+1)
 	if err != nil {
 		return result, err
 	}
 	defer func() { _ = rows.Close() }()
+	used := 512
 	for rows.Next() {
-		if len(result.Items) == limit {
+		if len(result.Items) == request.Limit {
 			result.HasMore = true
 			break
 		}
@@ -63,7 +89,17 @@ func (s *Store) RecentTrees(ctx context.Context, limit int) (session.RecentTreeP
 			return result, err
 		}
 		item.CreatedAt, item.LastActivityAt = timestamp(created), timestamp(activity)
+		// Reserve escaped JSON space as well as the ordinary path/title bytes.
+		used += 6*(len(metadata)+len(item.WorkingDirectory)+len(model)) + 1024
+		if used > 512<<10 {
+			result.HasMore = true
+			break
+		}
 		result.Items = append(result.Items, item)
+	}
+	if result.HasMore && len(result.Items) > 0 {
+		last := result.Items[len(result.Items)-1]
+		result.Next = &session.RecentTreeCursor{TreeID: last.ID, LastActivityAt: last.LastActivityAt, Pinned: last.Metadata.Pinned}
 	}
 	return result, rows.Err()
 }

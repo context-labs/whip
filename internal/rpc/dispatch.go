@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/context-labs/whip/internal/account"
 	"github.com/context-labs/whip/internal/computer"
@@ -268,7 +269,15 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		})
 	case "trees.recent":
 		return decode(raw, func(p protocol.RecentTreesParams) (any, error) {
-			page, err := r.RecentTrees(ctx, p.Limit)
+			request := session.RecentTreeList{Limit: p.Limit, Archived: p.Archived, Pinned: p.Pinned, PinnedFirst: p.PinnedFirst}
+			if p.After != nil {
+				at, err := time.Parse(time.RFC3339Nano, p.After.LastActivityAt)
+				if err != nil {
+					return nil, session.ErrInvalid
+				}
+				request.After = &session.RecentTreeCursor{TreeID: session.TreeID(p.After.TreeID), LastActivityAt: at, Pinned: p.After.Pinned}
+			}
+			page, err := r.RecentTreesPage(ctx, request)
 			return protocol.RecentTreesFromDomain(page), err
 		})
 	case "trees.list":
