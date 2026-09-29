@@ -18,6 +18,10 @@ type (
 
 var ErrCostOverflow = errors.New("model cost exceeds the supported nano-USD range")
 
+// MaxModelOutputTokens matches the supported provider catalog token range.
+// Explicit per-request overrides may impose a smaller limit.
+const MaxModelOutputTokens int64 = 1_000_000_000
+
 const (
 	AttemptReserved   ModelAttemptState = "reserved"
 	AttemptDispatched ModelAttemptState = "dispatched"
@@ -204,7 +208,7 @@ func (s ModelRequestSnapshot) Validate() error {
 	if s.InputTokenBound != nil && *s.InputTokenBound < 0 {
 		return fmt.Errorf("%w: negative input token bound", ErrInvalid)
 	}
-	if s.MaxOutputTokens < 1 || s.MaxOutputTokens > 1000000 || s.TimeoutMillis < 1 || s.TimeoutMillis > 600000 {
+	if s.MaxOutputTokens < 1 || s.MaxOutputTokens > MaxModelOutputTokens || s.TimeoutMillis < 1 || s.TimeoutMillis > 600000 {
 		return fmt.Errorf("%w: invalid model request limits", ErrInvalid)
 	}
 	return s.Prices.Validate()

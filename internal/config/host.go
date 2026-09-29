@@ -62,8 +62,8 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 	if m.MaxAttempts == 0 {
 		m.MaxAttempts = 3
 	}
-	if m.MaxOutputTokens < 0 || m.MaxOutputTokens > 1000000 {
-		return Model{}, fmt.Errorf("%w: output token limit must be 1–1000000", session.ErrInvalid)
+	if m.MaxOutputTokens < 0 || m.MaxOutputTokens > session.MaxModelOutputTokens {
+		return Model{}, fmt.Errorf("%w: output token limit must be 1–%d", session.ErrInvalid, session.MaxModelOutputTokens)
 	}
 	if m.ContextWindowTokens != nil {
 		if *m.ContextWindowTokens < 1 || *m.ContextWindowTokens > 1000000000 || m.MaxOutputTokens > *m.ContextWindowTokens {

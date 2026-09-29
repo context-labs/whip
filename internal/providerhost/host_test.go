@@ -154,6 +154,67 @@ func TestRoutesAndDefaultsAreExplicitAtomicAndPreserveCredentials(t *testing.T) 
 	}
 }
 
+func TestInferenceSuggestedModelsCanBecomeDefaults(t *testing.T) {
+	var preset Preset
+	for _, candidate := range Presets() {
+		if candidate.ID == "inference-net" {
+			preset = candidate
+			break
+		}
+	}
+	if len(preset.SuggestedModels) == 0 {
+		t.Fatal("Inference.net has no suggested models")
+	}
+	models, err := BundledModels(preset.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range preset.SuggestedModels {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.env[preset.Environments[0]] = "fixture-private-key"
+			f.route(preset.ID, config.Provider{
+				Kind: preset.Kind, BaseURL: preset.BaseURL,
+				CredentialSource: "env", CredentialEnv: preset.Environments[0],
+			})
+			var metadata *Model
+			for _, model := range models {
+				if model.ID == name {
+					metadata = &model
+					break
+				}
+			}
+			if metadata == nil || metadata.MaxOutputTokens == nil || metadata.ContextWindowTokens == nil {
+				t.Fatal("suggested model has no bundled token limits")
+			}
+			selection := session.ModelSelection{Provider: preset.ID, Name: name}
+			settings := config.Model{
+				Prices: metadata.Prices, ContextWindowTokens: metadata.ContextWindowTokens,
+				MaxOutputTokens: *metadata.MaxOutputTokens,
+			}
+			selected, err := f.service.SetDefaults(t.Context(), f.revision(), Defaults{
+				Selection: &selection, Settings: &settings,
+			})
+			if err != nil {
+				t.Fatalf("select bundled model with output limit %d: %v", settings.MaxOutputTokens, err)
+			}
+			persisted, err := f.authority.Snapshot(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !selected.Defaults.Equal(selection) || !persisted.Host.Defaults.Model.Equal(selection) {
+				t.Fatal("suggested model did not become the persisted default")
+			}
+			if !reflect.DeepEqual(persisted.Host.Providers[preset.ID].Models[name], settings) {
+				t.Fatal("persisted model settings changed bundled metadata")
+			}
+			if f.count() != 0 {
+				t.Fatal("selecting bundled metadata contacted the provider")
+			}
+		})
+	}
+}
+
 func TestRouteEndpointChangeRequiresExplicitCredentialChoice(t *testing.T) {
 	f := newFixture(t)
 	f.route("custom", noAuth())

@@ -18,19 +18,22 @@ import (
 func TestRequestOutputLimitMatchesFrozenAPIWire(t *testing.T) {
 	for _, adapter := range []string{"openai-chat", "openai-responses"} {
 		for _, tc := range []struct {
-			name  string
-			limit *int64
-			want  int64
+			name          string
+			limit         *int64
+			ceiling, want int64
 		}{
-			{"nil", nil, 100},
-			{"narrower", new(int64(37)), 37},
-			{"equal", new(int64(100)), 100},
-			{"wider", new(int64(200)), 100},
-			{"maximum", new(int64(1000000)), 100},
+			{"nil", nil, 100, 100},
+			{"narrower", new(int64(37)), 100, 37},
+			{"equal", new(int64(100)), 100, 100},
+			{"wider", new(int64(200)), 100, 100},
+			{"maximum request", new(int64(1000000)), 100, 100},
+			{"million-token model", nil, 1048576, 1048576},
+			{"maximum host ceiling", nil, 1000000000, 1000000000},
+			{"narrowed million-token model", new(int64(37)), 1048576, 37},
 		} {
 			t.Run(adapter+"/"+tc.name, func(t *testing.T) {
 				request := chatRequest()
-				route := Route{Kind: adapter, URL: "https://example.test/v1", Credential: "private-credential", MaxOutputTokens: 100, TimeoutMillis: 1000, MaxAttempts: 3}
+				route := Route{Kind: adapter, URL: "https://example.test/v1", Credential: "private-credential", MaxOutputTokens: tc.ceiling, TimeoutMillis: 1000, MaxAttempts: 3}
 				calls := 0
 				var wire []byte
 				provider := OpenAI{Resolve: func(context.Context, session.ModelSelection) (Route, error) { return route, nil }, Client: &http.Client{Transport: contextLimitTransport(func(r *http.Request) (*http.Response, error) {
@@ -51,8 +54,11 @@ func TestRequestOutputLimitMatchesFrozenAPIWire(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if (baseline.Snapshot.RequestDigest == prepared.Snapshot.RequestDigest) != (tc.want == 100) {
+				if (baseline.Snapshot.RequestDigest == prepared.Snapshot.RequestDigest) != (tc.want == tc.ceiling) {
 					t.Fatal("request digest does not describe the effective wire cap")
+				}
+				if err := prepared.Snapshot.Validate(); err != nil {
+					t.Fatalf("prepared request cannot be recorded: %v", err)
 				}
 				route.MaxOutputTokens = 1
 				if request.OutputTokenLimit != nil {
@@ -107,7 +113,7 @@ func TestRequestOutputLimitRejectsInvalidBoundsBeforeSubscriptionCapture(t *test
 			t.Fatalf("subscription bound=%d err=%v captures=%d calls=%d", bound, err, auth.captures, calls)
 		}
 	}
-	for _, ceiling := range []int64{-1, 0, 1000001} {
+	for _, ceiling := range []int64{-1, 0, 1000000001} {
 		request := chatRequest()
 		request.OutputTokenLimit = new(int64(1))
 		provider := OpenAI{Resolve: func(context.Context, session.ModelSelection) (Route, error) {
