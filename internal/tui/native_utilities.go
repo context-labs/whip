@@ -39,6 +39,8 @@ Exit: /quit (accepted host work continues)
 Enter sends; Ctrl+J/Shift+Enter inserts a newline; Escape cancels the exact active input.
 Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
 Ctrl+R toggles REPL; PageUp/PageDown scroll the focused pane; Ctrl+C twice exits.
+Ctrl+P opens commands; Ctrl+O toggles live reasoning. Tab completes commands, @host files, $authorized skills, or host paths.
+Ctrl+X then M/L/N/B/R/T/C/G/S opens model/sessions/clear/sidebar/REPL/theme/compact/rewind or stops a selected child.
 Paste collapse is opt-in in /settings; original text is restored before sending.
 Commands act on the displayed owner. Export writes a private local file. Direct shell uses the host's normal permission and receipt path.`
 

@@ -77,6 +77,9 @@ type nativeModel struct {
 	attachment                      *nativeImageUpload
 	attachmentBusy                  bool
 	clientDirectory                 string
+	completion                      *nativeCompletion
+	palette                         *nativeCommandPalette
+	leaderAt                        time.Time
 	work                            nativeWork
 	connection                      *client.Client
 	handle                          *client.Session
@@ -301,6 +304,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeCompletionResult:
+		m.applyCompletion(value)
+		return m, nil
 	case nativeImageLoaded:
 		return m, m.imageLoaded(value)
 	case nativeImageUploaded:
@@ -526,7 +532,11 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.decision != nil && value.String() != "ctrl+c" {
 			return m, m.decisionKey(value)
 		}
+		if m.palette != nil && value.String() != "ctrl+c" {
+			return m, m.paletteKey(value)
+		}
 		if value.String() == "tab" && len(m.decisions) > 0 {
+			m.closeCompletion(false)
 			m.decisionsHidden = false
 			if m.hiddenDecision != nil {
 				m.decision, m.hiddenDecision = m.hiddenDecision, nil
@@ -535,15 +545,27 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if value.String() != "ctrl+c" {
+			if command, handled := m.completionKey(value); handled {
+				return m, command
+			}
+			if command, handled := m.shortcut(value); handled {
+				return m, command
+			}
+		}
 		if command, handled := m.agentKey(value); handled {
 			return m, command
 		}
 		switch value.String() {
+		case "tab", "shift+tab":
+			return m, m.completeInput(true)
 		case "ctrl+v":
 			return m, m.attachCommand("clipboard")
 		case "ctrl+r":
 			return m, m.replCommand("")
 		case "ctrl+c":
+			m.closeCompletion(false)
+			m.palette = nil
 			if m.quitArmed {
 				return m, tea.Quit
 			}
@@ -576,7 +598,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(value)
 		m.sizeInput()
-		return m, cmd
+		return m, tea.Batch(cmd, m.completeInput(false))
 	case tea.MouseWheelMsg:
 		if m.replVisible() && value.X >= m.width-m.replWidth() {
 			m.replVP, _ = m.replVP.Update(value)
@@ -589,6 +611,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.PasteMsg:
 		m.initialPrompt = ""
+		m.closeCompletion(false)
 		if m.picker != nil {
 			return m, nil
 		}
@@ -597,6 +620,13 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				var cmd tea.Cmd
 				m.decision.form.input, cmd = m.decision.form.input.Update(value)
 				return m, cmd
+			}
+			return m, nil
+		}
+		if m.palette != nil {
+			if len(m.palette.query)+len(value.Content) <= 512 {
+				m.palette.query += value.Content
+				m.palette.filter()
 			}
 			return m, nil
 		}
@@ -808,7 +838,7 @@ func (m *nativeModel) refresh() {
 	m.rows = boundNativeRows(rows, nativeRenderBytes, nativeRenderRows)
 	m.vp.rows = func(y int) string { return m.rows[y] }
 	m.vp.SetWidth(width)
-	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight(), 1))
+	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight(), 1))
 	m.vp.setTotal(len(m.rows))
 	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
@@ -841,13 +871,22 @@ func (m *nativeModel) View() tea.View {
 		view.AltScreen = true
 		return view
 	}
+	if m.palette != nil {
+		view := tea.NewView(m.palette.view(m.width, m.height))
+		view.AltScreen = true
+		return view
+	}
 	state := m.activity.Lifecycle
 	if m.activity.ActiveTurn != nil {
 		state = m.activity.ActiveTurn.State
 	}
 	footer := fmt.Sprintf("%s · queued %d · permissions %d · questions %d", state, m.activity.QueuedInputCount, m.activity.PendingPermissionCount, m.activity.PendingQuestionCount)
 	width := m.transcriptWidth()
-	main := m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), width, "…") + "\n" + m.input.View()
+	main := m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), width, "…") + "\n"
+	if completions := m.completionView(); completions != "" {
+		main += completions + "\n"
+	}
+	main += m.input.View()
 	if height := m.dockHeight(); height > 0 {
 		main += "\n" + nativeFixedRows("Agents · Ctrl+T focuses\n"+m.agentRows(width, height-1), width, height)
 	}
