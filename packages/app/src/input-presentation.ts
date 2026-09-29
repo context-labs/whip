@@ -1,4 +1,4 @@
-import type { Admission, ContentReference, Input, InputPageResult } from '@whip/protocol';
+import type { Admission, ContentReference, Input, InputPageResult, RequestIdentity } from '@whip/protocol';
 import type { DesignContext } from './browser-design-presentation';
 export interface InputPreview {
   readonly text: string;
@@ -107,14 +107,19 @@ export class SubmittedInputs {
 
 export type InboxInput = NonNullable<InputPageResult['items']>[number];
 
-export function matchesInput(input: SubmittedInput, item: InboxInput) {
-  return input.agentId === item.session_id && input.inputId === item.id;
+export function matchesInput(input: SubmittedInput, item: Pick<InboxInput, 'id' | 'session_id' | 'identity'>) {
+  return input.agentId === item.session_id && (input.inputId === item.id || !!item.identity
+    && input.clientId === item.identity.client_id && input.id === item.identity.request_id);
 }
 export function submittedInputId(input: SubmittedInput) {
-  return `input:${input.clientId ? JSON.stringify([input.clientId, input.id]) : input.id}`;
+  return authoredInputId(input.agentId, { client_id: input.clientId ?? '', request_id: input.id });
+}
+// The caller supplies one runtime-scoped owner window; never match input text.
+export function authoredInputId(owner: string, identity: RequestIdentity) {
+  return `input:${JSON.stringify([owner, identity.client_id, identity.request_id])}`;
 }
 export function inboxInputId(item: InboxInput, local?: SubmittedInput) {
-  return local ? submittedInputId(local) : `input:${item.session_id}:${item.id}`;
+  return item.identity ? authoredInputId(item.session_id, item.identity) : local ? submittedInputId(local) : `input:${item.session_id}:${item.id}`;
 }
 export const isChatInput = (item: InboxInput) => item.kind === 'prompt' && (item.source === 'user' || item.source === 'agent');
 export const isAcceptedInputNotice = (item: InboxInput) => !isChatInput(item) && item.source !== 'schedule';

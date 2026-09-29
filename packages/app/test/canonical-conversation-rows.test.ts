@@ -3,7 +3,7 @@ import type { Message } from '@whip/protocol';
 import type { HistoryView } from '@whip/sdk/state';
 import { conversationRows, timelineRows } from '../src/conversation-rows';
 
-const base = { session_id: 'child', group_id: 'turn', opening_input: false, turn_id: 'turn', input_id: null, mail: null, source: null, retired_by: null, retired_revision: null, created_at: '2026-01-01T00:00:00Z' };
+const base = { session_id: 'child', group_id: 'turn', opening_input: false, turn_id: 'turn', input_id: null, input_identity: null, mail: null, source: null, retired_by: null, retired_revision: null, created_at: '2026-01-01T00:00:00Z' };
 const history = (messages: Message[], gaps: HistoryView['gaps'] = []): HistoryView => ({ snapshot: null, messages, gaps, olderCursor: null, latestMissing: false });
 const call = (id: string, group: string, sequence: string): Message => ({ ...base, id, group_id: group, sequence, role: 'assistant', parts: [{ type: 'text', text: 'Before' }, { type: 'tool_call', call: { id: 'shared', name: 'rlm_exec', arguments: { code: 'print(1)' } } }, { type: 'text', text: 'After' }] });
 const result = (id: string, group: string, sequence: string): Message => ({ ...base, id, group_id: group, sequence, role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'shared', output: group, is_error: false } }, { type: 'content', reference_id: id }] });
@@ -22,8 +22,8 @@ it('replaces provisional text and reasoning wholesale, and suppresses a preview 
 });
 it('uses mail provenance rather than text heuristics and removes only the exact committed local input', () => {
   const authored: Message = { ...base, id: 'authored', role: 'user', sequence: '1', input_id: 'input', opening_input: true, parts: [{ type: 'text', text: 'Mailbox digest: my literal request' }] };
-  const mail: Message = { ...authored, id: 'mail', sequence: '2', input_id: null, opening_input: false, mail: { id: 'mail', revision: '1', presentation: 'body' } };
-  const imported: Message = { ...authored, id: 'imported', sequence: '3', input_id: null, turn_id: null, source: { session_id: 'source', message_id: 'old', sequence: '9' } };
+  const mail: Message = { ...authored, id: 'mail', sequence: '2', input_id: null, input_identity: null, opening_input: false, mail: { id: 'mail', revision: '1', presentation: 'body' } };
+  const imported: Message = { ...authored, id: 'imported', sequence: '3', input_id: null, input_identity: null, turn_id: null, source: { session_id: 'source', message_id: 'old', sequence: '9' } };
   const rows = conversationRows(history([authored, mail, imported]), null, [], [
     { id: 'local', runtimeId: 'runtime', rootId: 'root', agentId: 'child', text: 'Duplicate', inputId: 'input', accepted: true, confirmed: false, queued: false, sentAt: '' },
     { id: 'other', runtimeId: 'runtime', rootId: 'root', agentId: 'child', text: 'Uncertain', accepted: false, confirmed: false, queued: false, sentAt: '' },

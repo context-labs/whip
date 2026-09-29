@@ -5,7 +5,7 @@ import { ComposerAttachments } from '../src/composer-attachments';
 import type { CompositionAttachment } from '../src/compositions';
 
 const image: CompositionAttachment = { id: 'one', name: 'shot.png', size: 20, mediaType: 'image/png', previewUrl: 'blob:one' };
-const ready: CompositionAttachment = { ...image, value: { kind: 'image', name: image.name, ref: 'content' } };
+const ready: CompositionAttachment = { ...image, value: { id: 'content', session_id: 'root', digest: 'a'.repeat(64), size: '20', media_type: 'image/png', created_at: '2026-09-28T00:00:00Z' } };
 function app(attachments: readonly CompositionAttachment[], onRemove = vi.fn()) {
   return <UIProvider><ComposerAttachments attachments={attachments} owner="host:root:root" onRemove={onRemove} /></UIProvider>;
 }
@@ -26,7 +26,7 @@ it('shows a local preview before upload finishes and settles without remounting 
 it('keeps duplicate filenames, mixed files, and removal separate from preview activation', () => {
   const onRemove = vi.fn();
   render(app([ready, { ...ready, id: 'two', previewUrl: 'blob:two' },
-    { id: 'text', name: 'notes.txt', size: 10, value: { kind: 'text', name: 'notes.txt', ref: 'text' } }], onRemove));
+    { id: 'text', name: 'notes.txt', size: 10, value: { id: 'text', session_id: 'root', digest: 'b'.repeat(64), size: '10', media_type: 'text/plain', created_at: '2026-09-28T00:00:00Z' } }], onRemove));
   expect(screen.getAllByRole('button', { name: 'Preview shot.png' })).toHaveLength(2);
   expect(screen.getByText('notes.txt · Ready')).toBeTruthy();
   fireEvent.click(screen.getAllByRole('button', { name: 'Remove shot.png' })[1]!);

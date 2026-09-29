@@ -1,7 +1,7 @@
 import type { ContentReference, Message, Operations } from '@whip/protocol';
 import type { DeepReadonly, HistoryGap, HistoryView } from '@whip/sdk/state';
 import type { DesignContext } from './browser-design-presentation';
-import { admittedText, inboxInputId, isChatInput, matchesInput, submittedInputId, type InboxInput, type InputPreview, type SubmittedInput } from './input-presentation';
+import { admittedText, authoredInputId, inboxInputId, isChatInput, matchesInput, submittedInputId, type InboxInput, type InputPreview, type SubmittedInput } from './input-presentation';
 
 type Preview = DeepReadonly<Operations['sessions.observe']['result']['preview']>;
 export interface TimelineRow {
@@ -93,7 +93,8 @@ export function timelineRows(history: DeepReadonly<HistoryView> | undefined, pre
       } else rows.push({ ...base, id, role: 'tool', text: result.output, callId: result.call_id, label: 'Tool output', references: presentation.references });
     } else {
       const role = message.mail ? 'mailbox' : message.role === 'user' && (message.input_id || message.source || message.opening_input) ? 'user' : 'internal';
-      rows.push({ ...base, id, role, ...presentation });
+      const authoredID = message.input_id && message.input_identity ? authoredInputId(message.session_id, message.input_identity) : id;
+      rows.push({ ...base, id: authoredID, role, ...presentation });
     }
   }
   rows.push(...gaps.slice(gapIndex));
@@ -121,7 +122,10 @@ export function conversationRows(
       inputAttachments: local?.preview?.attachments, designContext: local?.preview?.design_context, sentAt: local?.sentAt, delivery: 'Accepted' };
   });
   for (const input of submitted) {
-    if (input.confirmed || input.queued || input.inputId && committed.has(input.inputId) || inbox.some(item => matchesInput(input, item))) continue;
+    const authored = history?.messages.some(message => message.input_id && matchesInput(input, {
+      session_id: message.session_id, id: message.input_id, identity: message.input_identity,
+    }));
+    if (input.confirmed || input.queued || authored || input.inputId && committed.has(input.inputId) || inbox.some(item => matchesInput(input, item))) continue;
     inputs.push({ id: submittedInputId(input), role: 'user', text: input.preview?.text ?? input.text,
       inputAttachments: input.preview?.attachments, designContext: input.preview?.design_context, sentAt: input.sentAt,
       delivery: deliveries.get(input.id) ?? (input.accepted ? 'Accepted' : 'Sending…') });

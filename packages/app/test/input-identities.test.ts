@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Admission, InputPageResult } from '@whip/protocol';
 import { SubmittedInputs, queuedInputRows, matchesInput, admittedText } from '../src/input-presentation';
 type Input = NonNullable<InputPageResult['items']>[number];
-const input = (id: string, owner = 'child'): Input => ({ id, session_id: owner, ordinal: '9007199254740993', source: 'user', kind: 'prompt', state: 'queued', turn_id: null, created_at: '2026-01-01T00:00:00Z', text_preview: 'Accepted text', preview_truncated: false, attachment_count: '0' });
+const input = (id: string, owner = 'child'): Input => ({ id, session_id: owner, identity: null, ordinal: '9007199254740993', source: 'user', kind: 'prompt', state: 'queued', turn_id: null, created_at: '2026-01-01T00:00:00Z', text_preview: 'Accepted text', preview_truncated: false, attachment_count: '0' });
 const ack = (client: string, request: string, id: string, owner = 'child') => ({ receipt: { identity: { client_id: client, request_id: request }, input_id: id }, input: { id, session_id: owner } }) as Admission;
 describe('v4 input presentation identity', () => {
   it('matches a local preview only to the exact acknowledged client, owner and input', () => {

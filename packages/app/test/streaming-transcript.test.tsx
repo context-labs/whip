@@ -1,31 +1,53 @@
 import { expect, it, vi } from 'vitest';
 import { act, fireEvent, render, renderHook } from '@testing-library/react';
-import type { ExecutionCell, HistoryView } from '@whip/legacy-sdk/state';
+import type { CellExecutionRow } from '@whip/sdk/state';
+import type { HostOperation } from '@whip/protocol';
+import { assertValid } from '@whip/protocol';
+import { created, history, message, preview } from './native-presentation-fixtures';
 import { timelineRows } from '../src/conversation-rows';
 import { activityItems, activitySummary, conversationActivityRows, isActivityGroup, responseCopies } from '../src/chat-activity-rows';
 import { MarkdownBlock, markdownRows, streamingSource, useCoalescedTranscript, type MarkdownRow } from '../src/streaming-markdown';
 import { fadeDuration, MotionContext } from '../src/transcript-motion';
 import { readingTarget } from '../src/reading-positions';
 
-it('restores ordered reasoning, Unicode prose and tool identity without changing the mobile projection', () => {
-  const history = { revision: '1', messages: [{ seq: 1, message: { role: 'assistant', content: 'Hi 🌍', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"42"}' } }],
-    presentation: { version: 1, turn_id: 'turn', parts: [{ id: 'r', kind: 'reasoning', text: 'Inspect first' }, { id: 't', kind: 'text', start: 0, end: 7 }, { id: 'c', kind: 'tool', call_id: 'call', tool_name: 'rlm_exec' }] },
-  } }, { seq: 2, message: { role: 'tool', tool_call_id: 'call', content: 'result' } }] } as HistoryView;
-  const rich = timelineRows(history, undefined, true);
-  expect(rich.map(row => [row.id, row.role, row.text])).toEqual([['part:r', 'reasoning', 'Inspect first'], ['part:t', 'assistant', 'Hi 🌍'], ['part:c', 'tool', 'result']]);
-  expect(timelineRows(history, undefined).map(row => row.role)).toEqual(['assistant', 'tool']);
-  expect(timelineRows(undefined, [{ seq: '1', kind: 'stream.reasoning', payload: { text: 'Inspect first', part_id: 'r', turn_id: 'turn' } }], true)[0]!.id).toBe(rich[0]!.id);
+function operation(id: string, capability: string, state: HostOperation['state'] = 'succeeded', resource = 'workspace', value: unknown = {}): HostOperation {
+  const settled = state === 'succeeded' || state === 'failed';
+  const result: HostOperation = { id, session_id: 'root', turn_id: 'turn', cell_id: 'cell', request_id: id, origin: 'cell', capability, resource,
+    arguments: {}, state, permission_revision: null, grant_id: null, result: settled ? { state, value, content_references: [] } : null,
+    created_at: created, dispatched_at: created, finished_at: settled ? created : null };
+  assertValid('HostOperation', result); return result;
+}
+function execution(operations: HostOperation[] = [], failed = false): CellExecutionRow {
+  const call = { id: 'call', name: 'execute', arguments: { code: '42' } };
+  const result = { call_id: 'call', output: 'exception', is_error: true };
+  const cell: CellExecutionRow = { cell: { id: 'cell', session_id: 'root', turn_id: 'turn', call_message_id: 'call-message', call_id: 'call',
+    state: failed ? 'failed' : 'running', result_message_id: failed ? 'result-message' : null, checkpoint: null, created_at: created, finished_at: failed ? created : null },
+    turn: null, call: { message: message({ id: 'call-message', parts: [{ type: 'tool_call', call }] }), value: call },
+    result: failed ? { message: message({ id: 'result-message', role: 'tool', sequence: '2', parts: [{ type: 'tool_result', result }] }), value: result } : null, operations };
+  assertValid('Cell', cell.cell); return cell;
+}
+const toolRow = { id: 'tool', role: 'tool', text: '', seq: '1', toolName: 'execute', callId: 'call', turnId: 'turn' };
+
+it('projects replacement reasoning, Unicode canonical prose and exact tool identity', () => {
+  const call = { id: 'call', name: 'execute', arguments: { code: '42' } };
+  const retained = history(message({ id: 'answer', parts: [{ type: 'text', text: 'Hi 🌍' }, { type: 'tool_call', call }] }),
+    message({ id: 'result', sequence: '2', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call', output: 'result', is_error: false } }] }));
+  expect(timelineRows(retained).map(row => [row.id, row.role, row.text])).toEqual([
+    ['message:answer:part:0', 'assistant', 'Hi 🌍'], ['message:answer:call:call', 'tool', 'result'],
+  ]);
+  // Reasoning belongs to the full replacement preview; it is not fabricated
+  // as durable text when the canonical message is committed.
+  const live = timelineRows(undefined, preview({ message_id: 'answer', reasoning: 'Inspect first', text: 'Hi 🌍' }));
+  expect(live.map(row => row.role)).toEqual(['reasoning', 'assistant']);
+  expect(live[1]!.id).toBe(timelineRows(retained)[0]!.id);
+  expect(timelineRows(retained, preview({ message_id: 'answer', reasoning: 'stale', text: 'partial' }))).toHaveLength(2);
 });
 
 it('groups reasoning and operations, counts exact edit targets once, and separates spawned agents', () => {
-  const cell: ExecutionCell = { id: 'cell', partId: 'c', kind: 'cell', agentId: 'root', callId: 'call', turnId: 'turn', code: '42', output: '', status: 'running', hosts: [
-    { id: 'read', name: 'files.read', summary: '', duration: '', status: 'completed' },
-    { id: 'edit1', name: 'files.patch', summary: '', duration: '', status: 'completed', display: { target: 'a.ts' } },
-    { id: 'edit2', name: 'files.write', summary: '', duration: '', status: 'failed', display: { target: 'a.ts' } },
-    { id: 'spawn', name: 'agents.spawn', summary: '', duration: '', status: 'completed', display: { child_id: 'child' } },
-    { id: 'run', name: 'shell.run', summary: '', duration: '', status: 'running' },
-  ] };
-  const rows = conversationActivityRows([{ id: 'reason', role: 'reasoning', text: 'Think', turnId: 'turn', live: true }, { id: 'tool', role: 'tool', text: '', partId: 'c', toolName: 'rlm_exec', callId: 'call', turnId: 'turn', live: true }], [cell]);
+  const cell = execution([operation('read', 'files.read'), operation('edit1', 'files.patch', 'succeeded', 'a.ts'),
+    operation('edit2', 'files.write', 'failed', 'a.ts'), operation('spawn', 'agents.spawn', 'succeeded', 'tree', { session_id: 'child' }),
+    operation('run', 'shell.run', 'dispatched')]);
+  const rows = conversationActivityRows([{ id: 'reason', role: 'reasoning', text: 'Think', turnId: 'turn', live: true }, { ...toolRow, live: true }], [cell]);
   expect(rows.map(row => row.role)).toEqual(['activity', 'agent-activity', 'activity']);
   const groups = rows.filter(isActivityGroup);
   expect(activityItems(groups[0]!).map(item => item.id)).toEqual(['reason', 'read', 'edit1', 'edit2']);
@@ -35,18 +57,15 @@ it('groups reasoning and operations, counts exact edit targets once, and separat
 });
 
 it('keeps group identity when a generic execution reveals its first real operation', () => {
-  const cell: ExecutionCell = { id: 'c', kind: 'cell', agentId: 'root', callId: 'call', code: '', output: '', hosts: [], status: 'running' };
-  const row = { id: 'tool', role: 'tool', toolName: 'rlm_exec', callId: 'call', text: '' };
-  const first = conversationActivityRows([row], [cell]).filter(isActivityGroup);
-  const next = conversationActivityRows([row], [{ ...cell, hosts: [{ id: 'host', name: 'files.read', summary: '', duration: '', status: 'running' }] }], first);
+  const first = conversationActivityRows([toolRow], [execution()]).filter(isActivityGroup);
+  const next = conversationActivityRows([toolRow], [execution([operation('host', 'files.read', 'dispatched')])], first);
   expect(next[0]!.id).toBe(first[0]!.id);
 });
 
 it('exposes execution failure after successful operations without double-counting the execution', () => {
-  const cell: ExecutionCell = { id: 'c', kind: 'cell', agentId: 'root', callId: 'call', code: 'fail()', output: '', status: 'failed', error: 'exception', hosts: [{ id: 'read', name: 'files.read', summary: '', duration: '', status: 'completed' }] };
-  const group = conversationActivityRows([{ id: 'tool', role: 'tool', toolName: 'rlm_exec', callId: 'call', text: '' }], [cell])[0];
+  const group = conversationActivityRows([toolRow], [execution([operation('read', 'files.read')], true)])[0];
   expect(group && isActivityGroup(group) && activitySummary(group)).toBe('Read 1 file · 1 failed');
-  expect(group && isActivityGroup(group) && activityItems(group).at(-1)?.cell?.error).toBe('exception');
+  expect(group && isActivityGroup(group) && activityItems(group).at(-1)?.cell?.result?.value.output).toBe('exception');
 });
 
 it('reuses unchanged Markdown blocks and preserves parent reading aliases through settlement', () => {
@@ -60,17 +79,12 @@ it('reuses unchanged Markdown blocks and preserves parent reading aliases throug
   expect(markdownRows([{ ...row, text: row.text + ' world', live: false }], cache).map(row => row.id)).toEqual(second.map(row => row.id));
 });
 
-it('gives retained fragments of one part distinct Markdown and virtual row identities', () => {
-  const payload = { part_id: 'p', turn_id: 'turn' };
-  const rows = timelineRows(undefined, [
-    { seq: '10', kind: 'stream.text', payload: { ...payload, text: '1. First item' } },
-    // Missing deltas must stay separate; the UI cannot reconstruct the gap.
-    { seq: '15', kind: 'stream.text', payload: { ...payload, text: '2. Second item' } },
-    { seq: '16', kind: 'stream.notice', payload: { text: 'Notice' } },
-    { seq: '17', kind: 'stream.text', payload: { ...payload, text: '3. Third item' } },
-  ], true);
-  expect(rows.map(row => row.id)).toEqual(['part:p', 'part:p:fragment:15', 'live:16', 'part:p:fragment:17']);
-  expect(rows[1]!.memberIds).toContain('part:p');
+it('gives canonical parts and explicit omitted messages distinct Markdown and virtual identities', () => {
+  const retained = history(message({ id: 'before', parts: [{ type: 'text', text: '1. First item' }, { type: 'text', text: '2. Second item' }] }));
+  retained.gaps = [{ messageID: 'omitted', sequence: '2', reason: 'message_too_large', bytes: 9000 }];
+  const rows = timelineRows(retained, preview({ text: '3. Third item' }));
+  expect(rows.map(row => row.id)).toEqual(['message:before:part:0', 'message:before:part:1', 'message:omitted', 'message:live:part:0']);
+  expect(rows[1]!.memberIds).toContain('message:before');
   const cache = new Map();
   const blocks = markdownRows(rows, cache);
   expect(new Set(blocks.map(row => row.id)).size).toBe(blocks.length);
@@ -108,11 +122,12 @@ it('uses adaptive fade bounds', () => {
 
 });
 
-it('copies original prose before presentation splits, excluding thought and output', () => {
-  const rows = timelineRows({ revision: '1', messages: [{ seq: 1, message: { role: 'assistant', content: 'Hello world', presentation: { version: 1, parts: [
-    { id: 'a', kind: 'text', start: 0, end: 6 }, { id: 'b', kind: 'reasoning', text: 'private thought' }, { id: 'c', kind: 'text', start: 6, end: 11 },
-  ] } } }] } as HistoryView, undefined, true);
-  expect([...responseCopies(rows, false).values()]).toEqual([{ text: 'Hello world', label: 'Copy response' }]);
+it('copies canonical prose once, excluding reasoning and tool output', () => {
+  const retained = history(message({ parts: [{ type: 'text', text: 'Hello' }, { type: 'text', text: 'world' },
+    { type: 'tool_call', call: { id: 'call', name: 'execute', arguments: {} } }] }),
+    message({ id: 'result', sequence: '2', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call', output: 'private output', is_error: false } }] }));
+  const rows = timelineRows(retained, preview({ reasoning: 'private thought', text: '' }));
+  expect([...responseCopies(rows, false).values()]).toEqual([{ text: 'Hello\n\nworld', label: 'Copy response' }]);
 });
 
 it('restores a visible operation before its enclosing group alias', () => {
@@ -137,7 +152,7 @@ it('keeps a selected Markdown block intact through append and settlement, then c
   expect(view.container.querySelector('[data-stream-chunk]')).toBeNull();
 });
 
-it('keeps orphaned reasoning and prose after their last user or tool record', () => {
-  const history = { revision: '1', messages: [{ seq: 1, message: { role: 'user', content: 'Request', presentation: { version: 1, parts: [{ id: 'r', kind: 'reasoning', text: 'Thought' }, { id: 'p', kind: 'text', text: 'Partial response' }] } } }] } as HistoryView;
-  expect(timelineRows(history, undefined, true).map(row => row.text)).toEqual(['Request', 'Thought', 'Partial response']);
+it('keeps a partial replacement response after its last canonical user or tool record', () => {
+  const retained = history(message({ role: 'user', input_id: 'input', parts: [{ type: 'text', text: 'Request' }] }));
+  expect(timelineRows(retained, preview({ reasoning: 'Thought', text: 'Partial response' })).map(row => row.text)).toEqual(['Request', 'Thought', 'Partial response']);
 });

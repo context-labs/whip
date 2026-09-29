@@ -38,6 +38,7 @@ export const messageBase = {
   opening_input: false,
   turn_id: 'turn',
   input_id: null,
+  input_identity: null,
   mail: null,
   source: null,
   retired_by: null,
