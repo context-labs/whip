@@ -34,7 +34,7 @@ async function surface(name, fixture) {
 for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',')) {
   assert(['chromium', 'firefox', 'electron'].includes(name));
   console.log(`${name}: native queue fixture`);
-  let fixture, browser, page;
+  let fixture, browser, page, queueTail;
   const errors = [], frames = [], checks = [], cspErrors = [];
   try {
     fixture = await startFixture({ queueStreams: true, lifetimeMs: 900_000, managedDirectory: name === 'electron',
@@ -212,17 +212,27 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect.poll(() => reading.evaluate(element => element.scrollTop)).toBeCloseTo(anchor, 0);
     await input.focus(); await input.pressSequentially(' more draft', { delay: 20 });
     await expect.poll(() => reading.evaluate(element => element.scrollTop)).toBeCloseTo(anchor, 0);
+    // Admission ACKs precede the observed input page. Scroll only after all 24
+    // canonical rows are known, otherwise later arrivals extend the old bottom
+    // while their overscan rows already satisfy Playwright's toBeVisible().
+    const observedBeforeWait = await queue.locator('[data-queue-row]').first().getAttribute('aria-setsize');
+    await expect(queue.locator('[data-queue-row]').first()).toHaveAttribute('aria-setsize', String(large.length));
+    const beforeTailScroll = await queue.locator('ol').evaluate(element => ({
+      observed: element.querySelector('[data-queue-row]')?.getAttribute('aria-setsize'),
+      scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+    }));
     await queue.locator('ol').evaluate(element => { element.scrollTop = element.scrollHeight; });
     await expect(row('Queue window 24')).toBeVisible();
     if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click();
     await stacked();
-    const queueBounds = await queue.locator('ol').boundingBox();
-    const lastBounds = await row('Queue window 24').boundingBox();
-    assert.ok(lastBounds.y + lastBounds.height <= queueBounds.y + queueBounds.height + 1, 'Last queued row is fully visible');
-    assert.ok(await row('Queue window 24').evaluate(element => {
-      const bounds = element.getBoundingClientRect();
-      return document.elementFromPoint(bounds.left + bounds.width / 2, bounds.bottom - 2)?.closest('[data-queue-row]') === element;
-    }), 'Last queued row remains hit-testable above composer');
+    queueTail = { observedBeforeWait, before: beforeTailScroll, after: await row('Queue window 24').evaluate(element => {
+      const list = element.closest('ol'), bounds = element.getBoundingClientRect(), viewport = list.getBoundingClientRect();
+      return { observed: element.getAttribute('aria-setsize'), row: bounds.toJSON(), viewport: viewport.toJSON(),
+        scrollTop: list.scrollTop, scrollHeight: list.scrollHeight, clientHeight: list.clientHeight,
+        hit: document.elementFromPoint(bounds.left + bounds.width / 2, bounds.bottom - 2)?.closest('[data-queue-row]') === element };
+    }) };
+    assert.ok(queueTail.after.row.bottom <= queueTail.after.viewport.bottom + 1, `Last queued row is fully visible: ${JSON.stringify(queueTail)}`);
+    assert.ok(queueTail.after.hit, `Last queued row remains hit-testable above composer: ${JSON.stringify(queueTail)}`);
     await screenshot('virtual-queue-reading-history');
     for (const item of large) await session.inputs.cancel(item.id, deadline());
     await expect(queue).toHaveCount(0);
@@ -263,10 +273,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal((await checkComposerPanels(form)).panels.length, 0);
     await screenshot('composer-only');
     checks.push('agents and queue stack in collapsed/expanded dark/light and 320px large-type states; queue-only and composer-only leave no empty surface');
-    reports.push({ name, rendererDigest: manifest.digest, checks, typing, effects, controls, errors, cspErrors });
+    reports.push({ name, rendererDigest: manifest.digest, checks, typing, effects, controls, queueTail, errors, cspErrors });
   } catch (error) {
     await page?.screenshot({ path: join(directory, `${name}-failure.png`) }).catch(() => {});
-    await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n${await page?.locator('body').innerText().catch(() => '')}
+    await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n${JSON.stringify({ queueTail })}\n${await page?.locator('body').innerText().catch(() => '')}
 ${fixture?.output ?? ''}`);
     throw error;
   } finally {
