@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NativeSurfaceProvider, UIProvider } from '@whip/ui';
-import type { BrowserSelection, BrowserSelectionOptions, WhipClient } from '@whip/legacy-sdk';
+import type { BrowserSelection, BrowserSelectionOptions, Client } from '@whip/sdk';
+vi.mock('@whip/sdk', async original => ({ ...await original<typeof import('@whip/sdk')>(), selectBrowserProvider: (peer: { select: Function }, ...args: unknown[]) => peer.select(...args) }));
 import type { BrowserAgentBridge, BrowserAgentEvent } from '../src/browser-agent-types';
 import type { BrowserWorkspace } from '../src/browser-workspace';
 import { BrowserAssociations, browserProjectId } from '../src/browser-provider';
@@ -28,7 +29,7 @@ function fixture(kind: 'local' | 'ssh' | 'url' = 'local', enabled = true, discov
   ] };
   const bridge: BrowserAgentBridge = { identity: vi.fn(async () => identity), preview: vi.fn(async () => preview), select: vi.fn(async () => {}),
     ...(discovery ? { inventory: vi.fn() } : {}),
-    dispatch: vi.fn(), cancel: vi.fn(), release: vi.fn(async () => {}), onEvent: listener => { events.add(listener); return () => { events.delete(listener); }; } };
+    retire: vi.fn(async () => {}), dispatch: vi.fn(), cancel: vi.fn(), release: vi.fn(async () => {}), onEvent: listener => { events.add(listener); return () => { events.delete(listener); }; } };
   let options: BrowserSelectionOptions | undefined;
   const releases: ReturnType<typeof vi.fn>[] = [];
   const selection = () => {
@@ -37,8 +38,9 @@ function fixture(kind: 'local' | 'ssh' | 'url' = 'local', enabled = true, discov
     return { provider: { provider_epoch: 'provider_1' }, get active() { return active; }, release } as BrowserSelection;
   };
   const select = vi.fn(async (_offer, _bridge, input) => { options = input; return selection(); });
-  const client = { browser: { select }, sessions: { list: vi.fn(async () => ({ revision: '1', items: roots, next_cursor: null })) } } as unknown as WhipClient;
-  const catalog = { status: 'ready' as const, page: { revision: '1', items: roots, next_cursor: null }, truncated: false };
+  const listTrees = vi.fn(async () => ({ revision: '1', items: roots.map(row => ({ root_id: row.id, working_directory: row.cwd, tree: { id: `tree-${row.id}`, metadata: { title: row.title } } })), next_cursor: null }));
+  const client = { listTrees, processEpoch: 'boot' } as unknown as Client;
+  const catalog = { status: 'ready' as const, revision: '1', items: [], truncated: false };
   let host = { id: 'local', name: 'Selected host', runtimeId: 'verified_runtime', state: 'connected', client,
     profile: { id: kind === 'ssh' ? 'ssh:host' : 'local', target: kind === 'ssh' ? { kind, host: 'host' } : kind === 'url' ? { kind, endpoint: 'https://host/' } : { kind } },
     list: { subscribe: () => () => {}, getSnapshot: () => catalog },
@@ -46,18 +48,18 @@ function fixture(kind: 'local' | 'ssh' | 'url' = 'local', enabled = true, discov
   let state = { hosts: [host] };
   const abort = new AbortController();
   const hosts = { getSnapshot: () => state, subscribe: (listener: () => void) => { hostListeners.add(listener); return () => { hostListeners.delete(listener); }; },
-    signal: () => abort.signal } as unknown as HostConnections;
+    browserProvider: async () => ({ select }), signal: () => abort.signal } as unknown as HostConnections;
   const close = vi.fn(async () => ({ status: 'closed' as const })), admit = vi.fn(async () => undefined);
   const browser = { platform: { close }, admit } as unknown as BrowserWorkspace;
   const report = vi.fn();
   const associations = new BrowserAssociations(enabled ? bridge : undefined, hosts, tabs, browser, report);
   const runtime = { browserAssociations: associations, connections: hosts, tabs, platform: { browserAgent: enabled ? bridge : undefined }, getSnapshot: () => state,
     subscribe: hosts.subscribe } as unknown as AppRuntime;
-  const disconnect = () => { host = { ...host, state: 'disconnected' }; state = { hosts: [host] }; for (const listener of hostListeners) listener(); };
+  const disconnect = () => { host = { ...host, state: 'closed' }; state = { hosts: [host] }; for (const listener of hostListeners) listener(); };
   const reconnect = () => { host = { ...host, state: 'connected' }; state = { hosts: [host] }; for (const listener of hostListeners) listener(); };
   const emit = (event: BrowserAgentEvent) => { for (const listener of events) listener(event); };
   cleanups.push(() => associations.dispose());
-  return { tabs, associations, bridge, identity, preview, runtime, select, releases, selection, disconnect, reconnect, emit, close, admit, report, options: () => options };
+  return { listTrees, tabs, associations, bridge, identity, preview, runtime, select, releases, selection, disconnect, reconnect, emit, close, admit, report, options: () => options };
 }
 
 describe('explicit Browser provider associations', () => {
@@ -147,6 +149,7 @@ function mount(f: ReturnType<typeof fixture>, acquire?: () => { ready: Promise<v
   return render(<RuntimeContext.Provider value={f.runtime}><QueryClientProvider client={queries}><NativeSurfaceProvider acquire={acquire}><UIProvider><BrowserProviderControls tabId="human_tab"/></UIProvider></NativeSurfaceProvider></QueryClientProvider></RuntimeContext.Provider>);
 }
 async function option(label: string, name: RegExp) {
+  await waitFor(() => expect((screen.getByRole('combobox', { name: label }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('combobox', { name: label }));
   fireEvent.click(await screen.findByRole('option', { name }));
 }
@@ -172,10 +175,29 @@ describe('Browser access controls', () => {
     const f = fixture(); f.select.mockRejectedValueOnce(new Error('Browser module unavailable on historical root')); mount(f);
     fireEvent.click(screen.getByRole('button', { name: 'Conversation access…' })); await option('Execution host', /Selected host/); await option('Conversation', /Older explicit root/);
     fireEvent.click(screen.getByRole('button', { name: 'Offer Browser to conversation' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('historical root'); expect(screen.getByText(/Start a fresh conversation/)).not.toBeNull();
+    expect((await screen.findByRole('alert')).textContent).toContain('historical root'); expect(screen.getByText(/Browser requests require/)).not.toBeNull();
     expect(f.select).toHaveBeenCalledOnce(); expect(f.associations.getSnapshot()[0]?.status).toBe('error');
   });
   it('keeps web capability safely disabled without attempting native selection', () => {
     const f = fixture('local', false); mount(f); expect((screen.getByRole('button', { name: 'Conversation access…' }) as HTMLButtonElement).disabled).toBe(true); expect(f.bridge.identity).not.toHaveBeenCalled(); expect(f.select).not.toHaveBeenCalled();
   });
+});
+
+it('uses revision-pinned native pages and host search without offering a conversation implicitly', async () => {
+  const f = fixture();
+  const row = (id: string, title: string) => ({ root_id: id, working_directory: '/project/one', tree: { id: `tree-${id}`, metadata: { title } } });
+  f.listTrees.mockResolvedValueOnce({ revision: '9007199254740993', items: [row('first', 'First page root')], next_cursor: 'cursor-first' } as any);
+  f.listTrees.mockResolvedValueOnce({ revision: '9007199254740993', items: [row('later', 'Later root')], next_cursor: null } as any);
+  mount(f); fireEvent.click(screen.getByRole('button', { name: 'Conversation access…' })); await option('Execution host', /Selected host/);
+  fireEvent.click(await screen.findByRole('button', { name: 'More conversations' }));
+  await waitFor(() => expect(f.listTrees).toHaveBeenLastCalledWith({ after: 'cursor-first', expected_revision: '9007199254740993', limit: 64 }, expect.any(Object)));
+  await option('Conversation', /Later root/);
+  f.listTrees.mockResolvedValueOnce({ revision: '9007199254740994', items: [row('searched', 'Literal % match')], next_cursor: null } as any);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Find a conversation' }), { target: { value: 'Literal %' } });
+  await waitFor(() => expect(f.listTrees).toHaveBeenLastCalledWith({ search: 'Literal %', limit: 64 }, expect.any(Object)));
+  expect(f.select).not.toHaveBeenCalled();
+  expect((screen.getByRole('button', { name: 'Offer Browser to conversation' }) as HTMLButtonElement).disabled).toBe(true);
+  await option('Conversation', /Literal % match/);
+  fireEvent.click(screen.getByRole('button', { name: 'Offer Browser to conversation' }));
+  await waitFor(() => expect(f.select).toHaveBeenCalledOnce()); expect(f.select.mock.calls[0]![0].root_id).toBe('searched');
 });

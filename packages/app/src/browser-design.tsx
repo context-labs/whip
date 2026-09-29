@@ -21,8 +21,9 @@ export function designRecipients(runtime: AppRuntime): Recipient[] {
   const hosts = runtime.connections.getSnapshot().hosts;
   for (const tab of runtime.tabs.workspace().tabs) {
     if (!isSessionTab(tab)) continue;
-    const host = hosts.find(item => item.runtimeId === tab.runtimeId);
-    if (!host) continue;
+    const matching = hosts.filter(item => item.runtimeId === tab.runtimeId);
+    if (matching.length !== 1) continue;
+    const host = matching[0]!;
     const agentId = tab.location.agent || tab.rootId;
     const id = JSON.stringify([host.id, tab.runtimeId, tab.rootId, agentId]);
     recipients.set(id, { id, runtimeId: tab.runtimeId, rootId: tab.rootId, agentId, hostId: host.id,
@@ -35,7 +36,7 @@ async function submitDesign(runtime: AppRuntime, tabId: string, input: DesignSub
   const recipient = designRecipients(runtime).find(item => item.id === input.recipientId && item.available);
   const host = runtime.connections.getSnapshot().hosts.find(item => item.id === recipient?.hostId && item.runtimeId === recipient?.runtimeId && item.state === 'connected');
   if (!recipient || !host?.client || !input.current()) throw new Error('The page or destination changed. Select the elements and destination again.');
-  const session = host.client.session(recipient.rootId), surfaceId = `design:${tabId}`;
+  const session = host.client.session(recipient.agentId), surfaceId = `design:${tabId}`;
   const key = compositionKey(recipient.runtimeId, recipient.rootId, recipient.agentId, surfaceId);
   if (runtime.getSnapshot().commands.some(item => item.draftKey === key && item.delivery)) return { accepted: false, uncertain: true, error: 'Check this conversation’s pending delivery before sending again.' };
   // Only this design surface's previously rejected uploads are replaced. Normal drafts stay untouched.
@@ -46,7 +47,7 @@ async function submitDesign(runtime: AppRuntime, tabId: string, input: DesignSub
     const bytes = Uint8Array.from(atob(encoded), value => value.charCodeAt(0));
     files.push(new File([bytes], 'browser-design-viewport.png', { type: 'image/png' }));
   }
-  const uploading = runtime.compositions.add(key, session, recipient.runtimeId, recipient.agentId, files, surfaceId);
+  const uploading = runtime.compositions.add(key, session, recipient.runtimeId, recipient.agentId, files, surfaceId, recipient.rootId);
   const attachmentIds = runtime.compositions.get(key).attachments.map(item => item.id);
   try {
   await uploading;
@@ -56,13 +57,17 @@ async function submitDesign(runtime: AppRuntime, tabId: string, input: DesignSub
   const failed = attachments.find(item => item.error || !item.value);
   if (failed) throw new Error(failed.error || 'Evidence upload did not finish. Try again when connected.');
   // The live snapshot also validates that the destination agent still exists before admission.
-  const snapshot = await session.snapshot();
+  const snapshot = await session.get({ signal: runtime.connections.signal(host.client) });
+  const [root, activity] = await Promise.all([
+    recipient.agentId === recipient.rootId ? snapshot : host.client.session(recipient.rootId).get({ signal: runtime.connections.signal(host.client) }),
+    session.activity({ signal: runtime.connections.signal(host.client) }),
+  ]);
   if (!input.current()) { runtime.compositions.clear(key, attachmentIds); throw new Error('The page changed before sending. Select the elements again.'); }
-  if (snapshot.root_id !== recipient.rootId || (recipient.agentId !== recipient.rootId && !snapshot.agents?.some(agent => agent.id === recipient.agentId && !agent.terminal_cause))) throw new Error('This conversation recipient is no longer available. Choose another conversation.');
-  const result = await submitChatInput({ runtime, session, runtimeId: recipient.runtimeId, agentId: recipient.agentId,
-    compositionKey: key, connected: host.client.getSnapshot().state === 'connected', text: input.prompt, attachments,
-    designContext: designContextSummary(input.capture.text, attachments[0]!.value!.content.reference_id, attachments[1]?.value?.content.reference_id),
-    delivery: input.delivery === 'queue' ? 'queued' : 'steer', activeTurn: snapshot.active_turns[recipient.agentId], onAccepted: input.accepted });
+  if (snapshot.id !== recipient.agentId || snapshot.tree_id !== root.tree_id || root.parent_id !== null || snapshot.lifecycle !== 'active') throw new Error('This conversation recipient is no longer available. Choose another conversation.');
+  const result = await submitChatInput({ runtime, session, runtimeId: recipient.runtimeId, rootId: recipient.rootId, agentId: recipient.agentId,
+    compositionKey: key, connected: runtime.connections.isAttached(host.client), text: input.prompt, attachments,
+    designContext: designContextSummary(input.capture.text, attachments[0]!.value!.id, attachments[1]?.value?.id),
+    delivery: input.delivery === 'queue' ? 'queued' : 'steer', activeTurn: activity.active_turn?.id, onAccepted: input.accepted });
   if (result.status === 'completed') return { accepted: result.accepted };
   if (result.status === 'skipped') return { accepted: false, uncertain: !!result.delivery, error: 'The message was not sent. Check the destination connection and pending delivery.' };
   return { accepted: result.accepted, uncertain: !!result.delivery, error: result.error instanceof Error ? result.error.message : String(result.error) };

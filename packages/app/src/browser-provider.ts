@@ -1,4 +1,4 @@
-import type { BrowserSelection, WhipClient } from '@whip/legacy-sdk';
+import { selectBrowserProvider, type BrowserSelection, type Client } from '@whip/sdk';
 import type { BrowserAgentBridge, BrowserAgentEvent } from './browser-agent-types';
 import type { BrowserWorkspace } from './browser-workspace';
 import type { HostConnections } from './hosts';
@@ -19,7 +19,7 @@ export interface BrowserAssociation {
 }
 interface Association {
   value: BrowserAssociation;
-  client: WhipClient;
+  client: Client;
   controller: AbortController;
   pending?: Promise<BrowserSelection>;
   selection?: BrowserSelection;
@@ -29,7 +29,7 @@ interface Association {
 export function browserProjectId(cwd: string): string | undefined {
   return cwd.startsWith('/') && cwd.length <= 508 && !/[\u0000-\u001f\u007f]/.test(cwd) ? `cwd:${cwd}` : undefined;
 }
-export const browserVersionHelp = 'Browser access requires a conversation created with Browser v1 support. Start a fresh conversation if this one predates Browser support; existing conversations are never silently upgraded.';
+export const browserVersionHelp = 'Browser requests require the conversation’s Browser module. Offering a page does not grant control, and access ends when this window disconnects.';
 
 /** App-owned conversation/host/pane destinations and explicit human-tab offers. */
 export class BrowserAssociations {
@@ -126,7 +126,8 @@ export class BrowserAssociations {
       if (offered?.preview && (!preview || offered.preview.environment_id !== preview.environment_id || offered.preview.host_id !== preview.host_id || offered.preview.host_identity !== preview.host_identity || offered.preview.connection_generation !== preview.connection_generation)) {
         throw new Error('Select the matching SSH preview environment before offering this page. A different host is never substituted.');
       }
-      entry.pending = client.browser.select({ root_id: input.rootId, version: bridge.inventory ? 2 : 1, ...(input.availability ? { availability: true } : {}), desktop_id: identity.desktopId,
+      const peer = await this.hosts.browserProvider(client, { signal });
+      entry.pending = selectBrowserProvider(peer, { root_id: input.rootId, version: bridge.inventory ? 2 : 1, ...(input.availability ? { availability: true } : {}), desktop_id: identity.desktopId,
         window_id: identity.windowId, offer_revision: crypto.randomUUID(), create_profile_id: identity.createProfileId,
         offered_tabs: offered ? [offered] : [], offered_preview_hosts: preview ? [preview] : [] }, bridge, {
         signal, ...(preview ? { connectionId: host.profile.id, projectId: input.projectId } : {}),

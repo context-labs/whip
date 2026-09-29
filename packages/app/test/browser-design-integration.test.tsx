@@ -1,9 +1,11 @@
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import { manifest } from '@whip/legacy-protocol';
-import type { TransportFactory, TransportHandlers } from '@whip/legacy-sdk';
+import type { FramedConnector, FrameHandlers } from '@whip/sdk';
+const fixtures = JSON.parse(readFileSync('packages/protocol/schema/fixtures.json', 'utf8'));
+const value = (type: string) => structuredClone(fixtures.find((item: any) => item.type === type && item.valid).value);
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { BrowserDesignControl, designRecipients } from '../src/browser-design';
@@ -29,60 +31,56 @@ afterEach(() => { runtimes.splice(0).forEach(runtime => runtime.dispose()); vi.u
 function daemon() {
   const requests: Request[] = [];
   const uploads = new Map<string, { params: Request['params']; bytes: number[] }>();
-  let handlers: TransportHandlers;
-  let holdUpload = false;
-  let held: Request | undefined;
+  let holdActivity = false; const heldActivity: (() => void)[] = [];
+  let holdUpload = false, holdCommand = false, uncertain = false, recovered = false, absent = false;
   let rejection: string | undefined;
-  let holdCommand = false;
-  let uncertain = false;
-  let recovered = false;
-  let absent = false;
-  const reply = (request: Request, result: unknown) => handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
-  const error = (request: Request, message: string, kind = 'invalid_arguments') => handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message, data: { kind } } }));
-  const finish = (request: Request) => {
-    const upload = uploads.get(request.params.upload_id)!;
-    reply(request, { reference_id: request.params.upload_id, digest: upload.params.expected_digest, size: upload.params.size, media_type: upload.params.media_type });
-  };
-  const factory: TransportFactory = async current => {
-    handlers = current;
-    return { kind: 'unix', bufferedAmount: 0, close() {}, send(text) {
-      const request = JSON.parse(text) as Request;
-      requests.push(request);
-      const p = request.params;
+  const held: (() => void)[] = [];
+  const live = new Set<FrameHandlers>();
+  const admission = (params: Request['params']) => ({
+    receipt: { identity: params.identity, digest: '0'.repeat(64), input_id: 'input', deleted_at: null, created_at: '2026-09-28T00:00:00Z' },
+    input: { ...value('Input'), id: 'input', session_id: params.session_id, source: 'user', kind: 'prompt', host_operation: null, state: 'claimed', turn_id: 'turn', parts: params.parts },
+    turn: { ...value('Turn'), id: 'turn', session_id: params.session_id, kind: 'prompt', state: 'succeeded' },
+  });
+  const factory: FramedConnector = async (handlers, signal) => {
+    live.add(handlers);
+    const reply = (request: Request, result: unknown) => handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
+    const error = (request: Request, message: string, kind = 'INVALID') => handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message, kind } }));
+    signal.addEventListener('abort', () => live.delete(handlers), { once: true });
+    return { kind: 'unix', bufferedAmount: 0, close() { live.delete(handlers); }, send(text) {
+      const request = JSON.parse(text) as Request; requests.push(request); const p = request.params;
       switch (request.method) {
-        case 'initialize': reply(request, {
-          protocol_major: manifest.major, protocol_minor: manifest.minor, runtime_id: 'host', connection_id: 'connection', generation: '1',
-          host_platform: 'darwin', host_architecture: 'arm64', build_id: 'test', capabilities: [], negotiated_capabilities: [],
-          execution_engines: [{ id: 'starlark', language: 'starlark', label: 'Starlark' }], default_execution_engine: 'starlark',
-          operations: manifest.operations.map(operation => ({ ...operation })),
-          limits: { frame_bytes: 1 << 20, connections: 64, in_flight_requests: 32, outbound_messages: 1024, outbound_bytes: String(8 << 20), root_subscriptions: 16, content_chunk_bytes: 256 << 10, upload_bytes: String(64 << 20) },
-        }); break;
-        case 'config.get': reply(request, { revision: '1', remote_hosts: [], default_execution_engine: 'starlark', import_claude: false, import_codex: false, mcp_import_offered: false, brand_icons: false, default_model: '', default_provider: '', default_effort: '', compact_model: '', compact_provider: '', compact_percent: 70, goal_max_rounds: 1, max_retries: 1 }); break;
-        case 'provider.list': reply(request, { revision: '1', providers: [] }); break;
-        case 'sessions.revision': reply(request, { revision: '1' }); break;
-        case 'sessions.list': reply(request, { revision: '1', items: [], has_more: false }); break;
-        case 'root.snapshot': reply(request, { root_id: p.root_id, cursor: '0', history_revision: '1', meta: { execution_engine: 'starlark', definition: '', definition_revision: '', id: p.root_id, kind: 'root', title: '', model: '', provider: '', cwd: '/', goal: '', forked_from: '', fork_seq: 0, tags: [], archived: false, pinned: false, effort: '', usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' }, active_turns: { child: 'child-turn' }, agents: [{ execution_engine: 'starlark', id: 'child', root_id: p.root_id, parent_id: p.root_id, name: 'child', model: '', provider: '', effort: '', cwd: '/', report: 'notice', status: 'running', pending_mail: 0, lifecycle_phase: '', blocking_reason: '', terminal_cause: '', allowed_controls: [] }], message_seqs: [], messages: [], agent_presentations: {}, blackboard: [], budgets: [], capabilities: [], schedules: [], inbox: [], presentation: [], questions: [], permissions: [] }); break;
-        case 'upload.begin': uploads.set(p.upload_id, { params: p, bytes: [] }); reply(request, { accepted: true }); break;
-        case 'upload.chunk': uploads.get(p.upload_id)!.bytes.push(...Uint8Array.from(atob(p.data), value => value.charCodeAt(0))); reply(request, { accepted: true }); break;
-        case 'upload.finish': if (holdUpload) held = request; else finish(request); break;
-        case 'command.submit':
+        case 'initialize': reply(request, { major: 4, minor: 0, runtime_id: 'host', process_epoch: 'boot', network_client: false, builtins: [] }); break;
+        case 'providers.list': reply(request, value('ProviderInventory')); break;
+        case 'host.profiles': reply(request, { revision: '1'.repeat(64), profiles: [] }); break;
+        case 'trees.catalog': reply(request, { revision: '1' }); break;
+        case 'trees.list': reply(request, { revision: '1', items: [], next_cursor: null }); break;
+        case 'sessions.get': reply(request, { ...value('Session'), id: p.session_id, parent_id: p.session_id === 'child' ? 'root' : null }); break;
+        case 'sessions.activity': { const finish = () => reply(request, { ...value('SessionActivity'), session_id: p.session_id, queued_input_count: '0', active_turn: p.session_id === 'child' ? { ...value('Turn'), id: 'child-turn', session_id: 'child', state: 'running', finished_at: null } : null }); if (holdActivity) heldActivity.push(finish); else finish(); break; }
+        case 'content.put': {
+          const bytes = Buffer.from(p.data_base64, 'base64'); uploads.set(p.reference_id, { params: p, bytes: [...bytes] });
+          const finish = () => reply(request, { id: p.reference_id, session_id: p.session_id, media_type: p.media_type, size: String(bytes.length), digest: createHash('sha256').update(bytes).digest('hex'), created_at: '2026-09-28T00:00:00Z' });
+          if (holdUpload) held.push(finish); else finish(); break;
+        }
+        case 'sessions.submit':
           if (rejection) error(request, rejection);
-          else if (uncertain) { handlers.close(new Error('Acknowledgement lost')); }
-          else if (!holdCommand) reply(request, { command_id: p.command_id, operation: p.operation, status: 'succeeded', ingress_seq: '1', result: p.operation === 'agent.submit' ? { agent_id: 'child', inbox_seq: '1', status: 'queued' } : { text: 'Done' } });
+          else if (uncertain) handlers.close(new Error('Acknowledgement lost'));
+          else if (!holdCommand) { absent = false; reply(request, admission(p)); }
           break;
-        case 'command.status':
-          if (recovered) reply(request, { command_id: p.command_id, operation: 'agent.submit', status: 'succeeded', ingress_seq: '1', result: { agent_id: 'child', inbox_seq: '1', status: 'queued' } });
-          else error(request, absent ? 'Not accepted' : 'Status temporarily unavailable', absent ? 'command_not_found' : 'unavailable');
+        case 'receipts.match': {
+          const params = JSON.parse(Buffer.from(p.params_base64, 'base64').toString());
+          if ((!uncertain && !absent) || recovered) reply(request, admission(params));
+          else error(request, absent ? 'Not accepted' : 'Status temporarily unavailable', absent ? 'NOT_FOUND' : 'BUSY');
           break;
-        case 'browser.provider.bind': reply(request, { version: 1, provider_id: 'provider-id', provider_epoch: 'provider' }); break;
-        default: reply(request, {});
+        }
+        case 'browser.provider.bind': reply(request, { version: p.version, provider_id: 'provider-id', provider_epoch: 'provider' }); break;
+        default: error(request, 'Unexpected method: ' + request.method);
       }
     } };
   };
-  return { factory, requests, uploads, commands: () => requests.filter(item => item.method === 'command.submit'),
-    holdUpload: () => { holdUpload = true; }, releaseUpload: () => { holdUpload = false; if (held) finish(held); },
+  return { holdActivity: () => { holdActivity = true; }, releaseActivity: () => heldActivity.splice(0).forEach(finish => finish()), factory, requests, uploads, commands: () => requests.filter(item => item.method === 'sessions.submit'),
+    holdUpload: () => { holdUpload = true; }, releaseUpload: () => { holdUpload = false; held.splice(0).forEach(finish => finish()); },
     reject: (message: string) => { rejection = message; }, holdCommand: () => { holdCommand = true; },
-    uncertain: () => { uncertain = true; }, recover: () => { recovered = !absent; uncertain = false; }, absent: () => { absent = true; }, disconnect: () => handlers.close(new Error('Disconnected')),
+    uncertain: () => { uncertain = true; }, recover: () => { recovered = !absent; uncertain = false; }, absent: () => { absent = true; }, disconnect: () => live.forEach(handlers => handlers.close(new Error('Disconnected'))),
   };
 }
 
@@ -105,8 +103,8 @@ async function fixture(associated: boolean | 'ambiguous' = false) {
   const inventory = { epoch: 'epoch', revision: 1, tabs: [page] };
   const browser: BrowserPlatform = { version: 1, design, snapshot: async () => inventory, restore: async () => inventory,
     create: async () => page, admitted: async () => {}, present: async () => {}, act: async () => {}, close: async () => ({ status: 'closed' }), onEvent: () => () => {} };
-  const bridge: BrowserAgentBridge = { identity: async () => ({ desktopId: 'desktop', windowId: 'window', createProfileId: 'profile', tabs: [{ tab_id: 'page', tab_generation: '1', profile_id: 'profile' }] }),
-    select: async () => {}, release: async () => {}, preview: vi.fn(), dispatch: vi.fn(), cancel: vi.fn(), onEvent: () => () => {} };
+  const bridge: BrowserAgentBridge = { identity: async () => ({ desktopId: 'desktop', windowId: 'window', createProfileId: 'profile', tabs: [{ tab_id: 'page', tab_generation: '1', profile_id: 'profile', document_revision: '1', url: 'https://example.test', title: 'Page' }] }),
+    retire: async () => {}, select: async () => {}, release: async () => {}, preview: vi.fn(), dispatch: vi.fn(), cancel: vi.fn(), onEvent: () => () => {} };
   const values = new Map<string, string>();
   const storage = { keys: () => [...values.keys()], getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); },
     transaction: async <T,>(_key: string, work: () => T) => work() };
@@ -114,6 +112,7 @@ async function fixture(associated: boolean | 'ambiguous' = false) {
     connectionKinds: ['local'], resolveConnection: async () => ({ endpoint: server.factory, dispose() {} }), copy: async () => {}, download: async () => {}, openExternal: async () => {} });
   runtimes.push(runtime);
   await runtime.connections.connect();
+  expect(runtime.connections.home().state, JSON.stringify({ state: runtime.connections.home().state, error: runtime.connections.home().error, requests: server.requests })).toBe('connected');
   const rootView = runtime.tabs.open('host', 'root', 'Target');
   const childView = runtime.tabs.split(rootView, 'right');
   runtime.tabs.updateLocation(childView, { agent: 'child' });
@@ -122,8 +121,9 @@ async function fixture(associated: boolean | 'ambiguous' = false) {
   await runtime.browser.start();
   if (associated) await runtime.browserAssociations.select({ hostId: 'local', rootId: 'root', title: 'Target', tabId: 'page' });
   if (associated === 'ambiguous') await runtime.browserAssociations.select({ hostId: 'local', rootId: 'closed-root', title: 'Closed conversation', tabId: 'page' });
+  expect(runtime.connections.home().state, JSON.stringify({ state: runtime.connections.home().state, error: runtime.connections.home().error, requests: server.requests })).toBe('connected');
   const session = runtime.connections.getSnapshot().hosts[0]!.client!.session('root');
-  expect(session.client.getSnapshot(), JSON.stringify(server.requests.map(item => item.method)) + String(session.client.getSnapshot().error?.cause)).toMatchObject({ state: 'connected', info: { runtime_id: 'host' } });
+  expect(session.client.runtimeID).toBe('host');
   runtime.setDraft('host:root:root', 'Normal root draft');
   runtime.setDraft('host:root:child', 'Normal child draft');
   await runtime.compositions.add('host:root:child', session, 'host', 'child', [new File(['ordinary file'], 'normal.txt', { type: 'text/plain' })]);
@@ -153,19 +153,18 @@ it('sends two native selections through actual uploads and runtime command admis
   await waitFor(() => expect(f.server.commands()).toHaveLength(1));
   await waitFor(() => expect(f.draft.prompt).toBe(''));
   const command = f.server.commands()[0]!.params;
-  expect(command).toMatchObject({ root_id: 'root', operation: 'agent.submit', payload: { id: 'child', text: 'Align these two controls — 改变', delivery: 'steer' } });
-  expect(command.payload.attachments.map((item: any) => item.kind)).toEqual(['text', 'image']);
-  expect(command.payload.design_context).toMatchObject({
-    context_attachment_id: command.payload.attachments[0].content.reference_id,
-    screenshot_attachment_id: command.payload.attachments[1].content.reference_id,
+  expect(command).toMatchObject({ session_id: 'child', parts: [{ type: 'text', text: 'Align these two controls — 改变' }, { type: 'content' }, { type: 'content' }], delivery: 'steer', target_turn_id: 'child-turn' });
+  expect(command.design_context).toMatchObject({
+    context_attachment_id: command.parts[1].reference_id,
+    screenshot_attachment_id: command.parts[2].reference_id,
     element_count: 2, page_url: 'https://example.com/settings', page_title: '页面',
   });
   expect(f.capture).toHaveBeenCalledOnce();
   const uploads = [...f.server.uploads.values()].slice(1);
-  expect(uploads.map(item => [item.params.root_id, item.params.agent_id, item.params.media_type])).toEqual([['root', 'child', 'text/plain'], ['root', 'child', 'image/png']]);
+  expect(uploads.map(item => [item.params.session_id, item.params.media_type])).toEqual([['child', 'text/plain'], ['child', 'image/png']]);
   expect(JSON.parse(new TextDecoder().decode(new Uint8Array(uploads[0]!.bytes))).elements.map((item: any) => item.id)).toEqual(['one', 'two']);
   expect(uploads[1]!.bytes).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-  expect(f.runtime.getSnapshot().commands.some(item => item.commandId === command.command_id && item.status === 'succeeded')).toBe(true);
+  expect(f.runtime.getSnapshot().commands.some(item => item.commandId === command.identity.request_id && item.status === 'succeeded')).toBe(true);
   expect(f.runtime.compositions.get(compositionKey('host', 'root', 'child', 'design:page')).attachments).toEqual([]);
   f.preserved();
 });
@@ -191,8 +190,8 @@ it('defaults only to the page association and sends to that root, not the focuse
   await f.emit({ kind: 'send' });
   await waitFor(() => expect(f.server.commands()).toHaveLength(1));
   await waitFor(() => expect(f.draft.prompt).toBe(''));
-  expect(f.server.commands()[0]!.params).toMatchObject({ root_id: 'root', operation: 'submit', payload: { text: 'Use consistent padding' } });
-  expect([...f.server.uploads.values()].slice(1).every(item => item.params.agent_id === 'root')).toBe(true);
+  expect(f.server.commands()[0]!.params).toMatchObject({ session_id: 'root', parts: [{ type: 'text', text: 'Use consistent padding' }, { type: 'content' }, { type: 'content' }] });
+  expect([...f.server.uploads.values()].slice(1).every(item => item.params.session_id === 'root')).toBe(true);
   f.preserved();
 });
 
@@ -229,7 +228,7 @@ it('rejects changed native selection during upload instead of sending stale evid
   await f.prepare();
   f.server.holdUpload();
   await f.emit({ kind: 'send' });
-  await waitFor(() => expect(f.server.requests.filter(item => item.method === 'upload.finish')).toHaveLength(2));
+  await waitFor(() => expect(f.server.requests.filter(item => item.method === 'content.put')).toHaveLength(2));
   await f.select(2);
   await act(async () => f.server.releaseUpload());
   await waitFor(() => expect(f.draft.busy).toBe(false));
@@ -245,7 +244,7 @@ it('rejects a destination change while evidence uploads without routing to the r
   await f.prepare();
   f.server.holdUpload();
   await f.emit({ kind: 'send' });
-  await waitFor(() => expect(f.server.requests.filter(item => item.method === 'upload.finish')).toHaveLength(2));
+  await waitFor(() => expect(f.server.requests.filter(item => item.method === 'content.put')).toHaveLength(2));
   await act(async () => f.runtime.tabs.updateLocation(f.childView, { agent: 'different-child' }));
   await act(async () => f.server.releaseUpload());
   await waitFor(() => expect(f.draft.busy).toBe(false));
@@ -293,16 +292,26 @@ it.each(['check', 'retry'] as const)('retains unresolved delivery after reconnec
   await waitFor(() => expect(f.draft.evidence?.text).toContain('one'));
   await f.emit({ kind: 'send' });
   await waitFor(() => expect(f.server.commands()).toHaveLength(1));
-  await waitFor(() => expect(f.draft.uncertain, JSON.stringify({ draft: f.draft, commands: f.runtime.getSnapshot().commands, requests: f.server.requests.map(item => item.method) })).toBe(true), { timeout: 4000 });
+  await waitFor(() => expect(f.draft.uncertain, JSON.stringify({ draft: { error: f.draft.error, uncertain: f.draft.uncertain }, commands: f.runtime.getSnapshot().commands, requests: f.server.requests.map(item => item.method) })).toBe(true), { timeout: 4000 });
   const command = f.server.commands()[0]!.params;
-  expect(f.runtime.getSnapshot().commands).toContainEqual(expect.objectContaining({ commandId: command.command_id, delivery: mode === 'retry' ? 'absent' : 'uncertain' }));
+  expect(f.runtime.getSnapshot().commands).toContainEqual(expect.objectContaining({ commandId: command.identity.request_id, delivery: 'uncertain' }));
   expect(f.draft.prompt).toBe('Align these two controls — 改变');
   expect(f.draft.evidence?.text).toContain('one');
+  const retained = f.runtime.compositions.get(compositionKey('host', 'root', 'child', 'design:page')).attachments;
+  expect(retained).toHaveLength(2); expect(retained.every(item => item.value?.session_id === 'child')).toBe(true);
   await f.emit({ kind: 'send' });
   expect(f.server.commands()).toHaveLength(1);
   expect(f.runtime.draft('host:root:child')).toBe('Normal child draft');
+  await act(async () => { await f.runtime.connections.connect(); });
+  expect(f.server.commands()).toHaveLength(1);
+  expect(f.server.requests.filter(item => item.method === 'receipts.match')).toHaveLength(0);
+  const pending = f.runtime.getSnapshot().commands.find(item => item.commandId === command.identity.request_id)!;
+  if (mode === 'retry') {
+    await act(async () => { await expect(f.runtime.checkCommand(pending.id)).rejects.toThrow(/no receipt/); });
+    expect(f.runtime.getSnapshot().commands).toContainEqual(expect.objectContaining({ commandId: command.identity.request_id, delivery: 'absent' }));
+    expect(f.server.commands()).toHaveLength(1);
+  }
   f.server.recover();
-  const pending = f.runtime.getSnapshot().commands.find(item => item.commandId === command.command_id)!;
   await act(async () => { await (mode === 'check' ? f.runtime.checkCommand(pending.id) : f.runtime.retryCommand(pending.id)); });
   await waitFor(() => expect(f.draft.prompt).toBe(''));
   expect(f.draft.uncertain).toBe(false);
@@ -310,3 +319,13 @@ it.each(['check', 'retry'] as const)('retains unresolved delivery after reconnec
   for (const request of f.server.commands()) expect(request.params).toEqual(command);
 });
 
+
+it('rechecks native evidence after a delayed active-turn lookup before admitting steering', async () => {
+  const f = await fixture(); await f.prepare(); f.server.holdActivity();
+  await f.emit({ kind: 'delivery', value: 'steer' }); await f.emit({ kind: 'send' });
+  await waitFor(() => expect(f.server.requests.some(item => item.method === 'sessions.activity')).toBe(true));
+  await f.select(2); await act(async () => f.server.releaseActivity());
+  await waitFor(() => expect(f.draft.busy).toBe(false));
+  expect(f.draft.error).toMatch(/changed before sending/); expect(f.server.commands()).toEqual([]);
+  expect(f.draft.prompt).toBe('Align these two controls — 改变'); f.preserved();
+});

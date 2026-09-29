@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
   const epochs = new Map<string, string>();
   const connecting = new Map<string, Promise<void>>();
   const discovered: string[] = [];
+  const peers: { endpoint: string; pin: { expectedRuntimeID: string; expectedProcessEpoch: string; signal: AbortSignal }; close: ReturnType<typeof vi.fn> }[] = [];
   const identity = (endpoint: string) => identities.get(endpoint) ?? new URL(endpoint).hostname.split('.')[0]!;
   const create = (endpoint: string, pin: { expectedRuntimeID: string; expectedProcessEpoch?: string }) => {
     const client = {
@@ -46,9 +47,17 @@ const mocks = vi.hoisted(() => {
       return { jsonrpc: '2.0', id: request.id, result };
     };
   };
-  return { clients, create, identities, identity, epochs, connecting, configurations, discovered, lists: [] as Array<import('@whip/sdk/state').TreeCatalogView> };
+  const createPeer = async (endpoint: string, pin: { expectedRuntimeID: string; expectedProcessEpoch: string; signal: AbortSignal }) => {
+    const close = vi.fn(async () => {}); peers.push({ endpoint, pin, close });
+    pin.signal.addEventListener('abort', () => { void close(); }, { once: true });
+    return { close, events: { async *[Symbol.asyncIterator]() {} }, request: async (request: { id: string }) => {
+      if (connecting.has(endpoint)) await connecting.get(endpoint);
+      return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: identity(endpoint), process_epoch: epochs.get(endpoint) ?? 'boot', network_client: true, builtins: [] } };
+    } };
+  };
+  return { peers, createPeer, clients, create, identities, identity, epochs, connecting, configurations, discovered, lists: [] as Array<import('@whip/sdk/state').TreeCatalogView> };
 });
-vi.mock('@whip/sdk/browser', () => ({ browserSocket: mocks.create, discoverGateway: async (endpoint: string, options: { signal: AbortSignal }) => {
+vi.mock('@whip/sdk/browser', () => ({ browserProviderDuplex: mocks.createPeer, browserSocket: mocks.create, discoverGateway: async (endpoint: string, options: { signal: AbortSignal }) => {
   options.signal.throwIfAborted(); mocks.discovered.push(endpoint);
   return { runtime_id: mocks.identity(endpoint), process_epoch: mocks.epochs.get(endpoint) ?? 'boot' };
 } }));
@@ -82,7 +91,7 @@ function fixture(profiles = [remote('a'), remote('b')], platform: Partial<AppPla
   return { hosts, effects, values };
 }
 async function start(hosts: HostConnections) { await hosts.connect(); await hosts.refreshProfiles(); await vi.waitFor(() => expect(hosts.getSnapshot().hosts.every(host => host.state !== 'connecting')).toBe(true)); }
-beforeEach(() => { mocks.clients.length = 0; mocks.lists.length = 0; mocks.identities.clear(); mocks.epochs.clear(); mocks.connecting.clear(); mocks.discovered.length = 0; mocks.configurations.revision = '1'.repeat(64); });
+beforeEach(() => { mocks.clients.length = 0; mocks.peers.length = 0; mocks.lists.length = 0; mocks.identities.clear(); mocks.epochs.clear(); mocks.connecting.clear(); mocks.discovered.length = 0; mocks.configurations.revision = '1'.repeat(64); });
 afterEach(() => { for (const hosts of stores.splice(0)) hosts.dispose(); vi.useRealTimers(); });
 
 it('loads profiles from Local and observes three independent daemons', async () => {
@@ -832,4 +841,48 @@ it('does not redirect a probed save to a replacement Local client with an equal 
   probe.resolve(); await rejected;
   expect(mocks.clients.flatMap(client => client.calls).some(call => call.method === 'host.set_profiles')).toBe(false);
   expect(hosts.getSnapshot().profiles[0]?.url).toBe('http://a.test');
+});
+
+
+it('opens Browser peers from the verified gateway and rejects changed process identity without rediscovery', async () => {
+  const { hosts } = fixture([]); await start(hosts);
+  const client = hosts.home().client!, discoveryCount = mocks.discovered.length;
+  const peer = await hosts.browserProvider(client);
+  expect(mocks.peers[0]).toMatchObject({ endpoint: 'http://local.test', pin: { expectedRuntimeID: 'home', expectedProcessEpoch: 'boot' } });
+  expect(peer.runtimeID).toBe('home'); expect(mocks.discovered).toHaveLength(discoveryCount);
+  mocks.epochs.set('http://local.test', 'restarted');
+  await expect(hosts.browserProvider(client)).rejects.toThrow('process generation');
+  expect(mocks.peers[1]!.close).toHaveBeenCalled();
+  hosts.disconnect('local'); expect(mocks.peers[0]!.pin.signal.aborted).toBe(true); expect(mocks.peers[0]!.close).toHaveBeenCalled();
+  await expect(hosts.browserProvider(client)).rejects.toThrow('no longer attached');
+});
+
+it('retires a late Browser peer when its exact host connection closes during initialization', async () => {
+  const { hosts } = fixture([]); await start(hosts); const client = hosts.home().client!;
+  const wait = deferred<void>(); mocks.connecting.set('http://local.test', wait.promise);
+  const opening = hosts.browserProvider(client); await vi.waitFor(() => expect(mocks.peers).toHaveLength(1));
+  hosts.disconnect('local'); wait.resolve(); await expect(opening).rejects.toThrow();
+  expect(mocks.peers[0]!.close).toHaveBeenCalled();
+});
+
+it('borrows the exact native connector and ties its Browser peer to host retirement without preparing twice', async () => {
+  let epoch = 'native-boot'; const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const connections: { close: ReturnType<typeof vi.fn>; signal: AbortSignal }[] = [];
+  const open: import('@whip/sdk').FramedConnector = async (handlers, signal) => {
+    const close = vi.fn(() => handlers.close(new Error('closed'))); connections.push({ close, signal });
+    return { kind: 'unix', bufferedAmount: 0, close, send(raw) {
+      const request = JSON.parse(raw); calls.push(request);
+      const result = request.method === 'initialize' ? { major: 4, minor: 0, runtime_id: 'native', process_epoch: epoch, network_client: false, builtins: [] }
+        : request.method === 'host.profiles' ? structuredClone(mocks.configurations)
+          : request.method === 'trees.list' ? { revision: '1', items: [], next_cursor: null } : { revision: '1' };
+      handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
+    } };
+  };
+  const resolveConnection = vi.fn(async () => ({ endpoint: open, dispose() {} }));
+  const { hosts } = nativeFixture([], [], { resolveConnection }); await start(hosts);
+  const client = hosts.home().client!, peer = await hosts.browserProvider(client), native = connections.at(-1)!;
+  expect(peer.processEpoch).toBe('native-boot'); expect(resolveConnection).toHaveBeenCalledOnce();
+  expect(calls.at(-1)).toMatchObject({ method: 'initialize', params: { expected_runtime_id: 'native', expected_process_epoch: 'native-boot' } });
+  epoch = 'restarted'; await expect(hosts.browserProvider(client)).rejects.toThrow('process generation');
+  expect(resolveConnection).toHaveBeenCalledOnce(); hosts.disconnect('local'); expect(native.close).toHaveBeenCalled();
 });

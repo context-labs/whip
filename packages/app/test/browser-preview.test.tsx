@@ -39,18 +39,19 @@ function fixture(enabled = true) {
   };
   const report = vi.fn(), browser = new BrowserWorkspace(enabled ? native : undefined, tabs, report);
   const hostListeners = new Set<() => void>();
-  const catalog = { status: 'ready', page: { items: [
+  const page = { revision: '1', next_cursor: null, items: [
     { id: 'historic_root', cwd: '/project/one', title: 'No Browser module required' },
     { id: 'other_root', cwd: '/project/one', title: 'Duplicate project' },
     { id: 'bad_root', cwd: 'relative/path', title: 'Not an absolute project' },
-  ] } };
+  ].map(row => ({ root_id: row.id, working_directory: row.cwd, tree: { metadata: { title: row.title } } })) };
+  const catalog = { status: 'ready', revision: '1', items: page.items };
   const host = (id: string, kind: 'ssh' | 'url' | 'local') => ({ id, name: id === 'ssh_saved' ? 'Build server' : kind, state: 'connected', runtimeId: request.runtimeId,
-    profile: { id, target: { kind } }, client: {}, list: { getSnapshot: () => catalog, subscribe: () => () => {} } }) as unknown as HostConnection;
+    profile: { id, target: { kind } }, client: { processEpoch: 'boot', listTrees: async () => page }, list: { getSnapshot: () => catalog, subscribe: () => () => {} } }) as unknown as HostConnection;
   let state = { hosts: [host('ssh_saved', 'ssh'), host('url_saved', 'url'), host('local_saved', 'local')] };
-  const runtime = { browser, tabs, platform: { browser: enabled ? native : undefined }, getSnapshot: () => state,
+  const runtime = { connections: { signal: () => new AbortController().signal }, browser, tabs, platform: { browser: enabled ? native : undefined }, getSnapshot: () => state,
     subscribe: (fn: () => void) => { hostListeners.add(fn); return () => { hostListeners.delete(fn); }; },
   } as unknown as AppRuntime;
-  const connected = (value: boolean) => { state = { hosts: state.hosts.map(host => host.id === 'ssh_saved' ? { ...host, state: value ? 'connected' : 'disconnected' } : host) }; hostListeners.forEach(fn => fn()); };
+  const connected = (value: boolean) => { state = { hosts: state.hosts.map(host => host.id === 'ssh_saved' ? { ...host, state: value ? 'connected' : 'closed' } : host) }; hostListeners.forEach(fn => fn()); };
   cleanups.push(() => browser.dispose());
   return { tabs, browser, native, runtime, connected, report };
 }
@@ -64,10 +65,12 @@ async function chooseProject() {
   expect(screen.queryByRole('option', { name: 'url' })).toBeNull();
   expect(screen.queryByRole('option', { name: 'local' })).toBeNull();
   fireEvent.click(await screen.findByRole('option', { name: 'Build server' }));
+  await waitFor(() => expect((screen.getByRole('combobox', { name: 'Project' }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('combobox', { name: 'Project' }));
   expect(screen.queryByRole('option', { name: 'relative/path' })).toBeNull();
-  expect(screen.getAllByRole('option', { name: '/project/one' })).toHaveLength(1);
+  expect(await screen.findAllByRole('option', { name: '/project/one' })).toHaveLength(1);
   fireEvent.click(screen.getByRole('option', { name: '/project/one' }));
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Continue to native confirmation' }) as HTMLButtonElement).disabled).toBe(false));
 }
 
 describe('literal human preview addresses', () => {

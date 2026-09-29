@@ -1,5 +1,5 @@
-import { Client, DeliveryError, RemoteError, framedTransport, type HostProfiles, type RecoveryStorage, type Transport } from '@whip/sdk';
-import { discoverGateway, browserSocket } from '@whip/sdk/browser';
+import { Client, BrowserProviderClient, browserProviderFramed, DeliveryError, RemoteError, framedTransport, type HostProfiles, type RecoveryStorage, type Transport } from '@whip/sdk';
+import { discoverGateway, browserSocket, browserProviderDuplex } from '@whip/sdk/browser';
 import { createTreeCatalogView, type TreeCatalogView } from '@whip/sdk/state';
 import { errorMessage, readPreference, type AppPlatform, type LocalRuntimeStatus } from './platform';
 import { daemonEndpoint, readConnections, saveConnections, urlProfile, validateProfile, type ConnectionProfile, type ResolvedConnection } from './connections';
@@ -147,6 +147,25 @@ export class HostConnections {
     const record = [...this.records.values()].find(record => record.client === client && record.verified);
     if (!record || this.closed) throw new Error('This host is no longer attached');
     return record.waits.signal;
+  }
+  /** Opens one browser provider peer from the exact already-verified endpoint.
+   * Host retirement cancels the peer; no host preparation or retry is hidden. */
+  async browserProvider(client: Client, options: { signal?: AbortSignal } = {}): Promise<BrowserProviderClient> {
+    const record = [...this.records.values()].find(record => record.client === client && record.verified);
+    if (!record || this.closed || record.endpoint === undefined || record.state !== 'connected') throw new Error('This host is no longer attached');
+    const endpoint = record.endpoint, lifetime = record.waits.signal;
+    const signal = options.signal ? AbortSignal.any([lifetime, options.signal]) : lifetime;
+    signal.throwIfAborted();
+    const pin = { expectedRuntimeID: client.runtimeID, expectedProcessEpoch: client.processEpoch };
+    const transport = typeof endpoint === 'string'
+      ? await browserProviderDuplex(endpoint, { ...pin, signal })
+      : await browserProviderFramed(endpoint, { ...pin, signal });
+    try {
+      const peer = await BrowserProviderClient.connect(transport, { ...pin, signal });
+      signal.throwIfAborted();
+      if (record.client !== client || !record.verified || record.endpoint !== endpoint) throw new Error('This host changed while opening Browser access');
+      return peer;
+    } catch (error) { await transport.close(); throw error; }
   }
   private async createClient(endpoint: ResolvedConnection['endpoint'], expected: string | undefined, lifetime: AbortSignal, failed?: (error: unknown) => void) {
     if (this.closed) throw new Error('Application has been disposed');

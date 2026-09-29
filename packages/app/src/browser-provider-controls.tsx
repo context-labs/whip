@@ -1,6 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { SessionCatalogPage } from '@whip/legacy-protocol';
 import { Button, Checkbox, Dialog, Field, IconButton, Input, Select } from '@whip/ui';
 import { MessagesSquare } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -76,21 +75,22 @@ function ConversationPicker({ host, root, disabled, onSelect }: { host: HostConn
   const runtime = useRuntime();
   const catalog = useSyncExternalStore(host.list?.subscribe ?? subscribeNone, host.list?.getSnapshot ?? emptyCatalog, host.list?.getSnapshot ?? emptyCatalog);
   const [search, setSearch] = useState(''), [term, setTerm] = useState('');
-  const [cursor, setCursor] = useState<SessionCatalogPage['next_cursor']>();
+  const [cursor, setCursor] = useState<{ after: string; revision: string }>();
   useEffect(() => { const timer = setTimeout(() => setTerm(search.trim()), 250); return () => clearTimeout(timer); }, [search]);
-  const query = useQuery({ queryKey: ['browser-conversations', host.runtimeId, term, cursor],
-    queryFn: ({ signal }) => host.client!.sessions.list({ search: term, status: 'all', cursor, limit: 64, max_bytes: 256 << 10 }, { signal: AbortSignal.any([signal, runtime.connections.signal(host.client!)]) }),
-    enabled: !!host.client && host.state === 'connected' && (!!term || !!cursor || !host.list), gcTime: 0 });
-  const page = term || cursor || !host.list ? query.data : catalog?.page;
-  const rows = (page?.items ?? []).slice(0, 64);
-  const settling = search.trim() !== term, failure = query.error ?? catalog?.error;
+  useEffect(() => { setCursor(undefined); onSelect(undefined); }, [catalog?.revision]);
+  const query = useQuery({ queryKey: ['browser-conversations', host.runtimeId, host.client?.processEpoch, catalog?.revision, term, cursor],
+    queryFn: ({ signal }) => host.client!.listTrees({ ...(term ? { search: term } : {}), ...(cursor ? { after: cursor.after, expected_revision: cursor.revision } : {}), limit: 64 }, { signal: AbortSignal.any([signal, runtime.connections.signal(host.client!)]) }),
+    enabled: !!host.client && host.state === 'connected' && search.trim() === term, gcTime: 0 });
+  const page = query.data;
+  const rows = (page?.items ?? []).map(row => ({ id: row.root_id, title: row.tree.metadata.title ?? '', cwd: row.working_directory }));
+  const settling = search.trim() !== term, failure = query.error;
   return <>
-    <Field label="Find a conversation"><Input aria-label="Find a conversation" value={search} disabled={disabled} placeholder="Search conversations" onChange={event => { setSearch(event.target.value); setCursor(undefined); onSelect(undefined); }}/></Field>
+    <Field label="Find a conversation"><Input aria-label="Find a conversation" value={search} maxLength={256} disabled={disabled} placeholder="Search conversations" onChange={event => { setSearch(event.target.value); setCursor(undefined); onSelect(undefined); }}/></Field>
     <Field label="Conversation"><Select label="Conversation" value={root?.id ?? ''} placeholder="Choose a conversation" disabled={disabled || settling || !rows.length}
       options={rows.map(row => ({ value: row.id, label: `${row.title || 'Untitled conversation'} · ${row.id.slice(-8)}` }))} onValueChange={id => onSelect(rows.find(row => row.id === id))}/></Field>
     {failure && <p role="alert">Could not load conversations: {errorMessage(failure)}</p>}
     {!rows.length && !failure && <p role="status">{query.isFetching || catalog?.status === 'loading' ? 'Loading conversations…' : 'No conversations found. Create a fresh conversation on this host.'}</p>}
     <div {...stylex.props(layout.row)}>{cursor && <Button variant="ghost" size="sm" disabled={disabled} onClick={() => { setCursor(undefined); onSelect(undefined); }}>First page</Button>}
-      {page?.next_cursor && <Button variant="ghost" size="sm" disabled={disabled || settling} onClick={() => { setCursor(page.next_cursor); onSelect(undefined); }}>More conversations</Button>}</div>
+      {page?.next_cursor && <Button variant="ghost" size="sm" disabled={disabled || settling} onClick={() => { setCursor({ after: page.next_cursor!, revision: page.revision }); onSelect(undefined); }}>More conversations</Button>}</div>
   </>;
 }
