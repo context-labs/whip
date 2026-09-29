@@ -74,6 +74,7 @@ const (
 // Session is a read value. Config is loaded from the immutable configuration
 // revision selected by ConfigRevision; it is not a second persisted copy.
 type Session struct {
+	Name             string
 	ID               SessionID
 	TreeID           TreeID
 	ParentID         *SessionID

@@ -1126,6 +1126,7 @@ export interface ControlEdit {
   revision: string;
   deleted: boolean;
   session: null | {
+    name?: string;
     history_revision: string;
     id: string;
     tree_id: string;
@@ -1468,6 +1469,7 @@ export interface CreateTreeResult {
     created_at: string;
   };
   root: null | {
+    name?: string;
     history_revision: string;
     id: string;
     tree_id: string;
@@ -2454,6 +2456,7 @@ export interface ForkResult {
     created_at: string;
   };
   root: null | {
+    name?: string;
     history_revision: string;
     id: string;
     tree_id: string;
@@ -4567,6 +4570,7 @@ export interface ListSessionsResult {
   items:
     | null
     | {
+        name?: string;
         history_revision: string;
         id: string;
         tree_id: string;
@@ -8962,6 +8966,7 @@ export interface SendMailParams {
   available_at?: null | string;
 }
 export interface Session {
+  name?: string;
   history_revision: string;
   id: string;
   tree_id: string;
@@ -9527,6 +9532,8 @@ export interface ShellInteractionResult {
   };
 }
 export interface SpawnSessionParams {
+  name?: string;
+  template?: string;
   /**
    * @maxItems 4
    */
@@ -9688,6 +9695,7 @@ export interface SpawnSessionParams {
 }
 export interface SpawnSessionResult {
   session: null | {
+    name?: string;
     history_revision: string;
     id: string;
     tree_id: string;

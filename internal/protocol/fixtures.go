@@ -35,6 +35,7 @@ func Fixtures() ([]Fixture, error) {
 	}
 	child := root
 	child.ID = "session_child"
+	child.Name = "Repository reviewer"
 	parent := root.ID
 	child.ParentID = &parent
 	message := MessageFromDomain(session.Message{ID: "message_fixture", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740993, Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "Completed."}, {Type: "content", ReferenceID: "content_fixture"}}, CreatedAt: created})
@@ -326,7 +327,7 @@ func Fixtures() ([]Fixture, error) {
 		{"Part", callMessage.Parts[0]},
 		{"Part", toolMessage.Parts[0]},
 		{"Message", MessageFromDomain(session.Message{ID: "message_image", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740996, Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: "image_call", Output: "unchanged output"}}, {Type: "content", ReferenceID: "image_ref"}}, CreatedAt: created})},
-		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
+		{"SpawnSessionParams", SpawnSessionParams{Name: "Repository reviewer", Template: "review", Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "transfer"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Transferred child"}}, BrowserAttachments: []ID{"attachment-1", "attachment-2", "attachment-3", "attachment-4"}}},
 		{"Response", Response{JSONRPC: "2.0", ID: "unavailable", Error: &RPCError{Code: -32036, Kind: "HOST_UNAVAILABLE", Message: "host service unavailable"}}},
 		{"Response", Response{JSONRPC: "2.0", ID: "transfer", Error: &RPCError{Code: -32038, Kind: "TRANSFER_UNCERTAIN", Message: "accepted child browser transfer has an uncertain effect; it will not be repeated"}}},

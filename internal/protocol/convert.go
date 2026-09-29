@@ -203,7 +203,7 @@ func SessionFromDomain(value session.Session) (Session, error) {
 		return Session{}, fmt.Errorf("encode session configuration: %w", err)
 	}
 	result := Session{
-		ID: ID(value.ID), TreeID: ID(value.TreeID), Definition: DefinitionRef{ID: ID(value.Definition.ID), Revision: value.Definition.Revision},
+		Name: value.Name, ID: ID(value.ID), TreeID: ID(value.TreeID), Definition: DefinitionRef{ID: ID(value.Definition.ID), Revision: value.Definition.Revision},
 		HistoryRevision: Counter(value.HistoryRevision), ConfigRevision: Counter(value.ConfigRevision),
 		Configuration: configuration, WorkingDirectory: value.WorkingDirectory,
 		Lifecycle: string(value.Lifecycle), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),

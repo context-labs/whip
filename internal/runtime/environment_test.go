@@ -69,7 +69,7 @@ func TestNativeEnvironmentReachesBothEnginesAndKeepsCapturedOwner(t *testing.T) 
 			if err != nil || prior.WorkingDirectory != root.WorkingDirectory {
 				t.Fatal("historical owner changed", prior, err)
 			}
-			child, err := r.SpawnChild(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "environment-child"}, store.ChildRequest{ParentID: root.ID, Parts: []session.Part{{Type: "text", Text: "child"}}})
+			child, err := r.SpawnChild(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "environment-child"}, store.ChildRequest{Name: "Workspace reviewer", ParentID: root.ID, Parts: []session.Part{{Type: "text", Text: "child"}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,7 +77,7 @@ func TestNativeEnvironmentReachesBothEnginesAndKeepsCapturedOwner(t *testing.T) 
 				t.Fatal(done)
 			}
 			childRequest, childFollowup := nextInstructionRequest(t, requests), nextInstructionRequest(t, requests)
-			if childRequest.Instructions != childFollowup.Instructions || !strings.Contains(childRequest.Instructions, "Identity: child agent (session "+string(child.Session.ID)) || !strings.Contains(childRequest.Instructions, "parent session "+string(root.ID)) || !strings.Contains(childRequest.Instructions, "Successful completion sends no automatic notice") || !strings.Contains(childRequest.Instructions, string(quoted)) {
+			if childRequest.Instructions != childFollowup.Instructions || !strings.Contains(childRequest.Instructions, `Identity: child agent "Workspace reviewer" (session `+string(child.Session.ID)) || !strings.Contains(childRequest.Instructions, "parent session "+string(root.ID)) || !strings.Contains(childRequest.Instructions, "Successful completion sends no automatic notice") || !strings.Contains(childRequest.Instructions, string(quoted)) {
 				t.Fatal("child received the wrong identity or reporting behavior", childRequest.Instructions)
 			}
 		})

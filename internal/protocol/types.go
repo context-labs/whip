@@ -164,6 +164,7 @@ type Tree struct {
 	CreatedAt string       `json:"created_at"`
 }
 type Session struct {
+	Name             string        `json:"name,omitempty"`
 	HistoryRevision  Counter       `json:"history_revision"`
 	ID               ID            `json:"id"`
 	TreeID           ID            `json:"tree_id"`
@@ -281,6 +282,8 @@ type SessionParams struct {
 	SessionID ID `json:"session_id"`
 }
 type SpawnSessionParams struct {
+	Name               string          `json:"name,omitempty"`
+	Template           string          `json:"template,omitempty"`
 	BrowserAttachments []ID            `json:"browser_attachments,omitempty"`
 	Identity           RequestIdentity `json:"identity"`
 	ParentID           ID              `json:"parent_id"`

@@ -208,5 +208,5 @@ func ChildAdmissionValue(result ChildAdmission) (json.RawMessage, error) {
 	if result.Session == nil || result.Admission.Input == nil {
 		return nil, ErrNotFound
 	}
-	return json.Marshal(map[string]any{"session_id": string(result.Session.ID), "input_id": string(result.Admission.Input.ID)})
+	return json.Marshal(map[string]any{"session_id": string(result.Session.ID), "input_id": string(result.Admission.Input.ID), "name": result.Session.Name})
 }

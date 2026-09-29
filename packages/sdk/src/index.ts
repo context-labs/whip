@@ -437,6 +437,8 @@ export class Client {
   }
 
   /** Child identity, initial input and delegated authority share one recoverable admission.
+   * name is a display label; use the returned session ID for routing. template selects an alias
+   * from the parent's children configuration and is mutually exclusive with definition.
    * browser_attachments transfers up to four live controls before child publication.
    * After acceptance, receipts.match returns BUSY while pending; TRANSFER_* errors are terminal and never imply absence.
    * Keep the same request ID and exact params for explicit observation/retry. */

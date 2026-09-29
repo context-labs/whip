@@ -28,6 +28,7 @@ type ChildList struct {
 // RelativeMetadata exposes coordination metadata, never another session's
 // configuration, working directory, transcript, or content reference identities.
 type RelativeMetadata struct {
+	Name      string     `json:"name,omitempty"`
 	SessionID SessionID  `json:"session_id"`
 	ParentID  *SessionID `json:"parent_id"`
 	Lifecycle Lifecycle  `json:"lifecycle"`
@@ -36,6 +37,7 @@ type RelativeMetadata struct {
 // ChildOutcome is a bounded snapshot of one exact input. A queued input has no
 // turn; an input with a terminal turn retains input_state=claimed.
 type ChildOutcome struct {
+	Name         string     `json:"name,omitempty"`
 	SessionID    SessionID  `json:"session_id"`
 	InputID      InputID    `json:"input_id"`
 	InputState   InputState `json:"input_state"`

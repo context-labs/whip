@@ -182,7 +182,8 @@ func inspectChild(ctx context.Context, q querier, owner session.SessionID, reque
 	if request.Offset < 0 || request.Offset > session.MaxDocumentBytes {
 		return result, session.ErrInvalid
 	}
-	if _, err := controlDescendant(ctx, q, owner, request.SessionID); err != nil {
+	target, err := controlDescendant(ctx, q, owner, request.SessionID)
+	if err != nil {
 		return result, err
 	}
 	input, err := readInput(ctx, q, request.InputID)
@@ -192,7 +193,7 @@ func inspectChild(ctx context.Context, q querier, owner session.SessionID, reque
 	if input.SessionID != request.SessionID {
 		return result, fmt.Errorf("%w: input belongs to another session", session.ErrInvalid)
 	}
-	result = session.ChildOutcome{SessionID: input.SessionID, InputID: input.ID, InputState: input.State, TurnID: input.TurnID, Offset: request.Offset}
+	result = session.ChildOutcome{Name: target.Name, SessionID: input.SessionID, InputID: input.ID, InputState: input.State, TurnID: input.TurnID, Offset: request.Offset}
 	if input.TurnID == nil {
 		if request.Offset != 0 {
 			return result, session.ErrInvalid
@@ -259,7 +260,7 @@ func listRelatives(ctx context.Context, q querier, owner session.Session, reques
 	default:
 		return nil, session.ErrInvalid
 	}
-	rows, err := q.QueryContext(ctx, "SELECT id,parent_id,lifecycle FROM sessions WHERE "+condition+" AND id<>? AND id>? ORDER BY id LIMIT ?", target, owner.ID, request.After, request.Limit)
+	rows, err := q.QueryContext(ctx, "SELECT id,parent_id,lifecycle,COALESCE((SELECT name FROM child_names WHERE session_id=sessions.id),'') FROM sessions WHERE "+condition+" AND id<>? AND id>? ORDER BY id LIMIT ?", target, owner.ID, request.After, request.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +268,7 @@ func listRelatives(ctx context.Context, q querier, owner session.Session, reques
 	result := []session.RelativeMetadata{}
 	for rows.Next() {
 		var item session.RelativeMetadata
-		if err := rows.Scan(&item.SessionID, &item.ParentID, &item.Lifecycle); err != nil {
+		if err := rows.Scan(&item.SessionID, &item.ParentID, &item.Lifecycle, &item.Name); err != nil {
 			return nil, err
 		}
 		result = append(result, item)

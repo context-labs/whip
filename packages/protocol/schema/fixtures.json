@@ -4234,6 +4234,7 @@
   {
     "type": "Session",
     "value": {
+      "name": "Repository reviewer",
       "history_revision": "9007199254740993",
       "id": "session_child",
       "tree_id": "tree_fixture",
@@ -4582,6 +4583,8 @@
   {
     "type": "SpawnSessionParams",
     "value": {
+      "name": "Repository reviewer",
+      "template": "review",
       "identity": {
         "client_id": "client",
         "request_id": "spawn"

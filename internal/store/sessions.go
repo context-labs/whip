@@ -79,6 +79,8 @@ func insertSessionID(ctx context.Context, tx *sql.Tx, id session.SessionID, tree
 }
 
 type SpawnSession struct {
+	Name     string            `json:"name,omitempty"`
+	Template string            `json:"template,omitempty"`
 	ParentID session.SessionID `json:"parent_id"`
 	// Nil inherits the parent's effective configuration and definition origin.
 	// A specified revision applies its defaults before explicit overrides.
@@ -130,6 +132,13 @@ func spawnSessionID(ctx context.Context, tx *sql.Tx, id session.SessionID, reque
 	if err != nil {
 		return child, err
 	}
+	child.Name = request.Name
+	if child.Name == "" {
+		child.Name = session.DefaultChildName(child.ID)
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO child_names(session_id,name) VALUES (?,?)", child.ID, child.Name); err != nil {
+		return session.Session{}, err
+	}
 	if err := reserveCompletion(ctx, tx, parent.ID, child.ID); err != nil {
 		return child, err
 	}
@@ -156,6 +165,19 @@ func (s *Store) SpawnChild(ctx context.Context, identity session.RequestIdentity
 func validateChildRequest(identity session.RequestIdentity, request ChildRequest) error {
 	if err := validateMCPTools(request.MCPTools); err != nil {
 		return err
+	}
+	if request.Name != "" {
+		if err := session.ValidateChildName(request.Name); err != nil {
+			return err
+		}
+	}
+	if request.Template != "" {
+		if err := session.ValidateID(request.Template); err != nil {
+			return err
+		}
+		if request.Definition != nil {
+			return fmt.Errorf("%w: choose a child template or definition, not both", session.ErrInvalid)
+		}
 	}
 	if len(request.BrowserAttachments) > 4 {
 		return ErrLimit
@@ -361,10 +383,7 @@ func (s *Store) SpawnChildOperation(ctx context.Context, id session.OperationID)
 		if result.Session == nil || result.Admission.Input == nil {
 			return ErrConflict
 		}
-		value, err := json.Marshal(struct {
-			SessionID session.SessionID `json:"session_id"`
-			InputID   session.InputID   `json:"input_id"`
-		}{result.Session.ID, result.Admission.Input.ID})
+		value, err := ChildAdmissionValue(result)
 		if err != nil {
 			return err
 		}
@@ -376,8 +395,9 @@ func (s *Store) SpawnChildOperation(ctx context.Context, id session.OperationID)
 }
 
 const sessionSelect = `SELECT s.id,s.tree_id,s.parent_id,s.definition_id,s.definition_revision,
- s.config_revision,s.history_revision,c.working_directory,s.lifecycle,s.created_at,c.configuration
- FROM sessions s JOIN session_configurations c ON c.session_id=s.id AND c.revision=s.config_revision`
+ s.config_revision,s.history_revision,c.working_directory,s.lifecycle,s.created_at,c.configuration,COALESCE(n.name,'')
+ FROM sessions s JOIN session_configurations c ON c.session_id=s.id AND c.revision=s.config_revision
+ LEFT JOIN child_names n ON n.session_id=s.id`
 
 type scanner interface{ Scan(...any) error }
 
@@ -385,7 +405,7 @@ func scanSession(row scanner) (result session.Session, err error) {
 	var raw string
 	var created int64
 	err = row.Scan(&result.ID, &result.TreeID, &result.ParentID, &result.Definition.ID, &result.Definition.Revision,
-		&result.ConfigRevision, &result.HistoryRevision, &result.WorkingDirectory, &result.Lifecycle, &created, &raw)
+		&result.ConfigRevision, &result.HistoryRevision, &result.WorkingDirectory, &result.Lifecycle, &created, &raw, &result.Name)
 	if err != nil {
 		return result, found(err)
 	}
