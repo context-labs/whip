@@ -42,6 +42,18 @@ type Invocation struct {
 	Arguments    map[string]any
 }
 
+// OperationID binds one immutable host request to its actual cell or direct turn.
+// Preparation may derive prospective resources from it before admission; it is
+// never evidence of permission or successful dispatch.
+func (call Invocation) OperationID() session.OperationID {
+	owner := string(call.CellID)
+	if call.DirectTurnID != "" {
+		owner = "host_turn:" + string(call.DirectTurnID)
+	}
+	digest := sha256.Sum256([]byte(owner + "\x00" + call.RequestID))
+	return session.OperationID("operation_" + hex.EncodeToString(digest[:]))
+}
+
 type Dispatcher struct {
 	ledger       Ledger
 	sessions     Sessions
@@ -132,12 +144,7 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 		return nil, "", fmt.Errorf("%w: invalid host effect timeout", session.ErrInvalid)
 	}
 
-	owner := string(call.CellID)
-	if call.DirectTurnID != "" {
-		owner = "host_turn:" + string(call.DirectTurnID)
-	}
-	digest := sha256.Sum256([]byte(owner + "\x00" + call.RequestID))
-	id := session.OperationID("operation_" + hex.EncodeToString(digest[:]))
+	id := call.OperationID()
 	spec := session.OperationSpec{ID: id, CellID: call.CellID, DirectTurnID: call.DirectTurnID, RequestID: call.RequestID, Capability: prepared.Capability, Resource: prepared.Resource, Arguments: prepared.Arguments}
 	var admitted session.Operation
 	var err error

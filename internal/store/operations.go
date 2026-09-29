@@ -140,6 +140,11 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		if duplicate != 0 {
 			return ErrConflict
 		}
+		if spec.Capability == "agents.spawn" && isChildTransfer(spec.Arguments) {
+			if _, _, err := childTransferIntent(ctx, tx, spec); err != nil {
+				return err
+			}
+		}
 		if spec.Capability == "browser.control" {
 			if _, err := browserIntent(ctx, tx, spec); err != nil {
 				return err
@@ -328,6 +333,11 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 			return ErrConflict
 		}
 		return validateBrowserCatalog(ctx, q, operation.OperationSpec)
+	}
+	if operation.Capability == "agents.spawn" && isChildTransfer(operation.Arguments) {
+		if _, _, err := childTransferIntent(ctx, q, operation.OperationSpec); err != nil {
+			return err
+		}
 	}
 	if operation.Capability == "browser.control" {
 		if _, err := browserIntent(ctx, q, operation.OperationSpec); err != nil {

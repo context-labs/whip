@@ -45,6 +45,10 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (session.Tre
 }
 
 func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string) (session.Session, error) {
+	return insertSessionID(ctx, tx, session.SessionID(newID("session")), tree, parent, ref, config, cwd)
+}
+
+func insertSessionID(ctx context.Context, tx *sql.Tx, id session.SessionID, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string) (session.Session, error) {
 	if parent != nil {
 		config = config.Clone()
 		config.Run = nil
@@ -64,7 +68,6 @@ func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent 
 	if err != nil {
 		return session.Session{}, err
 	}
-	id := session.SessionID(newID("session"))
 	created := now()
 	if _, err := tx.ExecContext(ctx, "INSERT INTO sessions (id,tree_id,parent_id,definition_id,definition_revision,config_revision,lifecycle,created_at) VALUES (?,?,?,?,?,1,'active',?)", id, tree, parent, ref.ID, ref.Revision, created); err != nil {
 		return session.Session{}, err
@@ -88,10 +91,11 @@ type SpawnSession struct {
 // inherits live standing grants; an explicit empty slice delegates none.
 type ChildRequest struct {
 	SpawnSession
-	Parts     []session.Part          `json:"parts"`
-	GrantIDs  []session.GrantID       `json:"grant_ids"`
-	Budgets   []session.BudgetLimit   `json:"budgets"`
-	Resources []session.ResourceLimit `json:"resources"`
+	BrowserAttachments []string                `json:"browser_attachments,omitempty"`
+	Parts              []session.Part          `json:"parts"`
+	GrantIDs           []session.GrantID       `json:"grant_ids"`
+	Budgets            []session.BudgetLimit   `json:"budgets"`
+	Resources          []session.ResourceLimit `json:"resources"`
 }
 
 // ChildAdmission projects the child from its input. A deleted receipt has no child.
@@ -101,6 +105,10 @@ type ChildAdmission struct {
 }
 
 func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession, captured *session.Configuration) (session.Session, error) {
+	return spawnSessionID(ctx, tx, session.SessionID(newID("session")), request, captured)
+}
+
+func spawnSessionID(ctx context.Context, tx *sql.Tx, id session.SessionID, request SpawnSession, captured *session.Configuration) (session.Session, error) {
 	parent, err := readSession(ctx, tx, request.ParentID)
 	if err != nil {
 		return session.Session{}, err
@@ -115,7 +123,7 @@ func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession, capture
 	if err != nil {
 		return session.Session{}, err
 	}
-	child, err := insertSession(ctx, tx, parent.TreeID, &parent.ID, resolved.Definition, resolved.Configuration, resolved.WorkingDirectory)
+	child, err := insertSessionID(ctx, tx, id, parent.TreeID, &parent.ID, resolved.Definition, resolved.Configuration, resolved.WorkingDirectory)
 	if err != nil {
 		return child, err
 	}
@@ -126,6 +134,9 @@ func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession, capture
 }
 
 func (s *Store) SpawnChild(ctx context.Context, identity session.RequestIdentity, request ChildRequest) (result ChildAdmission, err error) {
+	if len(request.BrowserAttachments) != 0 {
+		return result, session.ErrInvalid // Live browser handoff requires its dispatched host operation.
+	}
 	if err := validatePublicIdentity(identity); err != nil {
 		return result, err
 	}
@@ -140,6 +151,19 @@ func (s *Store) SpawnChild(ctx context.Context, identity session.RequestIdentity
 }
 
 func validateChildRequest(identity session.RequestIdentity, request ChildRequest) error {
+	if len(request.BrowserAttachments) > 4 {
+		return ErrLimit
+	}
+	seenAttachments := make(map[string]bool, len(request.BrowserAttachments))
+	for _, id := range request.BrowserAttachments {
+		if err := session.ValidateID(id); err != nil {
+			return err
+		}
+		if seenAttachments[id] {
+			return session.ErrInvalid
+		}
+		seenAttachments[id] = true
+	}
 	for _, id := range []string{identity.ClientID, identity.RequestID, string(request.ParentID)} {
 		if err := session.ValidateID(id); err != nil {
 			return err
@@ -191,6 +215,10 @@ func readChildAdmission(ctx context.Context, tx *sql.Tx, identity session.Reques
 }
 
 func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, request ChildRequest, captured *session.Configuration) (ChildAdmission, error) {
+	return spawnChildID(ctx, tx, session.SessionID(newID("session")), identity, request, captured)
+}
+
+func spawnChildID(ctx context.Context, tx *sql.Tx, childID session.SessionID, identity session.RequestIdentity, request ChildRequest, captured *session.Configuration) (ChildAdmission, error) {
 	digest, err := requestDigest("spawn_child", request)
 	if err != nil {
 		return ChildAdmission{}, err
@@ -209,7 +237,7 @@ func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	if err != nil {
 		return ChildAdmission{}, err
 	}
-	child, err := spawnSession(ctx, tx, request.SpawnSession, captured)
+	child, err := spawnSessionID(ctx, tx, childID, request.SpawnSession, captured)
 	if err != nil {
 		return ChildAdmission{}, err
 	}
@@ -276,7 +304,7 @@ func (s *Store) SpawnChildOperation(ctx context.Context, id session.OperationID)
 		if err := json.Unmarshal(operation.Arguments, &request); err != nil {
 			return err
 		}
-		if request.ParentID != owner.ID {
+		if request.ParentID != owner.ID || len(request.BrowserAttachments) != 0 {
 			return ErrConflict
 		}
 		if err := validateChildRequest(identity, request); err != nil {

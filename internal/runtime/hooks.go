@@ -99,13 +99,14 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 
 func parseSpawn(parent session.SessionID, arguments map[string]any) (store.ChildRequest, error) {
 	var args struct {
-		Prompt           string                  `json:"prompt"`
-		Definition       *session.DefinitionRef  `json:"definition,omitempty"`
-		Overrides        session.ConfigPatch     `json:"overrides"`
-		WorkingDirectory string                  `json:"working_directory,omitempty"`
-		GrantIDs         []session.GrantID       `json:"grant_ids"`
-		Budgets          []session.BudgetLimit   `json:"budgets,omitempty"`
-		Resources        []session.ResourceLimit `json:"resources,omitempty"`
+		Prompt             string                  `json:"prompt"`
+		BrowserAttachments []string                `json:"browser_attachments,omitempty"`
+		Definition         *session.DefinitionRef  `json:"definition,omitempty"`
+		Overrides          session.ConfigPatch     `json:"overrides"`
+		WorkingDirectory   string                  `json:"working_directory,omitempty"`
+		GrantIDs           []session.GrantID       `json:"grant_ids"`
+		Budgets            []session.BudgetLimit   `json:"budgets,omitempty"`
+		Resources          []session.ResourceLimit `json:"resources,omitempty"`
 	}
 	if err := decodeArguments(arguments, &args); err != nil {
 		return store.ChildRequest{}, err
@@ -113,7 +114,7 @@ func parseSpawn(parent session.SessionID, arguments map[string]any) (store.Child
 	if err := session.ValidateText(args.Prompt, session.MaxDocumentBytes/2); err != nil {
 		return store.ChildRequest{}, err
 	}
-	return store.ChildRequest{ParentID: parent, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: []session.Part{{Type: "text", Text: args.Prompt}}, GrantIDs: args.GrantIDs, Budgets: args.Budgets, Resources: args.Resources}, nil
+	return store.ChildRequest{ParentID: parent, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: []session.Part{{Type: "text", Text: args.Prompt}}, GrantIDs: args.GrantIDs, Budgets: args.Budgets, Resources: args.Resources, BrowserAttachments: args.BrowserAttachments}, nil
 }
 
 func hookArguments(raw json.RawMessage) (map[string]any, error) {

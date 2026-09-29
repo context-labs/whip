@@ -23,11 +23,13 @@ import (
 )
 
 type browserFixture struct {
-	peer        *BrowserPeer
-	commands    atomic.Int64
-	screenshots atomic.Int64
-	blocked     chan struct{}
-	block       atomic.Bool
+	peer             *BrowserPeer
+	commands         atomic.Int64
+	screenshots      atomic.Int64
+	blocked          chan struct{}
+	block            atomic.Bool
+	transferBlock    atomic.Bool
+	transferObserved chan *browserhost.Command
 }
 
 func startBrowserFixture(t *testing.T, r *Runtime, owner session.Session) *browserFixture {
@@ -40,7 +42,7 @@ func startBrowserFixture(t *testing.T, r *Runtime, owner session.Session) *brows
 	if _, err := peer.Bind(t.Context(), offer); err != nil {
 		t.Fatal(err)
 	}
-	f := &browserFixture{peer: peer, blocked: make(chan struct{}, 1)}
+	f := &browserFixture{peer: peer, blocked: make(chan struct{}, 1), transferObserved: make(chan *browserhost.Command, 1)}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	var jpg bytes.Buffer
@@ -80,6 +82,10 @@ func startBrowserFixture(t *testing.T, r *Runtime, owner session.Session) *brows
 				return
 			}
 			f.commands.Add(1)
+			if cmd.Kind == "transfer" && f.transferBlock.Load() {
+				f.transferObserved <- cmd
+				continue
+			}
 			result := browserhost.CommandResult{CommandID: cmd.CommandID, RootID: cmd.Identity.RootID, ProviderEpoch: cmd.Scope.ProviderEpoch, AttachmentGeneration: cmd.Scope.AttachmentGeneration, DocumentRevision: "doc1", URL: "https://example.test", Title: "page", Result: json.RawMessage(`{}`)}
 			if cmd.Kind == "cdp" {
 				var params struct {
