@@ -180635,7 +180635,7 @@ return errors === 0;
 }
 
 export const TerminalReadParams = validate281;
-const schema282 = {"type":"object","properties":{"process_epoch":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"cursor":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"limit":{"type":"integer","minimum":1,"maximum":32768}},"$id":"https://whip.dev/protocol/v4/TerminalReadParams","$schema":"http://json-schema.org/draft-07/schema#","title":"TerminalReadParams","required":["process_epoch","id","cursor","limit"],"additionalProperties":false};
+const schema282 = {"type":"object","properties":{"process_epoch":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"cursor":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"limit":{"type":"integer","minimum":1,"maximum":32768},"wait_ms":{"type":"integer","minimum":0,"maximum":5000}},"$id":"https://whip.dev/protocol/v4/TerminalReadParams","$schema":"http://json-schema.org/draft-07/schema#","title":"TerminalReadParams","required":["process_epoch","id","cursor","limit"],"additionalProperties":false};
 
 function validate281(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/TerminalReadParams" */;
@@ -180683,7 +180683,7 @@ vErrors.push(err3);
 errors++;
 }
 for(const key0 in data){
-if(!((((key0 === "process_epoch") || (key0 === "id")) || (key0 === "cursor")) || (key0 === "limit"))){
+if(!(((((key0 === "process_epoch") || (key0 === "id")) || (key0 === "cursor")) || (key0 === "limit")) || (key0 === "wait_ms"))){
 const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err4];
@@ -180814,14 +180814,49 @@ errors++;
 }
 }
 }
-}
-else {
-const err15 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.wait_ms !== undefined){
+let data4 = data.wait_ms;
+if(!((typeof data4 == "number") && (!(data4 % 1) && !isNaN(data4)))){
+const err15 = {instancePath:instancePath+"/wait_ms",schemaPath:"#/properties/wait_ms/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
 if(vErrors === null){
 vErrors = [err15];
 }
 else {
 vErrors.push(err15);
+}
+errors++;
+}
+if(typeof data4 == "number"){
+if(data4 > 5000 || isNaN(data4)){
+const err16 = {instancePath:instancePath+"/wait_ms",schemaPath:"#/properties/wait_ms/maximum",keyword:"maximum",params:{comparison: "<=", limit: 5000},message:"must be <= 5000"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+if(data4 < 0 || isNaN(data4)){
+const err17 = {instancePath:instancePath+"/wait_ms",schemaPath:"#/properties/wait_ms/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+}
+}
+else {
+const err18 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
 }
 errors++;
 }

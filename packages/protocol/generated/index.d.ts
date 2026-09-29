@@ -10193,6 +10193,7 @@ export interface TerminalReadParams {
   id: string;
   cursor: string;
   limit: number;
+  wait_ms?: number;
 }
 export interface TerminalRef {
   process_epoch: string;
