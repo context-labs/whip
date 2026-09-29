@@ -34,8 +34,8 @@ async function stop() {
   const ended = once(process, 'exit'), held = process; held.kill('SIGTERM');
   const timer = setTimeout(() => held.kill('SIGKILL'), 5000); try { await ended; } finally { clearTimeout(timer); }
 }
-async function start(scripted = false): Promise<Ready> {
-  process = spawn(binary, ['-directory', join(directory, 'host'), ...(scripted ? ['-scripted'] : []), '-web', '-web-listen', '127.0.0.1:0']);
+async function start(scripted = false, browserDriver = ''): Promise<Ready> {
+  process = spawn(binary, ['-directory', join(directory, 'host'), ...(scripted ? ['-scripted'] : []), '-web', '-web-listen', '127.0.0.1:0'], { env: { ...global.process.env, WHIP_BROWSER_DRIVER: browserDriver } });
   const held = process; held.stderr.on('data', data => { diagnostic = (diagnostic + data).slice(-(1 << 20)); });
   return new Promise((yes, no) => {
     let line = '';
@@ -208,4 +208,26 @@ test('mobile denial and captured reload keep independent policy and exact outcom
   expect(f.requests.filter(method => method === 'permissions.set_denial')).toHaveLength(2);
   expect(f.requests.filter(method => method === 'sessions.reload')).toHaveLength(1);
   await f.runtime.dispose();
+});
+
+test('mobile host browser settings inspect lost CAS acknowledgment, persist across restart and respect process pins', async () => {
+  let f = await mobile('browser-driver'), client = f.runtime.requireReady();
+  const before = await client.hosts.browserDriver(deadline()), next = before.driver === 'rod' ? 'chromedp' : 'rod';
+  expect(before).toMatchObject({ driver: before.configured_driver, pinned: false });
+  f.lose('host.set_browser_driver');
+  await expect(client.hosts.setBrowserDriver(before.revision, next, deadline())).rejects.toThrow('lost mobile ACK');
+  expect(f.requests.filter(method => method === 'host.set_browser_driver')).toHaveLength(1);
+  const saved = await client.hosts.browserDriver(deadline());
+  expect(saved).toMatchObject({ configured_driver: next, driver: next, pinned: false });
+  await expect(client.hosts.setBrowserDriver(before.revision, before.driver, deadline())).rejects.toMatchObject({ kind: 'CONFLICT' });
+  expect(await client.hosts.browserDriver(deadline())).toEqual(saved);
+  const oldEpoch = client.processEpoch; await f.runtime.dispose(); await stop(); ready = await start(false, before.driver);
+  f = await mobile('browser-driver'); client = f.runtime.requireReady(); expect(client.processEpoch).not.toBe(oldEpoch);
+  const pinned = await client.hosts.browserDriver(deadline());
+  expect(pinned).toEqual({ ...saved, driver: before.driver, pinned: true });
+  expect(f.requests).toEqual(['host.browser_driver']);
+  await expect(client.hosts.setBrowserDriver(pinned.revision, next, deadline())).rejects.toMatchObject({ kind: 'INVALID' });
+  const aligned = await client.hosts.setBrowserDriver(pinned.revision, before.driver, deadline());
+  expect(aligned).toMatchObject({ configured_driver: before.driver, driver: before.driver, pinned: true });
+  expect(f.requests.every(method => method === 'host.browser_driver' || method === 'host.set_browser_driver')).toBe(true);
 });
