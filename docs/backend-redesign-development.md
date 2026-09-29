@@ -3190,3 +3190,20 @@ model-free shell/tool admission, guest artifacts.put/inspect and permission
 inspection as unfinished backend parity. Browser/computer, human terminals,
 MCP integration, live-provider evidence and complete client migration/removal
 also remain; passing this checkpoint does not discharge those obligations.
+
+### Executor/shell Linux PTY correction
+
+PR254 first hosted head0e72402d2 failed Linux's fast phase in
+`TestPTYJoinsBlockedKeyWriter` (run36512124869, job109226355275). The5-second
+join bound exposed a blocking master descriptor: the PTY dependency's ioctl
+path can leave the original descriptor outside Go's interruptible polling.
+A blocked key write could therefore prevent Close from joining. This is a
+product shutdown defect, not grounds to extend the test deadline.
+
+`capability.OpenPTY` now duplicates the private master with close-on-exec,
+sets nonblocking before wrapping it in a new Go file, and documents that later
+ioctls must use SyscallConn. Agent shell execution uses this primitive. Three
+repetitions of the exact join/descendant/callback regressions pass3.127s;
+full affected race suites pass bashrun8.512s/shell2.552s/capability29.144s,
+with vet and pinned lint0. Logs are `/tmp/whip-shell-pty-repair-*.log`.
+Fresh hosted Linux evidence remains required; the failed head is not credited.
