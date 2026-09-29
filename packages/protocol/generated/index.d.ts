@@ -870,6 +870,34 @@ export interface CellOutput {
     truncated: boolean;
   };
 }
+export interface CellPageParams {
+  turn_id: string;
+  before?: null | string;
+  limit: number;
+}
+export interface CellPageResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    id: string;
+    session_id: string;
+    turn_id: string;
+    call_message_id: string;
+    call_id: string;
+    state: "running" | "succeeded" | "failed" | "uncertain";
+    result_message_id: null | string;
+    checkpoint: null | {
+      digest: string;
+      size: string;
+      engine: "starlark" | "quickjs";
+      metadata: unknown;
+    };
+    created_at: string;
+    finished_at: null | string;
+  }[];
+  next_cursor: null | string;
+}
 export interface CellParams {
   cell_id: string;
 }
@@ -2964,6 +2992,7 @@ export interface HistoryMetadataResult {
   items:
     | null
     | {
+        created_at?: string;
         presentation?: null | {
           version: number;
           attempt_id: string;
@@ -9032,6 +9061,7 @@ export interface ReadHistoryParams {
 }
 export interface ReadHistoryResult {
   message: {
+    created_at?: string;
     presentation?: null | {
       version: number;
       attempt_id: string;
@@ -9623,6 +9653,7 @@ export interface SearchHistoryResult {
     | null
     | {
         message: {
+          created_at?: string;
           presentation?: null | {
             version: number;
             attempt_id: string;
@@ -11807,6 +11838,8 @@ export interface ContractTypes {
   CapturedText: CapturedText;
   Cell: Cell;
   CellOutput: CellOutput;
+  CellPageParams: CellPageParams;
+  CellPageResult: CellPageResult;
   CellParams: CellParams;
   CellsParams: CellsParams;
   CellsResult: CellsResult;
@@ -12251,6 +12284,7 @@ export interface Operations {
   "cells.output": { params: SessionParams; result: CellOutput };
   "cells.get": { params: CellParams; result: Cell };
   "turns.cells": { params: CellsParams; result: CellsResult };
+  "turns.cells_page": { params: CellPageParams; result: CellPageResult };
   "grants.create": { params: CreateGrantParams; result: Grant };
   "grants.list": { params: GrantsParams; result: GrantsResult };
   "grants.revoke": { params: GrantParams; result: Grant };

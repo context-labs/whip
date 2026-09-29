@@ -780,6 +780,11 @@ export const manifest = {
       "result": "CellsResult"
     },
     {
+      "name": "turns.cells_page",
+      "params": "CellPageParams",
+      "result": "CellPageResult"
+    },
+    {
       "name": "grants.create",
       "params": "CreateGrantParams",
       "result": "Grant"

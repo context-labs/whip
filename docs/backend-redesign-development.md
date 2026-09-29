@@ -6102,3 +6102,11 @@ revision/tail/owner checks across imported and noncontiguous history. Active-roo
 rewind is blocked both at the control and confirmation. Focused checks cover
 131 tests and app TypeScript; comparative browser acceptance remains pending.
 See the [implementation record](frontend-ux-restoration-progress.md).
+
+## 2026-09-29 — bounded execution SDK and chronological cells
+
+Added exact timestamped message hydration, native cell ordinal paging and stable
+SDK display projections. Execution browsing retains its selected window and pages
+the rest of a partial turn before advancing. Integrated protocol/drift checks and
+217 SDK tests/type checks pass. Renderer handover and combined parity acceptance
+remain open in the [implementation record](frontend-ux-restoration-progress.md).

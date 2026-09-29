@@ -71,6 +71,23 @@
     "valid": true
   },
   {
+    "type": "CellPageParams",
+    "value": {
+      "turn_id": "turn_fixture",
+      "before": "cell_cursor",
+      "limit": 100
+    },
+    "valid": true
+  },
+  {
+    "type": "CellPageResult",
+    "value": {
+      "items": [],
+      "next_cursor": null
+    },
+    "valid": true
+  },
+  {
     "type": "HostStatus",
     "value": {
       "runtime_id": "runtime_fixture",
