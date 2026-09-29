@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DeliveryError, type ChangeProviderParams, type ProviderDefaultsParams } from '@whip/sdk';
 import { ProvidersSettings } from '../src/settings/providers';
@@ -10,12 +11,18 @@ import { providerFixture, route, preset, revision, nextRevision, inferenceFlow }
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
 
+async function advanced() {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: /Connection options/ }));
+  await user.click(await screen.findByRole('menuitem', { name: /Advanced configuration/ }));
+}
+
 it('reads explicit local sources without credential discovery, model refresh, or account effects', async () => {
   const f = await providerFixture(); f.data.inventory.routes = [route(), { ...route('custom'), credential: { source: 'command', state: 'unchecked', environment: '', file: '' } }];
   f.mount(<ProvidersSettings client={f.client} />);
   expect(await screen.findByText('Environment')).toBeTruthy(); expect(await screen.findByText(/Credential command not checked/)).toBeTruthy();
-  expect(screen.getByText(/Model access and inference have not been tested/)).toBeTruthy();
-  expect(f.calls.every(call => ['initialize', 'providers.list', 'providers.presets', 'providers.readiness', 'providers.bundled', 'providers.catalog', 'accounts.inference.list', 'accounts.openai.list', 'host.permission_default'].includes(call.method))).toBe(true);
+  expect(screen.getByText('Connected providers')).toBeTruthy();
+  expect(f.calls.every(call => ['initialize', 'providers.list', 'providers.candidates', 'providers.presets', 'providers.readiness', 'providers.bundled', 'providers.catalog', 'accounts.inference.list', 'accounts.openai.list', 'host.permission_default'].includes(call.method))).toBe(true);
 });
 it('publishes a pasted key once, clears only after acknowledgement, and never journals secrets', async () => {
   const f = await providerFixture(); f.data.inventory.routes = []; f.data.inventory.defaults = null;
@@ -23,11 +30,11 @@ it('publishes a pasted key once, clears only after acknowledgement, and never jo
   f.mount(<ProvidersSettings client={f.client} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'private-test-key' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save provider' }));
-  await screen.findByText('Provider saved. Your default model is unchanged.');
+  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
+  await screen.findByText('OpenRouter connected.');
   const writes = f.calls.filter(call => call.method === 'providers.create'); expect(writes).toHaveLength(1);
   expect(writes[0]?.params).toMatchObject({ revision, key: { key: 'private-test-key', id: expect.any(String) }, keep_credential: false, declaration: { credential: { source: 'file', environment: '', file: '', command: null } } });
-  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('');
+  expect(screen.queryByLabelText('API key')).toBeNull();
   expect(JSON.stringify(f.queries.getQueryCache().getAll().map(query => query.state.data))).not.toContain('private-test-key');
   expect(f.count('providers.defaults')).toBe(0);
 });
@@ -37,10 +44,10 @@ it('keeps the same key publication identity on explicit retry after uncertain st
   f.mount(<ProvidersSettings client={f.client} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'private-fixture-key' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save provider' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
   await screen.findByText(/Published key durability is unconfirmed/);
   expect(f.count('providers.create')).toBe(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Save provider' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
   await waitFor(() => expect(f.count('providers.create')).toBe(2));
   const calls = f.calls.filter(call => call.method === 'providers.create'); expect(calls[0]?.params).toEqual(calls[1]?.params);
 });
@@ -50,14 +57,15 @@ it('retains secret drafts offline and asks before discarding them', async () => 
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'kept-key' } });
   mounted.rerender(f.wrap(<ProvidersSettings client={f.client} enabled={false} />));
-  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('kept-key'); expect(screen.getByRole('button', { name: 'Save provider' }).hasAttribute('disabled')).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'Done' })); expect(await screen.findByRole('dialog', { name: 'Discard this credential?' })).toBeTruthy();
+  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('kept-key'); expect(screen.getByRole('button', { name: 'Connect', exact: true }).hasAttribute('disabled')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Back' })); expect(await screen.findByRole('dialog', { name: 'Discard this credential?' })).toBeTruthy();
   expect(f.count('providers.create')).toBe(0);
 });
 it('a failed provider CAS refreshes evidence and requires explicit revision review', async () => {
   const f = await providerFixture(); f.data.handlers['providers.update'] = () => { f.data.inventory.revision = nextRevision; throw new DeliveryError('Revision conflict'); };
   f.mount(<ProvidersSettings client={f.client} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
+  await advanced();
   fireEvent.change(await screen.findByLabelText('Endpoint'), { target: { value: 'https://changed.test/v1' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save provider' })); await screen.findByText(/Revision conflict/);
   expect(f.count('providers.update')).toBe(1); expect(screen.getByRole('button', { name: 'Save provider' }).hasAttribute('disabled')).toBe(true);
@@ -106,7 +114,7 @@ it('cached catalogs never change defaults until an explicit setup choice', async
 it('route removal is explicit, preserves credential ownership, and does not disconnect an account', async () => {
   const f = await providerFixture(); f.data.handlers['providers.remove'] = () => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [] }; return f.data.inventory; };
   f.mount(<ProvidersSettings client={f.client} />); fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
-  expect(await screen.findByText('OPENROUTER_API_KEY')).toBeTruthy(); fireEvent.click(screen.getByRole('button', { name: 'Remove configured route' }));
+  expect(await screen.findByText('OPENROUTER_API_KEY')).toBeTruthy(); await advanced(); fireEvent.click(screen.getByRole('button', { name: 'Remove configured route' }));
   const dialog = await screen.findByRole('dialog', { name: 'Remove this provider route?' }); expect(within(dialog).getByText(/Saved key files and remote accounts are preserved/)).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Remove route' })); await screen.findByText('Provider route removed. Credential files are unchanged.');
   expect(f.calls.find(call => call.method === 'providers.remove')?.params).toEqual({ revision, provider: 'openrouter', replacement: null }); expect(f.count('accounts.inference.logout')).toBe(0);
@@ -127,7 +135,7 @@ it('validates canonical key discovery before publication and keeps rejected keys
   expect(f.data.inventory.routes).toEqual([]); expect(f.data.inventory.defaults).toBeNull();
   f.data.handlers['providers.setup_key'] = () => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [{ ...route(), base_url: 'https://openrouter.ai/api/v1' }] }; return f.data.inventory; };
   fireEvent.click(within(dialog).getByRole('button', { name: 'Connect', exact: true }));
-  await screen.findByText('Credentials checked by model discovery. Inference has not been tested. Your default model is unchanged.');
+  await screen.findByText('OpenRouter connected.');
   const requests = f.calls.filter(call => call.method === 'providers.setup_key');
   expect(requests).toHaveLength(2); expect(requests[0]!.params).toEqual(requests[1]!.params);
   expect(requests[0]!.params).toMatchObject({ revision, provider: 'openrouter', key: { id: expect.any(String), key: 'private-key' }, environment: false });
@@ -151,6 +159,7 @@ it('keeps failed removal feedback in its active dialog and preserves the provide
   f.data.handlers['providers.remove'] = () => { throw new DeliveryError('This provider is the model default'); };
   f.mount(<ProvidersSettings client={f.client} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
+  await advanced();
   fireEvent.change(await screen.findByLabelText('Endpoint'), { target: { value: 'https://draft.test/v1' } });
   fireEvent.click(screen.getByRole('button', { name: 'Remove configured route' }));
   const dialog = await screen.findByRole('dialog', { name: 'Remove this provider route?' });
@@ -163,4 +172,43 @@ it('keeps failed removal feedback in its active dialog and preserves the provide
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove this provider route?' })).toBeNull());
   expect((screen.getByLabelText('Endpoint') as HTMLInputElement).value).toBe('https://draft.test/v1');
   expect(f.count('providers.remove')).toBe(1);
+});
+
+it('previews detected credentials without publishing and applies Use in explicit route/default steps', async () => {
+  const f = await providerFixture(); f.data.inventory.routes = []; f.data.inventory.defaults = null;
+  f.data.handlers['providers.candidates'] = () => ({ revision: f.data.inventory.revision, items: [{ provider: 'openrouter', source: 'env', environment: 'OPENROUTER_API_KEY', credential_state: 'available' }] });
+  f.data.handlers['providers.use_candidate'] = () => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [route()] }; return f.data.inventory; };
+  f.data.handlers['providers.defaults'] = request => { f.data.inventory.defaults = (request.params as ProviderDefaultsParams).defaults.selection; return f.data.inventory; };
+  const ready = vi.fn();
+  function Setup() { const connections = useProviderConnections(f.client, true); return <ProviderSetup client={f.client} enabled hostName="Remote workstation" connections={connections} onReady={ready} />; }
+  f.mount(<Setup />);
+  await screen.findByText('Already available'); await screen.findByRole('button', { name: 'Use fixture' });
+  expect(f.count('providers.use_candidate')).toBe(0); expect(f.count('providers.defaults')).toBe(0); expect(f.count('providers.refresh')).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Use fixture' })); await waitFor(() => expect(ready).toHaveBeenCalledOnce());
+  expect(f.calls.find(call => call.method === 'providers.use_candidate')?.params).toEqual({ revision, provider: 'openrouter', source: 'env', environment: 'OPENROUTER_API_KEY' });
+  expect(f.calls.find(call => call.method === 'providers.defaults')?.params).toMatchObject({ revision: nextRevision, defaults: { selection: { provider: 'openrouter', name: 'fixture', effort: '' }, settings: { max_attempts: 0, context_window_tokens: null, max_output_tokens: '0' } } });
+  expect(f.count('sessions.submit')).toBe(0);
+});
+
+it('disable and enable keep the default and credential visible while moving the provider between groups', async () => {
+  const f = await providerFixture();
+  f.data.handlers['providers.set_enabled'] = request => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [{ ...f.data.inventory.routes[0]!, disabled: !(request.params as { enabled: boolean }).enabled }] }; return f.data.inventory; };
+  f.mount(<ProvidersSettings client={f.client} />); const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Manage OpenRouter' })); await user.click(screen.getByRole('button', { name: /Connection options/ })); await user.click(await screen.findByRole('menuitem', { name: 'Disable on this host' }));
+  await screen.findByText('Disabled providers'); expect(f.data.inventory.defaults?.name).toBe('fixture'); expect(f.data.inventory.routes[0]?.credential.state).toBe('available');
+  await user.click(screen.getByRole('button', { name: 'Manage OpenRouter' })); await user.click(screen.getByRole('button', { name: /Connection options/ })); await user.click(await screen.findByRole('menuitem', { name: 'Enable on this host' }));
+  await screen.findByText('Connected providers'); expect(screen.queryByText('Disabled providers')).toBeNull(); expect(f.count('providers.defaults')).toBe(0); expect(f.count('providers.set_enabled')).toBe(2);
+});
+
+it.each([
+  ['cleared', null, 'OpenRouter disconnected.'],
+  ['preserved_shared', null, 'OpenRouter disabled. Its credentials are shared with another provider and were kept.'],
+  ['preserved_external', null, 'These credentials are managed outside Whip.'],
+  ['pending', 'Key cleanup still pending', 'Key cleanup still pending'],
+] as const)('Disconnect presents %s without removing the route or silently retrying', async (state, failure, expected) => {
+  const f = await providerFixture(); f.data.handlers['providers.disconnect'] = () => ({ inventory: f.data.inventory, credential_state: state, local_failure: failure, cleanup_failure: null });
+  f.mount(<ProvidersSettings client={f.client} />); const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Manage OpenRouter' })); await user.click(screen.getByRole('button', { name: /Connection options/ })); await user.click(await screen.findByRole('menuitem', { name: 'Disconnect provider' }));
+  await screen.findByText(text => text.includes(expected));
+  expect(f.count('providers.disconnect')).toBe(1); expect(f.count('providers.remove')).toBe(0); expect(f.count('accounts.inference.logout')).toBe(0); expect(f.data.inventory.defaults?.name).toBe('fixture');
 });

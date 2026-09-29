@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { Client, MCPConfiguration } from '@whip/sdk';
+import type { Client } from '@whip/sdk';
 import { Button, Dialog, Switch } from '@whip/ui';
 import { useRuntime, useSessionTabs } from '../context';
 import { isSessionTab, selectedSessionTab } from '../session-tabs';
@@ -35,15 +35,8 @@ export function MCPImportSettings({ client, enabled, hostName = 'this host' }: {
     if (!current) return;
     void action(async signal => { const result = await client.configureMCP({ revision: current.revision, name: '', server: null, remove: false, ...patch }, { signal }); if (signal.aborted) return; runtime.queries.setQueryData(['mcp-configuration', runtimeId], result); await runtime.queries.invalidateQueries({ predicate: query => query.queryKey.includes(runtimeId) && query.queryKey[0] !== 'mcp-configuration' }); });
   }
-  function importSource(name: 'claude' | 'codex', checked: boolean) {
-    const current = configuration.data;
-    if (!current) return;
-    const imports: MCPConfiguration['imports'] = { ...current.imports, [name]: { ...current.imports[name], enabled: checked, only: current.imports[name]?.only ?? [], exclude: current.imports[name]?.exclude ?? [] } };
-    update({ imports, brand_icons: null });
-  }
   return <SettingsGroup title="MCP servers">
     <SettingRow id="mcp_import" label="Servers from other agents" description="Review exact declarations on this execution host and copy selected servers into Whip. Importing never connects a server or grants an operation."><Button xstyle={settingsSection.control} disabled={!enabled} onClick={() => { setImportRoot(selectedRoot); setNotice(''); setOpen(true); }}>Import servers…</Button></SettingRow>
-    {(['claude', 'codex'] as const).map(name => <SettingRow key={name} id={`import_${name}`} label={`Import ${name === 'claude' ? 'Claude' : 'Codex'} configuration`} description="Controls this source's inclusion in discovery. Existing connections remain unchanged."><Switch aria-label={`Import ${name === 'claude' ? 'Claude' : 'Codex'} configuration`} checked={configuration.data?.imports[name]?.enabled !== false} disabled={!enabled || busy || !configuration.data} onCheckedChange={value => importSource(name, value)} /></SettingRow>)}
     <SettingRow id="mcp_logos" label="Server logos" description="Allow host logo lookups for domains missing from the bundled marks. Turn off to use bundled marks only."><Switch aria-label="Look up MCP server logos on DuckDuckGo" checked={configuration.data?.brand_icons ?? false} disabled={!enabled || busy || !configuration.data} onCheckedChange={value => update({ imports: null, brand_icons: value })} /></SettingRow>
     {notice && <p role="status">{notice}</p>}
     {refreshRoot && <Button disabled={!enabled || busy} onClick={() => void action(async signal => { const result = await client.refreshMCP(refreshRoot, { signal }); if (!signal.aborted) { setNotice(mcpRefreshNotice(result)); setRefreshRoot(null); } })}>Refresh imported servers in the captured session</Button>}

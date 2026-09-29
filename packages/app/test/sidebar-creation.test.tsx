@@ -93,7 +93,7 @@ it('masks a setup key and preserves the draft until explicit model confirmation'
   const key = await screen.findByLabelText('API key');
   expect(key).toHaveProperty('type', 'password');
   fireEvent.change(key, { target: { value: 'secret-key' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save provider', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
   const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra' });
   expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
@@ -108,7 +108,7 @@ it('masks a setup key and preserves the draft until explicit model confirmation'
 });
 it('replaces an unavailable draft route only after explicit provider setup confirmation', async () => {
   const f = await fixture();
-  f.on('providers.readiness', ({ selection: { provider } }) => ({ configured: provider === 'openai', credential_state: provider === 'openai' ? 'available' : 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }));
+  f.on('providers.readiness', ({ selection: { provider } }) => ({ configured: provider === 'openai', disabled: false, credential_state: provider === 'openai' ? 'available' : 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }));
   f.render();
   fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Keep this draft' } });
   act(() => f.runtime.tabs.updateNew(f.tab.id, { model: 'unavailable-model', provider: 'openrouter', effort: 'high' }));

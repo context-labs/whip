@@ -11,7 +11,7 @@ import { providerFixture, model, route, revision } from './provider-fixture';
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
 const catalog: ModelCatalog = {
-  inventory: { revision, routes: [route(), route('openai-codex')], defaults: null, compaction_model: null }, truncated: false,
+  inventory: { revision, routes: [route(), route('openai-codex')], defaults: null, compaction_model: null, permission_mode: 'prompt' }, truncated: false,
   providers: ['openrouter', 'openai-codex'].map(id => ({ id, catalog: { provider: id, state: 'missing', scope_state: 'unverified', discovery: 'not_checked', fetched_at: null, stale: false, failure: null, models: [] }, models: [model('gpt-5.5')] })),
 };
 it('keeps exact provider routes and unknown versus free versus large prices', () => {
@@ -146,4 +146,31 @@ it('child composer and inspector display their own model and effort without offe
   expect(screen.getAllByText('updated-child-model · child-provider · Low')).toHaveLength(2);
   expect(f.count('sessions.configure')).toBe(0); expect(f.count('providers.list')).toBe(0);
   await view.dispose();
+});
+
+it('restores the Conversation Model choice and keyboard navigation in the compaction model picker', async () => {
+  const choose = vi.fn(); const user = userEvent.setup();
+  render(<ThemeProvider initialTheme="light"><UIProvider><CatalogModelPicker settings model="gpt-5.5" provider="openrouter" catalog={catalog} defaultChoice={{ label: 'Conversation Model', description: 'Use the model selected for the conversation.' }} onChange={choose} /></UIProvider></ThemeProvider>);
+  await user.click(screen.getByRole('button', { name: 'Model' }));
+  const search = await screen.findByRole('textbox', { name: 'Search models' }); search.focus();
+  await user.keyboard('{ArrowDown}'); expect(document.activeElement).toBe(screen.getByRole('option', { name: 'Conversation Model' }));
+  await user.keyboard('{Enter}'); expect(choose).toHaveBeenCalledExactlyOnceWith('', '');
+});
+
+it('excludes disabled routes from model choices without dropping their stored metadata', () => {
+  const disabled = { ...catalog, inventory: { ...catalog.inventory, routes: catalog.inventory.routes.map(route => ({ ...route, disabled: route.id === 'openrouter' })) } };
+  expect(modelOptions(disabled).map(option => option.provider)).toEqual(['openai-codex']);
+  expect(modelSettings(disabled, 'openrouter', 'gpt-5.5')).not.toBeNull();
+});
+
+it.each([['off', 'Off'], ['', 'Default']])('persists the selected session effort %s without conflating it with the default', async (effort, label) => {
+  const { createSessionView } = await import('@whip/sdk/state'); const { sessionRecord } = await import('./provider-fixture'); const { EffortPicker } = await import('../src/model-selection');
+  const f = await providerFixture(); f.data.handlers['providers.bundled'] = () => ({ items: [{ ...model(), reasoning_efforts: ['off', 'low'] }] });
+  const selected = sessionRecord('root'), session = f.client.session(selected.id), view = createSessionView(session);
+  vi.spyOn(view, 'getSnapshot').mockReturnValue({ ...view.getSnapshot(), activity: { session_id: selected.id, lifecycle: 'active', active_turn: null, active_input_id: null, queued_input_count: '0', pending_permission_count: '0', pending_question_count: '0', execution_permit: false, active_workspace_action_id: null } });
+  vi.spyOn(view, 'refresh').mockResolvedValue(); f.data.handlers['sessions.configure'] = () => ({ ...selected, config_revision: '9007199254740994' });
+  f.mount(<EffortPicker client={f.client} session={session} selected={selected} view={view} connected />);
+  fireEvent.click(screen.getByRole('button', { name: 'Reasoning effort' })); fireEvent.click(await screen.findByRole('option', { name: label, exact: true }));
+  await waitFor(() => expect(f.count('sessions.configure')).toBe(1));
+  expect(f.calls.find(call => call.method === 'sessions.configure')?.params).toMatchObject({ expected_revision: selected.config_revision, patch: { model: { effort } } });
 });
