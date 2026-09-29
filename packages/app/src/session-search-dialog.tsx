@@ -25,6 +25,7 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
   const { hosts } = useAppState();
   useSessionTabs();
   const [filter, setFilter] = useState('');
+  const [archive, setArchive] = useState('all');
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
   const [cursors, setCursors] = useState<Record<string, { after: string; revision: string } | undefined>>({});
@@ -69,8 +70,8 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
     const key = host.client ? clientQueryKey(host.client) : host.id;
     const cursor = cursors[key];
     return {
-      queryKey: ['session-search', host.runtimeId, key, term, cursor],
-      queryFn: ({ signal }: { signal: AbortSignal }) => host.client!.trees.list({ search: term, after: cursor?.after, expected_revision: cursor?.revision, limit: 64 }, { signal }),
+      queryKey: ['session-search', host.runtimeId, key, term, archive, cursor],
+      queryFn: ({ signal }: { signal: AbortSignal }) => host.client!.trees.list({ search: term, ...(archive === 'all' ? {} : { archived: archive === 'archived' }), after: cursor?.after, expected_revision: cursor?.revision, limit: 64 }, { signal }),
       enabled: !!host.client && host.state === 'connected',
       refetchOnMount: 'always' as const,
       gcTime: 0,
@@ -114,7 +115,8 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
             event.preventDefault(); results.current?.querySelector<HTMLAnchorElement>(`[data-search-index="${current}"] a`)?.click();
           }
         }} />
-    </div>{hosts.length > 1 && <Select label="Search host" value={filter} options={[{ value: '', label: 'All hosts' }, ...hosts.map(host => ({ value: host.id, label: host.name }))]}
+    </div><Select label="Search state" value={archive} options={[{ value: 'all', label: 'All sessions' }, { value: 'active', label: 'Active sessions' }, { value: 'archived', label: 'Archived sessions' }]}
+      onValueChange={value => { setArchive(value); setCursors({}); setSelected(undefined); results.current?.scrollTo(0, 0); }} />{hosts.length > 1 && <Select label="Search host" value={filter} options={[{ value: '', label: 'All hosts' }, ...hosts.map(host => ({ value: host.id, label: host.name }))]}
       onValueChange={value => { setFilter(value); setSelected(undefined); }} />}</div>}>
     <div ref={results} id={resultId} {...stylex.props(styles.results)} aria-label="Session search results" aria-busy={loading}>
       {actionError && <ErrorNotice type="action" owner={actionError.owner} error={actionError.error} title="Could not open session" onDismiss={() => setActionError(undefined)} />}
