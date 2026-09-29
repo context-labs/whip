@@ -31,8 +31,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/creack/pty"
-
 	"github.com/context-labs/whip/internal/capability"
 )
 
@@ -349,7 +347,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ptmx, tty, err := pty.Open()
+	ptmx, tty, err := capability.OpenPTY()
 	if err != nil {
 		fallback := exec.CommandContext(context.WithoutCancel(ctx), userShell(), "-c", opts.Command)
 		fallback.Dir = opts.Cwd
