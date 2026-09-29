@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rpc"
 	"github.com/context-labs/whip/internal/runtime"
+	"github.com/context-labs/whip/internal/session"
 )
 
 type blockingProvider struct {
@@ -171,6 +173,12 @@ func TestNativeGoModelFreeCreationAndDirectOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	host := config.Default()
+	host.Providers["configured"] = config.Provider{Kind: "openai-chat", BaseURL: "http://127.0.0.1:1", CredentialSource: "none"}
+	host.Defaults.Model = session.ModelSelection{Provider: "configured", Name: "configured-model"}
+	if err := config.Save(directory, host); err != nil {
+		t.Fatal(err)
+	}
 	r, err := runtime.Open(t.Context(), directory, model.Scripted{}, runtime.Options{})
 	if err != nil {
 		t.Fatal(err)
