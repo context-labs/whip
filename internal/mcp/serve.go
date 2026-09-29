@@ -16,18 +16,6 @@ type ToolProvider interface {
 	CallTool(context.Context, string, json.RawMessage) (string, error)
 }
 
-// Serve runs whip's built-in tools as an MCP server over stdio — the other
-// direction of the integration: any MCP-capable harness (claude-code, codex,
-// another whip) can drive whip's read/bash/edit/write with
-//
-//	whipcode mcp serve
-//
-// registered as a stdio server. The model-facing `rlm_exec` tool is not part
-// of this restricted protocol endpoint. Callers use the raw definitions.
-func Serve(ctx context.Context, version string, provider ToolProvider) error {
-	return ServeTransport(ctx, version, provider, &sdkmcp.StdioTransport{})
-}
-
 // ServeTransport borrows one transport. The caller owns bounded I/O and shutdown.
 func ServeTransport(ctx context.Context, version string, provider ToolProvider, transport sdkmcp.Transport) error {
 	if provider == nil {

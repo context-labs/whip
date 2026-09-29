@@ -24,10 +24,10 @@ func TestEnableDisableCycle(t *testing.T) {
 	if st := m.Statuses()[0]; st.Status != StatusDisabled {
 		t.Fatalf("after disable: %+v", st)
 	}
-	if len(m.Tools()) != 0 {
-		t.Error("disabled server contributes no tools")
+	if tools, err := m.ListTools("docs"); len(tools) != 0 || err == nil {
+		t.Errorf("disabled metadata = %+v, %v", tools, err)
 	}
-	if _, err := m.servers["docs"].call(context.Background(), "greet", nil); err == nil || !strings.Contains(err.Error(), "disabled") {
+	if _, err := m.ResolveTool("docs", "greet"); err == nil || !strings.Contains(err.Error(), "disabled") {
 		t.Errorf("call to disabled server: %v", err)
 	}
 
@@ -44,12 +44,7 @@ func TestEnableDisableCycle(t *testing.T) {
 	if st := m.Statuses()[0]; st.Status != StatusReady {
 		t.Fatalf("after enable: %+v", st)
 	}
-	out := ""
-	for _, tool := range m.Tools() {
-		if tool.Def.Function.Name == "mcp__docs__greet" {
-			out, _ = tool.Run(context.Background(), nil)
-		}
-	}
+	out := callTestTool(t, m, "docs", "greet", nil)
 	if out == "" {
 		t.Error("re-enabled server's tools should work")
 	}

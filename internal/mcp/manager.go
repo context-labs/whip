@@ -892,18 +892,6 @@ func (m *Manager) ListTools(serverName string) ([]Tool, error) {
 	return result, nil
 }
 
-// Call invokes a named tool on a named server. The server retains its normal
-// connection, timeout, and per-server serialization behavior.
-func (m *Manager) Call(ctx context.Context, serverName, toolName string, arguments json.RawMessage) (string, error) {
-	call, err := m.ResolveTool(serverName, toolName)
-	if err != nil {
-		return "", err
-	}
-	call.Arguments = arguments
-	result, err := m.CallChecked(ctx, call, nil)
-	return result.Text, err
-}
-
 // bridge converts one listed MCP tool into the agent-loop Handler. The
 // name follows claude-code's mcp__server__tool convention; the schema passes
 // through verbatim with the object-typed shape providers require (opencode
@@ -930,40 +918,6 @@ func (s *server) bridge(d *sdkmcp.Tool) Handler {
 			return result.Text, err
 		},
 	}
-}
-
-// call runs one tool call against the session, serialized per server and
-// bounded by the configured tool timeout. Errors become error strings for
-// the model via tools.Execute — never loop-aborting (opencode throws and
-// converts to an output-error tool part; whip's "Error: …" convention is
-// the same shape).
-// connectGrace caps how long a tool call waits for a still-connecting server
-// before reporting back. A call should never park the turn for the full
-// startup timeout — the model can retry, and the server may still land.
-const connectGrace = 5 * time.Second
-
-func (s *server) call(ctx context.Context, tool string, args json.RawMessage) (string, error) {
-	s.mu.Lock()
-	settled := s.settled
-	s.mu.Unlock()
-	if !settled {
-		grace, cancel := context.WithTimeout(ctx, connectGrace)
-		defer cancel()
-		select {
-		case <-s.ready:
-		case <-grace.Done():
-			if ctx.Err() != nil {
-				return "", ctx.Err()
-			}
-			return "", fmt.Errorf("mcp server %q is still connecting — retry in a moment (/mcp shows status)", s.name)
-		}
-	}
-	if s.owner == nil {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return "", s.unavailableLocked()
-	}
-	return s.owner.Call(ctx, s.name, tool, args)
 }
 
 // flattenResult renders a CallToolResult for host storage (pure). Text parts
@@ -1032,7 +986,7 @@ func flattenResult(res *sdkmcp.CallToolResult) capability.MCPResult {
 // normalizeSchema renders an MCP tool's input schema as a JSON object with
 // type:"object" and a properties key (some servers omit one or both). The
 // input map is COPIED, never mutated: d.InputSchema is shared across every
-// Manager.Tools() call, and the race detector caught concurrent writes to it
+// catalog reader, and the race detector caught concurrent writes to it
 // (fatal error: concurrent map writes) when two settles interleaved.
 func normalizeSchema(schema any) string {
 	src, ok := schema.(map[string]any)
@@ -1127,7 +1081,7 @@ func (m *Manager) Enable(name string) bool {
 type ProbeResult struct {
 	Server
 	Elapsed   time.Duration
-	ToolNames []string // agent-facing names (mcp__name__tool), first 5 + "…"
+	ToolNames []string // diagnostic names (mcp__name__tool), first 5 + "…" when more remain
 }
 
 func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
@@ -1147,12 +1101,20 @@ func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
 	}
 	st := m.Statuses()[0]
 	res := ProbeResult{Server: st, Elapsed: time.Since(start)}
-	for _, t := range m.Tools() {
-		res.ToolNames = append(res.ToolNames, t.Def.Function.Name)
-		if len(res.ToolNames) == 5 {
+	if st.Status != StatusReady {
+		return res
+	}
+	listed, err := m.ListTools(name)
+	if err != nil {
+		res.Status, res.Err = StatusFailed, err.Error()
+		return res
+	}
+	for i, tool := range listed {
+		if i == 5 {
 			res.ToolNames = append(res.ToolNames, "…")
 			break
 		}
+		res.ToolNames = append(res.ToolNames, ToolName(name, tool.Name))
 	}
 	return res
 }

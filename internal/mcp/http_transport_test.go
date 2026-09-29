@@ -187,9 +187,9 @@ func TestManagerSuccessfulSSESurvivesStartupAndRefreshesCatalog(t *testing.T) {
 		t.Fatal("successful SSE was cancelled by startup completion")
 	case <-time.After(1100 * time.Millisecond):
 	}
-	result, err := m.Call(t.Context(), "local", "before", nil)
-	if err != nil || result != "alive" {
-		t.Fatalf("call after startup deadline = %q, %v", result, err)
+	result, err := testCall(t.Context(), m, "local", "before", nil)
+	if err != nil || result.Text != "alive" {
+		t.Fatalf("call after startup deadline = %+v, %v", result, err)
 	}
 	f.updated.Store(true)
 	f.notify <- struct{}{}
@@ -210,9 +210,9 @@ func TestManagerSuccessfulSSESurvivesStartupAndRefreshesCatalog(t *testing.T) {
 		case <-ticker.C:
 		}
 	}
-	result, err = m.Call(t.Context(), "local", "after", nil)
-	if err != nil || result != "alive" {
-		t.Fatalf("call after SSE catalog refresh = %q, %v", result, err)
+	result, err = testCall(t.Context(), m, "local", "after", nil)
+	if err != nil || result.Text != "alive" {
+		t.Fatalf("call after SSE catalog refresh = %+v, %v", result, err)
 	}
 	awaitHTTPFixture(t, closeHTTPManager(m), "healthy SSE prevented shutdown")
 	awaitHTTPFixture(t, f.getStopped, "healthy SSE survived manager shutdown")

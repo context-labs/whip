@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -149,30 +150,34 @@ func TestFlattenResultEdges(t *testing.T) {
 	}
 }
 
-// TestNormalizeSchemaUnmarshalable: a schema JSON can't encode falls back to
-// the empty object shape instead of emitting broken JSON to the provider.
-func TestNormalizeSchemaUnmarshalable(t *testing.T) {
-	got := normalizeSchema(map[string]any{"properties": map[string]any{}, "bad": make(chan int)})
-	if got != `{"type":"object","properties":{}}` {
-		t.Errorf("unmarshalable schema = %s", got)
+// Invalid schemas fail closed instead of being replaced by an empty object.
+func TestToolArgumentsRejectsUnmarshalableSchema(t *testing.T) {
+	if _, err := toolArguments(map[string]any{"bad": make(chan int)}, json.RawMessage(`{}`)); err == nil {
+		t.Fatal("unmarshalable schema admitted arguments")
 	}
 }
 
-// TestBridgeTitleFallback: a tool with only a Title uses it as the
-// description, so the model isn't handed "[MCP x] ".
-func TestBridgeTitleFallback(t *testing.T) {
-	s := &server{name: "docs"}
-	tool := s.bridge(&sdkmcp.Tool{Name: "search", Title: "Search the docs"})
-	if tool.Def.Function.Name != "mcp__docs__search" {
-		t.Errorf("name = %q", tool.Def.Function.Name)
+// Metadata keeps title and description distinct. Native callers receive the
+// server's exact tool identity without manufacturing model-facing definitions.
+func TestListToolsPreservesTitleAndDescription(t *testing.T) {
+	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "docs"}, nil)
+	for _, definition := range []*sdkmcp.Tool{
+		{Name: "title.only", Title: "Search the docs", InputSchema: map[string]any{"type": "object"}},
+		{Name: "title.and.description", Title: "Search the docs", Description: "real description", InputSchema: map[string]any{"type": "object"}},
+	} {
+		sdkmcp.AddTool(srv, definition, func(context.Context, *sdkmcp.CallToolRequest, struct{}) (*sdkmcp.CallToolResult, any, error) {
+			return &sdkmcp.CallToolResult{}, nil, nil
+		})
 	}
-	if tool.Def.Function.Description != "[MCP docs] Search the docs" {
-		t.Errorf("description = %q", tool.Def.Function.Description)
+	m := checkedManager(t, testCfg("docs"), srv)
+	tools := listTestTools(t, m, "exact.server")
+	if len(tools) != 2 || tools[0].Name != "title.and.description" || tools[0].Title != "Search the docs" || tools[0].Description != "real description" || tools[1].Name != "title.only" || tools[1].Title != "Search the docs" || tools[1].Description != "" {
+		t.Fatalf("metadata = %+v", tools)
 	}
-	// An explicit description wins over the title.
-	tool = s.bridge(&sdkmcp.Tool{Name: "search", Title: "Search the docs", Description: "real description"})
-	if tool.Def.Function.Description != "[MCP docs] real description" {
-		t.Errorf("description = %q", tool.Def.Function.Description)
+	for _, tool := range tools {
+		if call, err := m.ResolveTool("exact.server", tool.Name); err != nil || call.Tool != tool.Name {
+			t.Fatalf("exact tool = %+v, %v", call, err)
+		}
 	}
 }
 
@@ -258,7 +263,9 @@ func TestCallUnavailableVariants(t *testing.T) {
 		{settled(StatusDisabled, ""), `mcp server "svc" is disabled (/mcp svc enable)`},
 		{settled(StatusConnecting, ""), `mcp server "svc" is connecting`},
 	} {
-		_, err := tc.s.call(context.Background(), "anything", nil)
+		m := NewManager(nil)
+		m.servers["svc"] = tc.s
+		_, err := m.ResolveTool("svc", "anything")
 		if err == nil || err.Error() != tc.want {
 			t.Errorf("call err = %v, want %q", err, tc.want)
 		}
@@ -274,11 +281,11 @@ func TestCallLiveErrorPaths(t *testing.T) {
 	waitReady(t, m)
 	s := m.servers["docs"]
 
-	if _, err := s.call(context.Background(), "greet", json.RawMessage("{not json")); err == nil ||
+	if _, err := testCall(t.Context(), m, "docs", "greet", json.RawMessage("{not json")); err == nil ||
 		!strings.Contains(err.Error(), "invalid tool arguments") {
 		t.Errorf("bad args err = %v", err)
 	}
-	if _, err := s.call(context.Background(), "no-such-tool", nil); err == nil {
+	if _, err := testCall(t.Context(), m, "docs", "no-such-tool", nil); err == nil {
 		t.Error("unknown tool should surface the server's error")
 	}
 
@@ -287,7 +294,7 @@ func TestCallLiveErrorPaths(t *testing.T) {
 	s.calling <- struct{}{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := s.call(ctx, "greet", nil); !errors.Is(err, context.Canceled) {
+	if _, err := testCall(ctx, m, "docs", "greet", nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("contended call err = %v, want context.Canceled", err)
 	}
 	<-s.calling
@@ -317,46 +324,34 @@ func TestCallToolTimeout(t *testing.T) {
 	m.Start(context.Background())
 	waitReady(t, m)
 
-	_, err := m.servers["slow"].call(context.Background(), "wedge", nil)
+	_, err := testCall(t.Context(), m, "slow", "wedge", nil)
 	if err == nil || !strings.Contains(err.Error(), "mcp tool wedge timed out after 1s") {
 		t.Errorf("timed-out call err = %v", err)
 	}
 }
 
-// TestCallWaitsForLateConnect: a call that arrives before the first connect
-// settles parks on s.ready and runs once the server lands.
-func TestCallWaitsForLateConnect(t *testing.T) {
+// A connecting catalog cannot authorize an operation. Once the explicit
+// connection completes, a fresh exact descriptor can be admitted and called.
+func TestCallResolvesOnlyAfterLateConnect(t *testing.T) {
 	release := make(chan struct{})
 	m := NewManager(map[string]ServerConfig{"late": testCfg("late")})
-	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
-		<-release
-		return serveTestServer(t, m, "late"), nil
+	m.connectTransport = func(ctx context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
+		select {
+		case <-release:
+			return serveTestServer(t, m, "late"), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	t.Cleanup(m.Close)
-	m.Start(context.Background())
-
-	type result struct {
-		out string
-		err error
+	m.Start(t.Context())
+	if _, err := m.ResolveTool("late", "greet"); err == nil || !strings.Contains(err.Error(), "connecting") {
+		t.Fatalf("early descriptor: %v", err)
 	}
-	done := make(chan result, 1)
-	started := make(chan struct{})
-	go func() {
-		close(started)
-		out, err := m.servers["late"].call(context.Background(), "greet", json.RawMessage(`{"name":"late"}`))
-		done <- result{out, err}
-	}()
-	<-started
-	time.Sleep(50 * time.Millisecond) // let the call park on s.ready (well inside connectGrace)
 	close(release)
-
-	select {
-	case r := <-done:
-		if r.err != nil || r.out != "hi late" {
-			t.Errorf("late call = %q, %v", r.out, r.err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("call never returned after the server connected")
+	waitReady(t, m)
+	if out := callTestTool(t, m, "late", "greet", json.RawMessage(`{"name":"late"}`)); out != "hi late" {
+		t.Errorf("late call = %q", out)
 	}
 }
 
@@ -414,8 +409,8 @@ func TestConnectListToolsFailureClosesSession(t *testing.T) {
 	if st.Status != StatusFailed || !strings.Contains(st.Err, "list refused") {
 		t.Fatalf("status = %+v", st)
 	}
-	if len(m.Tools()) != 0 {
-		t.Error("a server that never listed tools must contribute none")
+	if tools, err := m.ListTools("grump"); len(tools) != 0 || err == nil {
+		t.Errorf("failed list metadata = %+v, %v", tools, err)
 	}
 }
 
@@ -438,8 +433,8 @@ func TestConnectDuringCloseDiscardsSession(t *testing.T) {
 	if status == StatusReady {
 		t.Errorf("status = %v, want not ready", status)
 	}
-	if len(m.Tools()) != 0 {
-		t.Error("discarded session must contribute no tools")
+	if tools, err := m.ListTools("docs"); len(tools) != 0 || err == nil {
+		t.Errorf("discarded metadata = %+v, %v", tools, err)
 	}
 }
 
@@ -475,7 +470,7 @@ func TestRunDropsRedundantReconnect(t *testing.T) {
 	if gen2 != gen || !live {
 		t.Errorf("live session disturbed: gen %d→%d, live=%v", gen, gen2, live)
 	}
-	out := callTestHandler(t, m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"still here"}`))
+	out := callTestTool(t, m, "docs", "greet", json.RawMessage(`{"name":"still here"}`))
 	if out != "hi still here" {
 		t.Errorf("greet after redundant reconnect = %q", out)
 	}
@@ -543,7 +538,7 @@ func TestReconnectDropsLiveSession(t *testing.T) {
 	if status != StatusReady || !live || gen2 <= gen {
 		t.Fatalf("after reconnect: status=%v live=%v gen %d→%d", status, live, gen, gen2)
 	}
-	out := callTestHandler(t, m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"again"}`))
+	out := callTestTool(t, m, "docs", "greet", json.RawMessage(`{"name":"again"}`))
 	if out != "hi again" {
 		t.Errorf("greet after reconnect = %q", out)
 	}
@@ -651,31 +646,33 @@ func TestKickAutoReconnectDeclines(t *testing.T) {
 // TestProbeRemote drives Probe through the real defaultTransport against a
 // loopback MCP server: the tool-name list is capped at five plus an ellipsis.
 func TestProbeRemote(t *testing.T) {
-	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "many"}, nil)
-	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g"} {
-		sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}},
-			func(ctx context.Context, req *sdkmcp.CallToolRequest, in struct{}) (*sdkmcp.CallToolResult, any, error) {
-				return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "ok"}}}, nil, nil
-			})
-	}
-	hs := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return srv }, nil))
-	defer hs.Close()
-
-	res := Probe(context.Background(), "many", ServerConfig{URL: hs.URL, StartupTimeout: 10})
-	if res.Status != StatusReady {
-		t.Fatalf("probe = %+v", res)
-	}
-	if res.Tools != 7 {
-		t.Errorf("tools = %d, want 7", res.Tools)
-	}
-	if len(res.ToolNames) != 6 || res.ToolNames[5] != "…" {
-		t.Fatalf("tool names = %v, want 5 names + …", res.ToolNames)
-	}
-	if res.ToolNames[0] != "mcp__many__a" {
-		t.Errorf("tool names = %v", res.ToolNames)
-	}
-	if res.Elapsed <= 0 {
-		t.Error("probe should report elapsed time")
+	for _, count := range []int{0, 5, 7} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "many"}, nil)
+			for i := range count {
+				name := fmt.Sprintf("tool%d", i)
+				sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(context.Context, *sdkmcp.CallToolRequest, struct{}) (*sdkmcp.CallToolResult, any, error) {
+					t.Error("metadata probe executed a tool")
+					return &sdkmcp.CallToolResult{}, nil, nil
+				})
+			}
+			hs := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return srv }, nil))
+			defer hs.Close()
+			res := Probe(t.Context(), "many", ServerConfig{URL: hs.URL, StartupTimeout: 10})
+			if res.Status != StatusReady || res.Tools != count || res.Elapsed <= 0 {
+				t.Fatalf("probe = %+v", res)
+			}
+			var want []string
+			for i := range min(count, 5) {
+				want = append(want, fmt.Sprintf("mcp__many__tool%d", i))
+			}
+			if count > 5 {
+				want = append(want, "…")
+			}
+			if !slices.Equal(res.ToolNames, want) {
+				t.Fatalf("tool names = %v, want %v", res.ToolNames, want)
+			}
+		})
 	}
 }
 

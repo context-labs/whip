@@ -8,6 +8,8 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // waitStatus polls until the named server reaches st (or fails the test).
@@ -29,7 +31,7 @@ func waitStatus(t *testing.T, m *Manager, name string, st Status) {
 
 // TestAddServersLive pins the "source toggled on mid-session" path: a manager
 // started with one server absorbs a second later, connects it, and its tools
-// join the agent-facing set — all without a restart.
+// join the explicit server catalog — all without a restart.
 func TestAddServersLive(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
 	m.Start(context.Background())
@@ -38,9 +40,9 @@ func TestAddServersLive(t *testing.T) {
 	m.AddServers(context.Background(), map[string]ServerConfig{"late": testCfg("late")})
 	waitStatus(t, m, "late", StatusReady)
 
-	ts := m.Tools()
+	ts := append(listTestTools(t, m, "docs"), listTestTools(t, m, "late")...)
 	if len(ts) != 8 { // 4 tools per test server
-		t.Fatalf("expected 8 tools after AddServers, got %d: %v", len(ts), toolNames(ts))
+		t.Fatalf("expected 8 tools after AddServers, got %d: %v", len(ts), ts)
 	}
 	names := map[string]bool{}
 	for _, s := range m.Statuses() {
@@ -65,18 +67,18 @@ func TestAddServersKeepsExisting(t *testing.T) {
 }
 
 // TestRemoveServersLive pins the "source toggled off mid-session" path: the
-// server's tools leave the agent-facing set and its status row disappears
+// server's tools leave the explicit server catalog and its status row disappears
 // immediately, while its sibling keeps serving.
 func TestRemoveServersLive(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs"), "extra": testCfg("extra")})
 	m.Start(context.Background())
 	waitReady(t, m)
-	if got := len(m.Tools()); got != 8 {
+	if got := len(listTestTools(t, m, "docs")) + len(listTestTools(t, m, "extra")); got != 8 {
 		t.Fatalf("precondition: 8 tools, got %d", got)
 	}
 
 	m.RemoveServers("extra")
-	if got := len(m.Tools()); got != 4 {
+	if got := len(listTestTools(t, m, "docs")); got != 4 {
 		t.Fatalf("expected 4 tools after RemoveServers, got %d", got)
 	}
 	for _, s := range m.Statuses() {
@@ -92,24 +94,25 @@ func TestRemoveServersLive(t *testing.T) {
 	}
 }
 
-// TestStaleToolAfterRemoveFailsClean pins the stale-closure case: the agent
-// snapshots the tool list at turn start, so a tool bridging a server removed
-// mid-turn must fail as tool output (an "Error: …" string), not panic or hang.
+// TestStaleToolAfterRemoveFailsClean captures native descriptors before removal.
+// Every captured tool must fail without reaching a replacement connection.
 func TestStaleToolAfterRemoveFailsClean(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
-	m.Start(context.Background())
+	m.Start(t.Context())
 	waitReady(t, m)
-
-	stale := m.Tools() // the set a turn already captured
-	m.RemoveServers("docs")
-
-	for _, tool := range stale {
-		out, err := tool.Run(context.Background(), nil)
-		if err == nil && out == "" {
-			t.Errorf("stale tool %s: expected an error, got silence", tool.Def.Function.Name)
+	var stale []capability.MCPCall
+	for _, tool := range listTestTools(t, m, "docs") {
+		call, err := m.ResolveTool("docs", tool.Name)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if err != nil && !strings.Contains(err.Error(), "docs") {
-			t.Errorf("stale tool %s error should name the server: %v", tool.Def.Function.Name, err)
+		stale = append(stale, call)
+	}
+	m.RemoveServers("docs")
+	for _, call := range stale {
+		out, err := m.CallChecked(t.Context(), call, nil)
+		if err == nil || !strings.Contains(err.Error(), "docs") || out.Text != "" {
+			t.Errorf("stale tool %s: output=%+v error=%v", call.Tool, out, err)
 		}
 	}
 }
@@ -147,21 +150,21 @@ func TestRemoveDuringInFlightConnect(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(m.Statuses()) == 0 && len(m.Tools()) == 0 {
+		if tools, err := m.ListTools("churn"); len(m.Statuses()) == 0 && len(tools) == 0 && err != nil {
 			// Give the in-flight connect a moment to (wrongly) store, then
 			// re-check: a resurrection would appear within the window.
 			time.Sleep(50 * time.Millisecond)
-			if len(m.Statuses()) == 0 && len(m.Tools()) == 0 {
+			if tools, err := m.ListTools("churn"); len(m.Statuses()) == 0 && len(tools) == 0 && err != nil {
 				return
 			}
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("removed server leaked through an in-flight connect: statuses=%+v tools=%d", m.Statuses(), len(m.Tools()))
+	t.Fatalf("removed server leaked through an in-flight connect: statuses=%+v", m.Statuses())
 }
 
 // TestRemoveWhileConnecting is the race proof: removal interleaved with an
-// in-flight connect and with concurrent Tools()/Statuses() readers must not
+// in-flight connect and with concurrent ListTools()/Statuses() readers must not
 // race, panic, or resurrect the removed server.
 func TestRemoveWhileConnecting(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
@@ -171,7 +174,8 @@ func TestRemoveWhileConnecting(t *testing.T) {
 	for range 8 {
 		wg.Go(func() {
 			for range 50 {
-				_ = m.Tools()
+				_, _ = m.ListTools("docs")
+				_, _ = m.ListTools("churn")
 				_ = m.Statuses()
 				_, _, _, _ = m.Instructions("docs")
 			}
@@ -211,12 +215,12 @@ func TestAddAfterRemoveReconnects(t *testing.T) {
 	waitReady(t, m)
 
 	m.RemoveServers("docs")
-	if got := len(m.Tools()); got != 0 {
-		t.Fatalf("expected no tools after removal, got %d", got)
+	if tools, err := m.ListTools("docs"); len(tools) != 0 || err == nil {
+		t.Fatalf("removed metadata = %+v, %v", tools, err)
 	}
 	m.AddServers(context.Background(), map[string]ServerConfig{"docs": testCfg("docs")})
 	waitStatus(t, m, "docs", StatusReady)
-	if got := len(m.Tools()); got != 4 {
+	if got := len(listTestTools(t, m, "docs")); got != 4 {
 		t.Fatalf("expected 4 tools after re-add, got %d", got)
 	}
 }
