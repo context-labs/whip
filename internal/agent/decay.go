@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/context-labs/whip/internal/bashrun"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 // Context decay keeps old tool output from polluting the prompt while

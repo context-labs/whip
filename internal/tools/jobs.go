@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/bashrun"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 // Background jobs are per agent: a node sees only the jobs it started. At most

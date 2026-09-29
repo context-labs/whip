@@ -65,17 +65,30 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 		if err := declaration.ValidateInput(call.Arguments); err != nil {
 			return nil, "", err
 		}
-		// Declarations install guest syntax, not a live handler or executor identity.
-		return nil, "", errors.New("custom tool executor unavailable")
 	}
-	if !slices.Contains(current.Config.Modules, call.Module) {
+	if call.Module != "tools" && !slices.Contains(current.Config.Modules, call.Module) {
 		return nil, "", fmt.Errorf("%w: host module is not enabled for this turn", session.ErrInvalid)
+	}
+	if hooks, ok := d.coordination.(interface {
+		BeforeTool(context.Context, session.Session, Invocation) (Invocation, error)
+	}); ok {
+		call, err = hooks.BeforeTool(ctx, current, call)
+		if err != nil {
+			return nil, "", err
+		}
+		if call.Module == "tools" {
+			if err := current.Config.Tools[call.Name].ValidateInput(call.Arguments); err != nil {
+				return nil, "", err
+			}
+		}
 	}
 	var prepared Prepared
 	if call.Module == "files" {
 		prepared, err = d.files.Prepare(current.WorkingDirectory, call.Module+"."+call.Name, call.Arguments)
 	} else if d.coordination != nil {
 		prepared, err = d.coordination.PrepareCoordination(ctx, current, call)
+	} else if call.Module == "tools" {
+		err = errors.New("custom tool executor unavailable")
 	} else {
 		err = errors.New("unsupported host module")
 	}
@@ -98,8 +111,24 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 }
 
 func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared Prepared, standingOnly bool) (any, session.OperationID, error) {
+	if prepared.Lifetime != nil {
+		lifetimeCtx, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(prepared.Lifetime, cancel)
+		defer func() { stop(); cancel() }()
+		if err := prepared.Lifetime.Err(); err != nil {
+			return nil, "", err
+		}
+		ctx = lifetimeCtx
+	}
 	if prepared.ModelTimeouts && (prepared.Apply != nil || (prepared.Capability != "models.call" && prepared.Capability != "models.batch")) {
 		return nil, "", fmt.Errorf("%w: model timeouts require models.call or models.batch execution", session.ErrInvalid)
+	}
+
+	if prepared.CustomTimeout != 0 && (call.Module != "tools" || prepared.Capability != "tools."+call.Name || prepared.CustomTimeout < 0 || prepared.CustomTimeout > 15*time.Minute || prepared.Timeout != 0 || prepared.ModelTimeouts || prepared.Apply != nil) {
+		return nil, "", fmt.Errorf("%w: invalid custom tool timeout", session.ErrInvalid)
+	}
+	if prepared.Timeout < 0 || prepared.Timeout > 5*time.Minute || prepared.Timeout != 0 && (prepared.ModelTimeouts || prepared.Apply != nil || prepared.Capability == "models.call" || prepared.Capability == "models.batch") {
+		return nil, "", fmt.Errorf("%w: invalid host effect timeout", session.ErrInvalid)
 	}
 
 	digest := sha256.Sum256([]byte(string(call.CellID) + "\x00" + call.RequestID))
@@ -168,7 +197,11 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 		}
 		return nil, id, errors.New("operation dispatch was not authorized")
 	}
-	effectCtx, cancel := operationContext(ctx, prepared.ModelTimeouts)
+	timeout := prepared.Timeout
+	if prepared.CustomTimeout != 0 {
+		timeout = prepared.CustomTimeout
+	}
+	effectCtx, cancel := operationContext(ctx, prepared.ModelTimeouts, timeout)
 	value, callErr := prepared.Run(effectCtx, id)
 	cancel()
 	if isFatal(callErr) {
@@ -179,16 +212,19 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 	result := session.OperationResult{State: session.OperationSucceeded}
 	if callErr != nil {
 		result.State = session.OperationFailed
-		if prepared.Mutating || ctx.Err() != nil || errors.Is(callErr, context.Canceled) || errors.Is(callErr, context.DeadlineExceeded) {
+		if !isSettledFailure(callErr) && (prepared.Mutating || ctx.Err() != nil || errors.Is(callErr, context.Canceled) || errors.Is(callErr, context.DeadlineExceeded)) {
 			result.State = session.OperationUncertain
 		}
 		result.Failure = new(failureText(callErr))
-	} else {
+	}
+	if callErr == nil || value != nil {
 		result.Value, err = json.Marshal(value)
 		if err != nil || len(result.Value) > session.MaxDocumentBytes/2 {
-			// A completed effect remains completed even if its presentation is unusable.
-			result.Value = json.RawMessage(`{"notice":"operation succeeded; output was unavailable or exceeded the size limit"}`)
-			callErr = errors.New("operation succeeded but its output is unavailable")
+			// Keep the observed effect state even when presentation is unusable.
+			result.Value = json.RawMessage(`{"notice":"operation output was unavailable or exceeded the size limit"}`)
+			if callErr == nil {
+				callErr = errors.New("operation succeeded but its output is unavailable")
+			}
 			value = nil
 		}
 	}
@@ -230,11 +266,14 @@ func (d *Dispatcher) awaitPermission(ctx context.Context, id session.OperationID
 	}
 }
 
-func operationContext(parent context.Context, modelTimeouts bool) (context.Context, context.CancelFunc) {
+func operationContext(parent context.Context, modelTimeouts bool, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if modelTimeouts {
 		return context.WithCancel(parent)
 	}
-	return context.WithTimeout(parent, 30*time.Second)
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+	return context.WithTimeout(parent, timeout)
 }
 
 func (d *Dispatcher) cancelAfterError(ctx context.Context, id session.OperationID, cause error) error {

@@ -864,6 +864,472 @@ export interface DeleteResult {
   deleted: boolean;
 }
 export interface EmptyParams {}
+export interface ExecutorAccepted {
+  accepted: true;
+}
+export interface ExecutorActivityResult {
+  activity: null | {
+    epoch: string;
+    turn_id: string;
+    revision: string;
+    /**
+     * @maxItems 8
+     */
+    decisions: {
+      invocation_id: null | string;
+      hook: "before_tool" | "before_spawn" | "turn_start";
+      operation: string;
+      decision: "deny" | "rewrite" | "skipped";
+      reason: string;
+    }[];
+    truncated: boolean;
+    progress: null | {
+      invocation_id: string;
+      operation_id: string;
+      text: string;
+    };
+  };
+}
+export interface ExecutorBindParams {
+  definition: {
+    id: string;
+    revision: string;
+  };
+  /**
+   * @maxItems 128
+   */
+  tools: string[];
+  /**
+   * @maxItems 3
+   */
+  hooks: [] | [string] | [string, string] | [string, string, string];
+}
+export type ExecutorEvent = {
+  jsonrpc: "2.0";
+  method: "executor.invoke" | "executor.cancel";
+  epoch: string;
+  generation: string;
+  invocation_id: string;
+  invocation: null | {
+    invocation_id: string;
+    lease: {
+      epoch: string;
+      definition: {
+        id: string;
+        revision: string;
+      };
+      generation: string;
+      /**
+       * @maxItems 128
+       */
+      tools: string[];
+      /**
+       * @maxItems 3
+       */
+      hooks: [] | [string] | [string, string] | [string, string, string];
+    };
+    kind: "tool" | "hook";
+    name: string;
+    session_id: string;
+    turn_id: string;
+    cell_id: null | string;
+    operation_id: null | string;
+    operation: string;
+    arguments_base64: null | string;
+    spawn_base64: null | string;
+    input_preview: string;
+    permission_mode: string;
+    deadline_millis: string;
+  };
+} & (
+  | {
+      invocation?: {
+        [k: string]: unknown;
+      };
+      method?: "executor.invoke";
+      [k: string]: unknown;
+    }
+  | {
+      invocation?: null;
+      method?: "executor.cancel";
+      [k: string]: unknown;
+    }
+);
+export interface ExecutorHookResultParams {
+  epoch: string;
+  generation: string;
+  invocation_id: string;
+  decision: "" | "allow" | "deny";
+  reason: string;
+  arguments_base64: null | string;
+  spawn_base64: null | string;
+  context: string;
+  failure: string;
+}
+export interface ExecutorLease {
+  epoch: string;
+  definition: {
+    id: string;
+    revision: string;
+  };
+  generation: string;
+  /**
+   * @maxItems 128
+   */
+  tools: string[];
+  /**
+   * @maxItems 3
+   */
+  hooks: [] | [string] | [string, string] | [string, string, string];
+}
+export interface ExecutorPendingParams {
+  epoch: string;
+  definition: {
+    id: string;
+    revision: string;
+  };
+  generation: string;
+  after: null | string;
+}
+export interface ExecutorPendingResult {
+  /**
+   * @maxItems 4
+   */
+  items:
+    | []
+    | [
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        }
+      ]
+    | [
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        },
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        }
+      ]
+    | [
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        },
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        },
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        }
+      ]
+    | [
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        },
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        },
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        },
+        {
+          invocation_id: string;
+          lease: {
+            epoch: string;
+            definition: {
+              id: string;
+              revision: string;
+            };
+            generation: string;
+            /**
+             * @maxItems 128
+             */
+            tools: string[];
+            /**
+             * @maxItems 3
+             */
+            hooks: [] | [string] | [string, string] | [string, string, string];
+          };
+          kind: "tool" | "hook";
+          name: string;
+          session_id: string;
+          turn_id: string;
+          cell_id: null | string;
+          operation_id: null | string;
+          operation: string;
+          arguments_base64: null | string;
+          spawn_base64: null | string;
+          input_preview: string;
+          permission_mode: string;
+          deadline_millis: string;
+        }
+      ];
+  next_after: null | string;
+}
+export interface ExecutorProgressParams {
+  epoch: string;
+  generation: string;
+  invocation_id: string;
+  text: string;
+}
+export interface ExecutorToolResultParams {
+  epoch: string;
+  generation: string;
+  invocation_id: string;
+  output_base64: null | string;
+  failure: string;
+}
 export interface ForkParams {
   fork_id: string;
   session_id: string;
@@ -5713,6 +6179,30 @@ export interface SetResourceParams {
     limit: null | string;
   };
 }
+export interface ShellInputParams {
+  session_id: string;
+  operation_id: string;
+  sequence: string;
+  data_base64: string;
+}
+export interface ShellInputResult {
+  sequence: string;
+}
+export interface ShellInteractionParams {
+  session_id: string;
+  cursor: string;
+}
+export interface ShellInteractionResult {
+  interaction: null | {
+    operation_id: string;
+    started_at: string;
+    data_base64: string;
+    from: string;
+    through: string;
+    next_input: string;
+    seconds_left: number;
+  };
+}
 export interface SpawnSessionParams {
   identity: {
     client_id: string;
@@ -6414,6 +6904,16 @@ export interface ContractTypes {
   DefinitionRef: DefinitionRef;
   DeleteResult: DeleteResult;
   EmptyParams: EmptyParams;
+  ExecutorAccepted: ExecutorAccepted;
+  ExecutorActivityResult: ExecutorActivityResult;
+  ExecutorBindParams: ExecutorBindParams;
+  ExecutorEvent: ExecutorEvent;
+  ExecutorHookResultParams: ExecutorHookResultParams;
+  ExecutorLease: ExecutorLease;
+  ExecutorPendingParams: ExecutorPendingParams;
+  ExecutorPendingResult: ExecutorPendingResult;
+  ExecutorProgressParams: ExecutorProgressParams;
+  ExecutorToolResultParams: ExecutorToolResultParams;
   ForkParams: ForkParams;
   ForkResult: ForkResult;
   FormulateGoalParams: FormulateGoalParams;
@@ -6531,6 +7031,10 @@ export interface ContractTypes {
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
   SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
+  ShellInputParams: ShellInputParams;
+  ShellInputResult: ShellInputResult;
+  ShellInteractionParams: ShellInteractionParams;
+  ShellInteractionResult: ShellInteractionResult;
   SpawnSessionParams: SpawnSessionParams;
   SpawnSessionResult: SpawnSessionResult;
   StateHistoryParams: StateHistoryParams;
@@ -6563,6 +7067,14 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "executor.activity": { params: SessionParams; result: ExecutorActivityResult };
+  "executor.bind": { params: ExecutorBindParams; result: ExecutorLease };
+  "executor.pending": { params: ExecutorPendingParams; result: ExecutorPendingResult };
+  "tool.result": { params: ExecutorToolResultParams; result: ExecutorAccepted };
+  "hook.result": { params: ExecutorHookResultParams; result: ExecutorAccepted };
+  "tool.progress": { params: ExecutorProgressParams; result: ExecutorAccepted };
+  "shell.interaction": { params: ShellInteractionParams; result: ShellInteractionResult };
+  "shell.input": { params: ShellInputParams; result: ShellInputResult };
   "workspace.capture": { params: WorkspaceActionParams; result: WorkspaceResult };
   "workspace.restore": { params: WorkspaceActionParams; result: WorkspaceResult };
   "workspace.release": { params: WorkspaceActionParams; result: WorkspaceResult };

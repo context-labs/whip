@@ -33,6 +33,11 @@ export class Client {
     return decodeResponse(method, id, response);
   }
 
+  /** Bounded ephemeral executor progress/decisions; null after its owning turn ends. */
+  executorActivity(sessionID: string, options: CallOptions = {}): Promise<Operations['executor.activity']['result']> {
+    return this.call('executor.activity', { session_id: sessionID }, options);
+  }
+
   /** Offline setup templates. Does not discover routes or read credentials. */
   providerPresets(options: CallOptions = {}): Promise<Operations['providers.presets']['result']> {
     return this.call('providers.presets', {}, options);
@@ -106,6 +111,16 @@ export class Client {
   /** A host publication error requires a fresh read; never replay against a newly observed revision automatically. */
   setDefaultPermissionMode(params: Operations['host.set_permission_default']['params'], options: CallOptions = {}): Promise<Operations['host.set_permission_default']['result']> {
     return this.call('host.set_permission_default', params, options);
+  }
+
+  /** Live operation preview. Reading creates no process and retains no client cache. */
+  shellInteraction(sessionID: string, cursor = '0', options: CallOptions = {}): Promise<Operations['shell.interaction']['result']> {
+    return this.call('shell.interaction', { session_id: sessionID, cursor }, options);
+  }
+
+  /** Human keystrokes; acknowledge queue admission only. Never replay into a different operation. */
+  shellInput(params: Operations['shell.input']['params'], options: CallOptions = {}): Promise<Operations['shell.input']['result']> {
+    return this.call('shell.input', params, options);
   }
 
   /** Durable question evidence; reading never creates or resumes a waiter. */
@@ -455,3 +470,6 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener('abort', aborted, { once: true });
   });
 }
+
+export { ExecutorClient } from './executors.js';
+export type { DuplexTransport } from './executors.js';

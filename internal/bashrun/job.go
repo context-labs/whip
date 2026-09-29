@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // jobOutputBytes bounds the output a background job keeps in memory: the tail
@@ -22,7 +24,7 @@ type Job struct {
 	Command string
 	Started time.Time
 
-	process processHandle
+	process *capability.Process
 	pid     int
 	done    chan struct{}
 
@@ -42,9 +44,6 @@ func Start(ctx context.Context, opts Options) (*Job, error) {
 	}
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), userShell(), "-c", opts.Command)
 	cmd.Dir = opts.Cwd
-	if opts.Processes == nil {
-		cmd.Env = childEnvironment(opts.Env)
-	}
 	stdout, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -60,24 +59,31 @@ func Start(ctx context.Context, opts Options) (*Job, error) {
 	if devNull != nil {
 		cmd.Stdin = devNull
 	}
-	process, cleanup, err := startProcess(context.WithoutCancel(ctx), cmd, opts, false)
+	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	if opts.Timeout > 0 {
+		cancel()
+		jobCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), opts.Timeout)
+	}
+	process, cleanup, err := startProcess(jobCtx, cmd, opts, false)
 	_ = outW.Close()
 	_ = errW.Close()
 	if devNull != nil {
 		_ = devNull.Close()
 	}
 	if err != nil {
+		cancel()
 		_ = stdout.Close()
 		_ = stderr.Close()
 		cleanup()
 		return nil, err
 	}
 	job := &Job{Command: opts.Command, Started: time.Now(), process: process, pid: process.PID(), done: make(chan struct{})}
-	go job.pump(stdout, stderr, cleanup, opts.Timeout)
+	go job.pump(jobCtx, stdout, stderr, func() { cancel(); cleanup() })
 	return job, nil
 }
 
-func (j *Job) pump(stdout, stderr *os.File, cleanup func(), timeout time.Duration) {
+func (j *Job) pump(ctx context.Context, stdout, stderr *os.File, cleanup func()) {
+	defer close(j.done)
 	defer cleanup()
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -96,20 +102,8 @@ func (j *Job) pump(stdout, stderr *os.File, cleanup func(), timeout time.Duratio
 	}
 	go drain(stdout)
 	go drain(stderr)
-	var timer *time.Timer
-	timedOut := false
-	if timeout > 0 {
-		timer = time.AfterFunc(timeout, func() {
-			j.mu.Lock()
-			timedOut = true
-			j.mu.Unlock()
-			_ = j.process.Kill()
-		})
-	}
 	waitErr := j.process.Wait()
-	if timer != nil {
-		timer.Stop()
-	}
+	j.process.Stop()
 	drained := make(chan struct{})
 	go func() { wg.Wait(); close(drained) }()
 	grace := time.NewTimer(500 * time.Millisecond)
@@ -123,7 +117,7 @@ func (j *Job) pump(stdout, stderr *os.File, cleanup func(), timeout time.Duratio
 	wg.Wait()
 	j.mu.Lock()
 	switch {
-	case timedOut:
+	case ctx.Err() == context.DeadlineExceeded:
 		j.exit, j.killed = "timed out", true
 	case j.killed:
 		j.exit = "killed"
@@ -135,7 +129,6 @@ func (j *Job) pump(stdout, stderr *os.File, cleanup func(), timeout time.Duratio
 	}
 	j.ended = time.Now()
 	j.mu.Unlock()
-	close(j.done)
 }
 
 func (j *Job) append(chunk []byte) {
@@ -172,7 +165,9 @@ func (j *Job) Kill() error {
 	}
 	j.killed = true
 	j.mu.Unlock()
-	return j.process.Kill()
+	j.process.Stop()
+	<-j.done
+	return nil
 }
 
 // Exit is the human-readable exit status once the job has ended; "" while it

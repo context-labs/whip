@@ -1,0 +1,60 @@
+{
+  "type": "object",
+  "properties": {
+    "interaction": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "data_base64": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "through": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "next_input": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "seconds_left": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        }
+      },
+      "required": [
+        "operation_id",
+        "started_at",
+        "data_base64",
+        "from",
+        "through",
+        "next_input",
+        "seconds_left"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ShellInteractionResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShellInteractionResult",
+  "required": [
+    "interaction"
+  ],
+  "additionalProperties": false
+}

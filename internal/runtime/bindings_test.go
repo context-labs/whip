@@ -93,7 +93,7 @@ func TestBothEnginesBindingCeilingCapturedTurnAndRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			runCellTurn(t, r, root.ID, "model", "42\n")
-			bindingCellFailure(t, r, root.ID, "unavailable", "custom tool executor unavailable")
+
 			submitTest(t, r, root.ID, "captured")
 			var request model.Request
 			select {

@@ -1,0 +1,119 @@
+{
+  "type": "object",
+  "properties": {
+    "activity": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "epoch": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "invocation_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "hook": {
+                "type": "string",
+                "enum": [
+                  "before_tool",
+                  "before_spawn",
+                  "turn_start"
+                ]
+              },
+              "operation": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "deny",
+                  "rewrite",
+                  "skipped"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 512
+              }
+            },
+            "required": [
+              "invocation_id",
+              "hook",
+              "operation",
+              "decision",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 8
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "progress": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "invocation_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "operation_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          },
+          "required": [
+            "invocation_id",
+            "operation_id",
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "epoch",
+        "turn_id",
+        "revision",
+        "decisions",
+        "truncated",
+        "progress"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ExecutorActivityResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecutorActivityResult",
+  "required": [
+    "activity"
+  ],
+  "additionalProperties": false
+}

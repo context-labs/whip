@@ -16,7 +16,6 @@
 package bashrun
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -31,8 +30,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/creack/pty"
 
 	"github.com/context-labs/whip/internal/capability"
 )
@@ -73,8 +70,13 @@ func passwdShell() string {
 
 // Result is the outcome of one command run.
 type Result struct {
+	// StartError means no command was launched; a nonzero process exit is separate.
+	StartError error
 	// Output is the combined stdout+stderr captured for the model.
 	Output string
+	// TotalBytes includes bytes discarded from the bounded retained tail.
+	TotalBytes int64
+	Truncated  bool
 	// Exit is the human-readable exit status fed back to the model. It is
 	// empty for a clean exit 0.
 	Exit string
@@ -89,11 +91,12 @@ type Result struct {
 
 // Options configure a single run.
 type Options struct {
-	Command   string
-	Cwd       string
-	RootID    string
-	Processes *capability.ProcessManager
-	Env       map[string]string
+	Command     string
+	Cwd         string
+	CwdIdentity os.FileInfo
+	RootID      string
+	Processes   *capability.ProcessManager
+	Env         map[string]string
 	// Timeout is the hard wall-clock cap. <=0 means 120s.
 	Timeout time.Duration
 	// Interactive runs the command in a PTY so sudo/ssh-like password prompts
@@ -109,15 +112,14 @@ type Options struct {
 	// OnUpdate reports the accumulated combined output while a non-interactive
 	// command runs, throttled to at most one call per ~100ms (pi's bash
 	// onUpdate). Invoked from the run's own goroutines; must not block.
-	// The final output is delivered via Result, not OnUpdate; one trailing
-	// call may land after Run returns if a tick was in flight.
+	// The final output is delivered via Result. All callbacks finish before Run returns.
 	OnUpdate func(outputSoFar string)
 	// OnAwaitInput is called once per second while the child is quiet and
 	// likely waiting for input; secLeft is the seconds remaining before the
 	// inactivity timeout fires. Interactive only.
 	OnAwaitInput func(secLeft int)
 	// Keys is the channel the caller pushes keystrokes into for forwarding to
-	// the PTY. The runner drains it until the command ends, then closes it.
+	// the PTY. The runner stops receiving when the command ends; the caller owns the channel.
 	// Interactive only; may be nil for a fire-and-forget interactive run.
 	Keys <-chan []byte
 }
@@ -141,9 +143,6 @@ func Run(ctx context.Context, opts Options) Result {
 	// Cancellation below kills the process group; CommandContext would kill only the shell.
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), userShell(), "-c", opts.Command)
 	cmd.Dir = opts.Cwd
-	if opts.Processes == nil {
-		cmd.Env = childEnvironment(opts.Env)
-	}
 
 	if opts.Interactive {
 		return runInteractive(ctx, cmd, opts)
@@ -151,51 +150,36 @@ func Run(ctx context.Context, opts Options) Result {
 	return runPiped(ctx, cmd, opts)
 }
 
-type processHandle interface {
-	Wait() error
-	Kill() error
-	PID() int
-}
-
-type commandProcess struct{ cmd *exec.Cmd }
-
-func (p commandProcess) Wait() error { return p.cmd.Wait() }
-
-func (p commandProcess) PID() int {
-	if p.cmd.Process == nil {
-		return 0
+// A caller without an owner receives a private manager with the same bounded,
+// allowlisted environment and joined process-group lifetime as owned runs.
+func startProcess(ctx context.Context, cmd *exec.Cmd, opts Options, controllingTTY bool) (*capability.Process, func(), error) {
+	cleanup := func() {}
+	manager := opts.Processes
+	rootID := opts.RootID
+	if manager == nil {
+		manager = capability.NewProcessManager()
+		rootID = "shell"
+		cleanup = func() { _ = manager.Close() }
 	}
-	return p.cmd.Process.Pid
-}
-
-func (p commandProcess) Kill() error {
-	if p.cmd.Process == nil {
-		return nil
+	cwd := cmd.Dir
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			cleanup()
+			return nil, func() {}, err
+		}
 	}
-	err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
-	if errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	return err
-}
-
-func startProcess(ctx context.Context, cmd *exec.Cmd, opts Options, controllingTTY bool) (processHandle, func(), error) {
-	if err := ctx.Err(); err != nil {
+	env := map[string]string{"WHIP": "1", "WHIP_PID": strconv.Itoa(os.Getpid())}
+	maps.Copy(env, opts.Env)
+	process, err := manager.Start(ctx, rootID, cmd.Path, cmd.Args[1:], capability.ProcessOptions{
+		Cwd: cwd, CwdIdentity: opts.CwdIdentity, Env: env, Stdin: cmd.Stdin, Stdout: cmd.Stdout, Stderr: cmd.Stderr, ControllingTTY: controllingTTY,
+	})
+	if err != nil {
+		cleanup()
 		return nil, func() {}, err
 	}
-	if opts.Processes != nil {
-		env := map[string]string{"WHIP": "1", "WHIP_PID": strconv.Itoa(os.Getpid())}
-		maps.Copy(env, opts.Env)
-		process, err := opts.Processes.Start(context.WithoutCancel(ctx), opts.RootID, cmd.Path, cmd.Args[1:], capability.ProcessOptions{
-			Cwd: cmd.Dir, Env: env, Stdin: cmd.Stdin, Stdout: cmd.Stdout, Stderr: cmd.Stderr, ControllingTTY: controllingTTY,
-		})
-		return process, func() {}, err
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: controllingTTY}
-	if err := cmd.Start(); err != nil {
-		return nil, func() {}, err
-	}
-	return commandProcess{cmd}, func() {}, nil
+	return process, cleanup, nil
 }
 
 func childEnvironment(overrides map[string]string) []string {
@@ -240,13 +224,13 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	// our own pipes Wait touches nothing and we control when reads end.
 	stdout, outW, err := os.Pipe()
 	if err != nil {
-		return Result{Exit: "pipe: " + err.Error()}
+		return Result{StartError: err, Exit: "pipe: " + err.Error()}
 	}
 	stderr, errW, err := os.Pipe()
 	if err != nil {
 		_ = stdout.Close()
 		_ = outW.Close()
-		return Result{Exit: "pipe: " + err.Error()}
+		return Result{StartError: err, Exit: "pipe: " + err.Error()}
 	}
 	cmd.Stdout = outW
 	cmd.Stderr = errW
@@ -260,7 +244,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 		_ = outW.Close()
 		_ = stderr.Close()
 		_ = errW.Close()
-		return Result{Exit: exitString(err)}
+		return Result{StartError: err, Exit: exitString(err)}
 	}
 	defer cleanup()
 	// Drop our copies of the write ends: the drains must see EOF when the
@@ -269,7 +253,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	_ = errW.Close()
 	// Drain both pipes concurrently; the readers finish on pipe EOF (process
 	// exit) OR when we close them below after Wait returns.
-	var out bytes.Buffer
+	var out outputBuffer
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -296,8 +280,10 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	var updatesDone chan struct{}
 	if opts.OnUpdate != nil {
 		updatesDone = make(chan struct{})
-		defer close(updatesDone)
+		updatesJoined := make(chan struct{})
+		defer func() { close(updatesDone); <-updatesJoined }()
 		go func() {
+			defer close(updatesJoined)
 			ticker := time.NewTicker(updateInterval)
 			defer ticker.Stop()
 			for {
@@ -313,18 +299,10 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			}
 		}()
 	}
-	// Kill the process group if the run context is cancelled/times out.
-	watchDone := make(chan struct{})
-	defer close(watchDone)
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = process.Kill()
-		case <-watchDone:
-		}
-	}()
-
 	waitErr := process.Wait()
+	// Foreground descendants belong to this invocation, even when the shell
+	// exits before them. Join the complete group before publishing completion.
+	process.Stop()
 	// The direct child exited. On the common path the drains hit EOF at once
 	// (all write ends are closed) and finish having read everything. The timer
 	// bounds the detached-grandchild case only: a lingering writer holds the
@@ -343,7 +321,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	_ = stderr.Close()
 	wg.Wait()
 
-	res := Result{Output: out.String()}
+	res := Result{Output: out.String(), TotalBytes: out.total, Truncated: out.truncated()}
 	if ctx.Err() == context.DeadlineExceeded {
 		res.TimedOut = true
 		res.Killed = true
@@ -363,11 +341,13 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 }
 
 // runInteractive runs the command in a PTY. sudo, ssh, gpg and friends detect a
-// real terminal and prompt normally; the password is never echoed into the
-// transcript because the PTY slave's ECHO is off for the master and the runner
-// forwards raw bytes, not display text.
+// real terminal and prompt normally. The child controls terminal echo; password
+// programs must disable echo themselves. The runner never records input separately,
+// but anything the child echoes is ordinary output.
 func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
-	ptmx, tty, err := pty.Open()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ptmx, tty, err := capability.OpenPTY()
 	if err != nil {
 		fallback := exec.CommandContext(context.WithoutCancel(ctx), userShell(), "-c", opts.Command)
 		fallback.Dir = opts.Cwd
@@ -384,28 +364,27 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 		fallback.Env = cmd.Env
 		return runPiped(ctx, fallback, opts)
 	}
-	defer cleanup()
-	defer ptmx.Close()
-
-	// Kill the whole process group (bash + any children) on timeout/cancel so
-	// nothing outlives the run.
-	stop := sync.OnceFunc(func() {
-		_ = process.Kill()
-	})
-	go func() {
-		<-ctx.Done()
-		stop()
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
+		process.Stop()
+		_ = ptmx.Close()
+		workers.Wait()
+		cleanup()
 	}()
+	stop := process.Stop
+	// End a foreground invocation when its leader exits, including descendants
+	// that keep the PTY open. Wait is safe to call from the result path as well.
+	workers.Go(func() {
+		_ = process.Wait()
+		process.Stop()
+	})
 
-	var buf bytes.Buffer
+	var buf outputBuffer
 	outCh := make(chan []byte, 16)
 
-	// Output pump: copy PTY -> caller + buffer; on read error the child has
-	// exited (or the PTY closed), so we signal end-of-stream with a nil chunk.
-	// Every send guards on ctx.Done so the pump can never block forever after
-	// the main loop has returned (deferred ptmx.Close fires ctx cancel via
-	// Run's deferred cancel, unblocking any in-flight send too).
-	go func() {
+	// Closing the PTY and cancelling sends joins the output pump on every exit.
+	workers.Go(func() {
 		tmp := make([]byte, 4096)
 		for {
 			n, rerr := ptmx.Read(tmp)
@@ -426,7 +405,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 				return
 			}
 		}
-	}()
+	})
 
 	// Quiet clock: any output or forwarded keystroke resets it. When the clock
 	// exceeds InactivityTimeout we kill the command.
@@ -440,10 +419,8 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 
 	// Key forwarder: write bytes to the PTY master; any keystroke counts as
 	// activity and disarms the inactivity timer.
-	keyStop := make(chan struct{})
-	defer close(keyStop)
 	if opts.Keys != nil {
-		go func() {
+		workers.Go(func() {
 			for {
 				select {
 				case b, ok := <-opts.Keys:
@@ -454,11 +431,11 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 						_, _ = ptmx.Write(b)
 					}
 					touch()
-				case <-keyStop:
+				case <-ctx.Done():
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	ticker := time.NewTicker(250 * time.Millisecond)
@@ -471,7 +448,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			// command exited). Wait for the child and return.
 			if !ok || chunk == nil {
 				waitErr := process.Wait()
-				res := Result{Output: buf.String(), Interactive: true}
+				res := Result{Output: buf.String(), TotalBytes: buf.total, Truncated: buf.truncated(), Interactive: true}
 				if ctx.Err() == context.DeadlineExceeded {
 					res.TimedOut = true
 					res.Killed = true
@@ -502,7 +479,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				stop()
 				_ = process.Wait()
-				res := Result{Output: buf.String(), Killed: true, Interactive: true}
+				res := Result{Output: buf.String(), TotalBytes: buf.total, Truncated: buf.truncated(), Killed: true, Interactive: true}
 				if errors.Is(ctxErr, context.DeadlineExceeded) {
 					res.TimedOut = true
 					res.Exit = "timed out"
@@ -516,14 +493,12 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 				_ = process.Wait()
 				res := Result{
 					Output:      buf.String(),
+					TotalBytes:  buf.total,
+					Truncated:   buf.truncated(),
 					Exit:        "timed out waiting for input",
 					Killed:      true,
 					Interactive: true,
 				}
-				res.Output += fmt.Sprintf(
-					"\n[whip: interactive command killed after %s with no input]",
-					opts.InactivityTimeout.Round(time.Second),
-				)
 				return res
 			}
 			if opts.OnAwaitInput != nil {

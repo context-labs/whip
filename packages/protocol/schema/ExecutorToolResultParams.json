@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "properties": {
+    "epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "invocation_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "output_base64": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "maxLength": 699052
+    },
+    "failure": {
+      "type": "string",
+      "maxLength": 2048
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ExecutorToolResultParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecutorToolResultParams",
+  "required": [
+    "epoch",
+    "generation",
+    "invocation_id",
+    "output_base64",
+    "failure"
+  ],
+  "additionalProperties": false
+}

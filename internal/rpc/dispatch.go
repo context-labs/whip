@@ -16,6 +16,7 @@ import (
 	"github.com/context-labs/whip/internal/providerhost"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/shell"
 	"github.com/context-labs/whip/internal/store"
 )
 
@@ -47,6 +48,29 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return nil, ErrMethod
 	}
 	switch method {
+	case "executor.activity":
+		return decode(raw, func(p protocol.SessionParams) (any, error) {
+			value, err := r.ExecutorActivity(ctx, session.SessionID(p.SessionID))
+			result := protocol.ExecutorActivityResult{}
+			if value != nil {
+				activity := protocol.ExecutorActivity{Epoch: protocol.ID(value.Epoch), TurnID: protocol.ID(value.TurnID), Revision: protocol.Counter(value.Revision), Decisions: []protocol.HookDecision{}, Truncated: value.Truncated}
+				for _, decision := range value.Decisions {
+					item := protocol.HookDecision{Hook: decision.Hook, Operation: decision.Operation, Decision: decision.Decision, Reason: decision.Reason}
+					if decision.InvocationID != "" {
+						item.InvocationID = new(protocol.ID(decision.InvocationID))
+					}
+					activity.Decisions = append(activity.Decisions, item)
+				}
+				if value.Progress != nil {
+					activity.Progress = &protocol.ExecutorProgress{InvocationID: protocol.ID(value.Progress.InvocationID), OperationID: protocol.ID(value.Progress.OperationID), Text: value.Progress.Text}
+				}
+				result.Activity = &activity
+			}
+			return result, err
+		})
+
+	case "shell.interaction", "shell.input":
+		return dispatchShell(ctx, r, method, raw)
 	case "workspace.capture", "workspace.restore", "workspace.release", "workspace.action", "workspace.snapshot", "workspace.snapshots":
 		return dispatchWorkspace(ctx, r, method, raw)
 	case "providers.presets", "providers.bundled", "providers.list", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
@@ -417,6 +441,10 @@ func wireError(err error) *protocol.RPCError {
 		code int
 		kind string
 	}{
+		{shell.ErrNotFound, -32004, "NOT_FOUND"},
+		{shell.ErrInputConflict, -32009, "CONFLICT"},
+		{shell.ErrLimit, -32011, "LIMIT"},
+		{shell.ErrClosed, -32013, "CLOSED"},
 		{providerhost.ErrInvalid, -32602, "INVALID"},
 		{providerhost.ErrMissing, -32004, "NOT_FOUND"},
 		{providerhost.ErrExists, -32009, "CONFLICT"},

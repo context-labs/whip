@@ -5,6 +5,46 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "executor.activity",
+      "params": "SessionParams",
+      "result": "ExecutorActivityResult"
+    },
+    {
+      "name": "executor.bind",
+      "params": "ExecutorBindParams",
+      "result": "ExecutorLease"
+    },
+    {
+      "name": "executor.pending",
+      "params": "ExecutorPendingParams",
+      "result": "ExecutorPendingResult"
+    },
+    {
+      "name": "tool.result",
+      "params": "ExecutorToolResultParams",
+      "result": "ExecutorAccepted"
+    },
+    {
+      "name": "hook.result",
+      "params": "ExecutorHookResultParams",
+      "result": "ExecutorAccepted"
+    },
+    {
+      "name": "tool.progress",
+      "params": "ExecutorProgressParams",
+      "result": "ExecutorAccepted"
+    },
+    {
+      "name": "shell.interaction",
+      "params": "ShellInteractionParams",
+      "result": "ShellInteractionResult"
+    },
+    {
+      "name": "shell.input",
+      "params": "ShellInputParams",
+      "result": "ShellInputResult"
+    },
+    {
       "name": "workspace.capture",
       "params": "WorkspaceActionParams",
       "result": "WorkspaceResult"

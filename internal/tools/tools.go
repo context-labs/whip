@@ -18,11 +18,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/bashrun"
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 // Tool is a named executable tool with a JSON schema.

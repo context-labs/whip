@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "invocation_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "",
+        "allow",
+        "deny"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 2048
+    },
+    "arguments_base64": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "maxLength": 699052
+    },
+    "spawn_base64": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "maxLength": 699052
+    },
+    "context": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "failure": {
+      "type": "string",
+      "maxLength": 2048
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ExecutorHookResultParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecutorHookResultParams",
+  "required": [
+    "epoch",
+    "generation",
+    "invocation_id",
+    "decision",
+    "reason",
+    "arguments_base64",
+    "spawn_base64",
+    "context",
+    "failure"
+  ],
+  "additionalProperties": false
+}
