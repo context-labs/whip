@@ -66,3 +66,8 @@ remaining obligations discovered by actual client adoption include:
 
 All these items remain required work. No installed runtime, existing user data,
 real account, production branch or deployed artifact was changed for validation.
+### Hosted scheduling repairs (2026-09-28)
+
+PR #259 at cbd39d5dc (run36526022483) passed the partitioned runtime suites but failed the macOS terminal slow-reader fixture. PR #260 at b9e9cfa19 (run36526214610) additionally observed an empty MCP catalog during tools/list_changed refresh. These runs are failures, not final gate evidence.
+
+The terminal fixture now waits until its queue is actually full before detaching and emits enough bytes to fill that queue plus two chunks. Failure diagnostics retain only a bounded4KiB tail. The existing15-second deadline remains. Twenty focused shuffled race repetitions passed20.013s. The MCP fixture waits for the refreshed root catalog and exact delegated child subset, checking that extra tools never appear on every poll; forty focused shuffled races passed17.144s. Both changes repair synchronization in tests without changing production behavior or skipping assertions. Hosted reruns remain pending.
