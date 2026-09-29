@@ -208,9 +208,89 @@ test('validates handles before admitting native transport state', () => {
 test('supports independent native hosts and retains a bounded reconnect allowance', async t => {
   const f = await fixture(t);
   for (let index = 0; index < 32; index++) await f.open(`transport-${index}`, `host-${Math.floor(index / 2)}`);
-  await assert.rejects(f.transports.open('overflow', 'other', f.socketPath, new AbortController().signal), /limit reached/);
+  const waiting = f.transports.open('overflow', 'other', f.socketPath, new AbortController().signal);
   f.transports.release('host-3');
+  await waiting;
+  f.transports.send('overflow', 1, 'admitted after release');
   const closed = f.events.filter(event => event.kind === 'closed').map(event => event.id);
   assert.deepEqual(closed.sort(), ['transport-6', 'transport-7']);
   await f.open('replacement', 'host-3');
+});
+
+
+test('bounds queued native opens and admits an app-shaped metadata burst once in FIFO order', async t => {
+  const f = await fixture(t);
+  let accepted = 0;
+  f.server.on('connection', () => { accepted++; });
+  for (let index = 0; index < 32; index++) await f.open(`held-${index}`);
+  const admitted: number[] = [];
+  const calls = Array.from({ length: 64 }, (_, index) => f.transports.open(`metadata-${index}`, 'other', f.socketPath, new AbortController().signal)
+    .then(() => { admitted.push(index); f.transports.send(`metadata-${index}`, 1, 'metadata request'); f.transports.close(`metadata-${index}`); }));
+  await assert.rejects(f.transports.open('overflow', 'other', f.socketPath, new AbortController().signal), /wait queue is full/);
+  await assert.rejects(f.transports.open('metadata-0', 'other', f.socketPath, new AbortController().signal), /already in use/);
+  assert.equal(accepted, 32);
+  assert.deepEqual(admitted, []);
+  f.transports.close('held-0');
+  await Promise.all(calls);
+  assert.deepEqual(admitted, Array.from({ length: 64 }, (_, index) => index));
+  assert.equal(accepted, 96);
+  assert.equal(f.events.filter(event => event.kind === 'sent').length, 64);
+});
+
+test('cancels a queued caller before it has a native handle and never opens or sends it later', async t => {
+  const f = await fixture(t);
+  let accepted = 0; f.server.on('connection', () => { accepted++; });
+  for (let index = 0; index < 32; index++) await f.open(`held-${index}`);
+  const controller = new AbortController();
+  const call = f.transports.open('cancelled-wait', 'host', f.socketPath, controller.signal);
+  const rejected = assert.rejects(call, /cancelled/);
+  controller.abort(new Error('caller deadline'));
+  await rejected;
+  assert.equal(accepted, 32);
+  const next = f.transports.open('next', 'host', f.socketPath, new AbortController().signal);
+  f.transports.close('held-0'); await next;
+  assert.equal(accepted, 33);
+  assert.equal(f.events.filter(event => event.kind === 'closed' && event.id === 'cancelled-wait').length, 1);
+  assert.equal(f.events.some(event => event.kind === 'sent' && event.id === 'cancelled-wait'), false);
+});
+
+test('host release removes its pending opens before freeing active slots; disposal rejects every remaining waiter', async t => {
+  const f = await fixture(t);
+  let accepted = 0; f.server.on('connection', () => { accepted++; });
+  for (let index = 0; index < 32; index++) await f.open(`held-${index}`, index ? 'second' : 'first');
+  const first = assert.rejects(f.transports.open('first-wait', 'first', f.socketPath, new AbortController().signal), /closed/);
+  const second = f.transports.open('second-wait', 'second', f.socketPath, new AbortController().signal);
+  f.transports.release('first'); await Promise.all([first, second]);
+  assert.equal(accepted, 33);
+  const pending = Array.from({ length: 4 }, (_, index) => assert.rejects(
+    f.transports.open(`dispose-${index}`, 'second', f.socketPath, new AbortController().signal), /closed/));
+  f.transports.dispose(); await Promise.all(pending);
+  assert.equal(accepted, 33);
+  await assert.rejects(f.transports.open('late', 'second', f.socketPath, new AbortController().signal), /closed/);
+});
+
+test('renderer close cancels a queued handle; its old deadline cannot retire a replacement', async t => {
+  const f = await fixture(t);
+  for (let index = 0; index < 32; index++) await f.open(`held-${index}`);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const old = assert.rejects(f.transports.open('same', 'old-host', f.socketPath, new AbortController().signal), /closed/);
+  f.transports.close('same'); await old;
+  const replacement = f.transports.open('same', 'new-host', f.socketPath, new AbortController().signal);
+  f.transports.close('held-0'); await replacement;
+  t.mock.timers.tick(15_000);
+  f.transports.send('same', 1, 'replacement remains owned');
+  assert.equal(f.events.filter(event => event.kind === 'closed' && event.id === 'same').length, 1);
+  assert.ok(f.events.some(event => event.kind === 'sent' && event.id === 'same'));
+});
+
+test('a queued open has its own finite deadline without allocating a socket', async t => {
+  const f = await fixture(t);
+  let accepted = 0; f.server.on('connection', () => { accepted++; });
+  for (let index = 0; index < 32; index++) await f.open(`held-${index}`);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const expired = assert.rejects(f.transports.open('expired', 'host', f.socketPath, new AbortController().signal), /wait timed out/);
+  t.mock.timers.tick(15_000); await expired;
+  f.transports.close('held-0');
+  assert.equal(accepted, 32);
+  assert.equal(f.events.filter(event => event.kind === 'closed' && event.id === 'expired').length, 1);
 });
