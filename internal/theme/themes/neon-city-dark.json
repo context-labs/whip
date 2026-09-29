@@ -1,0 +1,45 @@
+{
+  "name": "neon-city-dark",
+  "displayName": "Neon City Dark",
+  "dark": true,
+  "palette": {
+    "text": "#f8f8f2",
+    "muted": "#9aa7bd",
+    "faint": "#566078",
+    "primary": "#00e5ff",
+    "accent": "#ff4ecd",
+    "success": "#5cff9d",
+    "warning": "#ffe66d",
+    "error": "#ff5370",
+    "info": "#7c8cff",
+    "link": "#00e5ff",
+    "emphasis": "#ff9f43",
+    "onPrimary": "#090b18",
+    "border": "#303854",
+    "borderFocus": "#00e5ff",
+    "bg": "#090b18",
+    "diffAdd": "#123829",
+    "diffDel": "#3d1628"
+  },
+  "surfaces": {
+    "panel": "#0e1224",
+    "element": "#141a30",
+    "hover": "#202844"
+  },
+  "syntax": {
+    "keyword": "#ff4ecd",
+    "string": "#5cff9d",
+    "number": "#ff9f43",
+    "comment": "#69738f",
+    "function": "#00e5ff",
+    "type": "#ffe66d",
+    "operator": "#7c8cff",
+    "punctuation": "#f8f8f2"
+  },
+  "markdown": {
+    "heading": "#ff4ecd",
+    "strong": "#ffe66d",
+    "code": "#5cff9d",
+    "quote": "#9aa7bd"
+  }
+}

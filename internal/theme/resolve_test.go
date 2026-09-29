@@ -25,7 +25,7 @@ func TestAllShippedThemesMatchTerminal(t *testing.T) {
 		t.Fatalf("browser %d themes; terminal %d", len(catalog), len(specs))
 	}
 	// Guard the shipped inventory without encoding it into application logic.
-	if len(catalog) != 66 {
+	if len(catalog) != 68 {
 		t.Fatalf("shipped inventory changed (%d); review theme parity fixtures", len(catalog))
 	}
 	seen := map[string]bool{}
