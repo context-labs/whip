@@ -34,7 +34,7 @@ func (h Host) Validate() error {
 }
 
 func ValidName(name string) bool {
-	return len(name) > 0 && len(name) <= 256 && utf8.ValidString(name) && !strings.ContainsRune(name, 0)
+	return strings.TrimSpace(name) != "" && len(name) <= 256 && utf8.ValidString(name) && !strings.ContainsRune(name, 0)
 }
 
 func (i Import) Validate() error {

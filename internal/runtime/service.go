@@ -174,7 +174,7 @@ func (r *Runtime) cleanupDeletedKernels(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return r.cleanupDeletedMCP(cleanup)
 }
 
 func (r *Runtime) RegisterDefinition(ctx context.Context, document session.DefinitionDocument) (session.DefinitionRevision, error) {

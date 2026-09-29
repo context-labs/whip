@@ -51,6 +51,7 @@ type execution struct {
 }
 type Runtime struct {
 	shells            *shell.Manager
+	mcp               *mcpOwners
 	languageServers   *lsp.Pool
 	languageProcesses *capability.ProcessManager
 	store             *store.Store
@@ -169,7 +170,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		return nil, err
 	}
 	r := &Runtime{
-		executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
+		mcp: newMCPOwners(), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
 		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
 		store: database, content: bodies, owner: lock, directory: directory, host: host, configuration: configuration, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]*execution{},
@@ -231,6 +232,7 @@ func (r *Runtime) Close() error {
 		r.executors.Close()
 		r.shells.Close()
 		workspaceErr := r.workspace.Close()
+		mcpErr := r.mcp.close()
 		r.workspaceCalls.Wait()
 		r.languageServers.Close()
 		_ = r.languageProcesses.Close()
@@ -244,7 +246,7 @@ func (r *Runtime) Close() error {
 		r.previewMu.Lock()
 		clear(r.previews)
 		r.previewMu.Unlock()
-		r.closeErr = errors.Join(workspaceErr, r.store.Close(), r.owner.Close())
+		r.closeErr = errors.Join(workspaceErr, mcpErr, r.store.Close(), r.owner.Close())
 	})
 	return r.closeErr
 }

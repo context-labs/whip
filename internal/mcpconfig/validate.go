@@ -3,9 +3,24 @@ package mcpconfig
 import (
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 )
 
 func (c Server) Valid() string {
+	values := make([]string, 0, 5+len(c.Command)+2*len(c.Env)+2*len(c.Headers))
+	values = append(values, c.URL, c.Cwd, c.Note, c.Source, c.Origin)
+	values = append(values, c.Command...)
+	for key, value := range c.Env {
+		values = append(values, key, value)
+	}
+	for key, value := range c.Headers {
+		values = append(values, key, value)
+	}
+	for _, value := range values {
+		if !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+			return "configuration must contain UTF-8 text without NUL"
+		}
+	}
 	if len(c.Command) > 128 || len(c.Env) > 128 || len(c.Headers) > 64 || len(c.URL) > 8192 || len(c.Cwd) > 4096 || len(c.Note) > 4096 || c.StartupTimeout < 0 || c.StartupTimeout > 300 || c.ToolTimeout < 0 || c.ToolTimeout > 300 {
 		return "configuration exceeds bounds"
 	}

@@ -146,7 +146,12 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		var grantID *session.GrantID
 		var permissionRevision *session.Revision
 		state := session.OperationWaiting
-		if spec.Capability == session.QuestionCapability {
+		if spec.Capability == "mcp.catalog" {
+			if err := validateMCPCatalog(ctx, tx, spec); err != nil {
+				return err
+			}
+			state = session.OperationReady
+		} else if spec.Capability == session.QuestionCapability {
 			if err := validateQuestionIntent(cell.SessionID, spec); err != nil {
 				return err
 			}
@@ -176,7 +181,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 				if err != nil {
 					return err
 				}
-				if owner.ParentID == nil {
+				if owner.ParentID == nil && !requiresExplicitMCPGrant(spec.Capability) {
 					policy, err := readPermissionPolicy(ctx, tx, owner.ID)
 					if err != nil {
 						return err
@@ -276,7 +281,16 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 		}
 		return nil
 	}
+	if operation.Capability == "mcp.catalog" {
+		if operation.GrantID != nil || operation.PermissionRevision != nil {
+			return ErrConflict
+		}
+		return validateMCPCatalog(ctx, q, operation.OperationSpec)
+	}
 	if operation.PermissionRevision != nil {
+		if requiresExplicitMCPGrant(operation.Capability) {
+			return ErrConflict
+		}
 		owner, err := readSession(ctx, q, operation.SessionID)
 		if err != nil {
 			return err

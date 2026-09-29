@@ -26,6 +26,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/mcpconfig"
 	"github.com/context-labs/whip/internal/secretref"
 )
 
@@ -81,10 +82,11 @@ type Tool struct {
 
 // server holds one server's live state.
 type server struct {
-	name     string
-	cfg      ServerConfig
-	owner    *Manager
-	reserved bool
+	configBytes int
+	name        string
+	cfg         ServerConfig
+	owner       *Manager
+	reserved    bool
 
 	status         Status
 	err            string
@@ -350,6 +352,11 @@ type RefreshResult struct {
 // exists is left alone: whip-owned entries and existing sessions win.
 func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) (RefreshResult, error) {
 	result := RefreshResult{Added: []string{}, Existing: []string{}, Changed: []string{}}
+	for name := range cfgs {
+		if !mcpconfig.ValidName(name) {
+			return result, errors.New("invalid MCP server name")
+		}
+	}
 	m.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
@@ -370,7 +377,7 @@ func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) 
 			m.mu.Unlock()
 			return result, errors.New("MCP server count exceeds root limit")
 		}
-		if err := m.budget.reserve(m, lenActive(freshConfigs), false); err != nil {
+		if err := m.budget.reserve(m, lenActive(freshConfigs), false, configsSize(freshConfigs)); err != nil {
 			m.mu.Unlock()
 			return result, err
 		}
@@ -389,9 +396,9 @@ func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) 
 			continue
 		}
 		result.Added = append(result.Added, name)
-		m.blocked = slices.DeleteFunc(m.blocked, func(row Server) bool { return row.Name == name })
-		delete(m.attachmentBlocked, name)
+		m.blocked = slices.DeleteFunc(m.blocked, func(row Server) bool { return row.Name == name && !m.attachmentBlocked[name] })
 		s := newServer(name, cfg)
+		s.configBytes = configSize(name, cfg)
 		s.owner = m
 		s.reserved = m.budget != nil && !cfg.Disabled() && cfg.Valid() == ""
 		s.runCtx, s.stop = context.WithCancel(m.runCtx) //nolint:fatcontext // each server stores an independent child context
@@ -440,8 +447,12 @@ func (m *Manager) RemoveServers(names ...string) {
 		if old != nil {
 			_ = old.Close()
 		}
-		if m.budget != nil && s.reserved {
-			m.budget.releaseServers(m, 1)
+		if m.budget != nil {
+			count := 0
+			if s.reserved {
+				count = 1
+			}
+			m.budget.releaseServers(m, count, s.configBytes)
 		}
 	}
 }
@@ -1089,7 +1100,7 @@ func (m *Manager) Enable(name string) bool {
 	}
 	s.mu.Lock()
 	if m.budget != nil && !s.reserved {
-		if err := m.budget.reserve(m, 1, false); err != nil {
+		if err := m.budget.reserve(m, 1, false, 0); err != nil {
 			s.mu.Unlock()
 			m.mu.Unlock()
 			return false
@@ -1148,51 +1159,64 @@ func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
 
 // SetBlocked replaces the discovery policy snapshot (disabled+noted configs),
 // preserving attachment refusals recorded separately by AddBlocked.
-func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) {
+func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.blocked = slices.DeleteFunc(m.blocked, func(row Server) bool { return !m.attachmentBlocked[row.Name] })
+	blocked := slices.DeleteFunc(slices.Clone(m.blocked), func(row Server) bool { return !m.attachmentBlocked[row.Name] })
 	for name, c := range cfgs {
-		if m.attachmentBlocked[name] {
-			continue
+		if !m.attachmentBlocked[name] {
+			blocked = append(blocked, Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source})
 		}
-		m.blocked = append(m.blocked, Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source})
 	}
-	sort.Slice(m.blocked, func(i, j int) bool { return m.blocked[i].Name < m.blocked[j].Name })
+	if err := m.reserveMetadataLocked(blocked, m.sourceErrors); err != nil {
+		return err
+	}
+	sort.Slice(blocked, func(i, j int) bool { return blocked[i].Name < blocked[j].Name })
+	m.blocked = blocked
+	return nil
 }
 
-// SetSourceErrors records discovery sources that could not be read or
-// parsed, as failed rows named by source. "No tools" and "the config failed
-// to parse" must not look the same in /mcp. Replaced on each discovery.
-func (m *Manager) SetSourceErrors(errs map[string]error) {
+// SetSourceErrors replaces bounded discovery diagnostics without credentials.
+func (m *Manager) SetSourceErrors(errs map[string]error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sourceErrors = make([]Server, 0, len(errs))
+	rows := make([]Server, 0, len(errs))
 	for path, err := range errs {
-		m.sourceErrors = append(m.sourceErrors, Server{Name: SourceLabel(path), Status: StatusUnreadable, Err: "not imported: " + err.Error(), Source: path})
+		rows = append(rows, Server{Name: SourceLabel(path), Status: StatusUnreadable, Err: "not imported: " + err.Error(), Source: path})
 	}
-	sort.Slice(m.sourceErrors, func(i, j int) bool { return m.sourceErrors[i].Name < m.sourceErrors[j].Name })
+	if err := m.reserveMetadataLocked(m.blocked, rows); err != nil {
+		return err
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+	m.sourceErrors = rows
+	return nil
 }
 
-// AddBlocked records more never-connected servers beside the startup set: an
-// attachment outside the agent's server list, or one that tried to take a
-// native name. A repeated name replaces its earlier row.
-func (m *Manager) AddBlocked(cfgs map[string]ServerConfig) {
+// AddBlocked retains bounded attachment refusals across ordinary rediscovery.
+func (m *Manager) AddBlocked(cfgs map[string]ServerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.attachmentBlocked == nil {
-		m.attachmentBlocked = make(map[string]bool)
-	}
+	blocked := slices.Clone(m.blocked)
 	for name, c := range cfgs {
-		m.attachmentBlocked[name] = true
 		row := Server{Name: name, Status: StatusBlocked, Note: c.Note, Source: c.Source}
-		if i := slices.IndexFunc(m.blocked, func(b Server) bool { return b.Name == name }); i >= 0 {
-			m.blocked[i] = row
-			continue
+		if i := slices.IndexFunc(blocked, func(b Server) bool { return b.Name == name }); i >= 0 {
+			blocked[i] = row
+		} else {
+			blocked = append(blocked, row)
 		}
-		m.blocked = append(m.blocked, row)
 	}
-	sort.Slice(m.blocked, func(i, j int) bool { return m.blocked[i].Name < m.blocked[j].Name })
+	if err := m.reserveMetadataLocked(blocked, m.sourceErrors); err != nil {
+		return err
+	}
+	if m.attachmentBlocked == nil {
+		m.attachmentBlocked = map[string]bool{}
+	}
+	for name := range cfgs {
+		m.attachmentBlocked[name] = true
+	}
+	sort.Slice(blocked, func(i, j int) bool { return blocked[i].Name < blocked[j].Name })
+	m.blocked = blocked
+	return nil
 }
 
 // SourceErrors returns the name-sorted snapshot of unreadable discovery

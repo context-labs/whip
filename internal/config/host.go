@@ -82,7 +82,7 @@ type Host struct {
 	DefaultPermissionMode session.PermissionMode `json:"default_permission_mode,omitempty"`
 	// LSP publishes bounded stdio server declarations without granting session authority.
 	LSP map[string]lspconfig.Config `json:"lsp"`
-	MCP mcpconfig.Host `json:"mcp"`
+	MCP mcpconfig.Host              `json:"mcp"`
 	// ProjectRoots publishes named project directories without granting authority.
 	ProjectRoots map[string]string `json:"project_roots"`
 	// StandingInstructionsFile explicitly publishes one file; empty disables it.

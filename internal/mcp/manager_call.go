@@ -99,6 +99,10 @@ func (s *server) descriptorLocked(tool string) (capability.MCPCall, any, error) 
 	if found == nil {
 		return capability.MCPCall{}, nil, fmt.Errorf("MCP tool %s.%s not found", s.name, tool)
 	}
+	return s.definitionDescriptorLocked(found)
+}
+
+func (s *server) definitionDescriptorLocked(found *sdkmcp.Tool) (capability.MCPCall, any, error) {
 	cfg := s.cfg
 	cfg.Enabled = nil // live enable/disable gates calls; it is not endpoint identity
 	identity, err := json.Marshal(struct {
@@ -111,7 +115,7 @@ func (s *server) descriptorLocked(tool string) (capability.MCPCall, any, error) 
 		return capability.MCPCall{}, nil, errors.New("MCP tool definition cannot be encoded")
 	}
 	return capability.MCPCall{
-		Server: s.name, Tool: tool, Definition: fmt.Sprintf("%x", sha256.Sum256(identity)),
+		Server: s.name, Tool: found.Name, Definition: fmt.Sprintf("%x", sha256.Sum256(identity)),
 		Generation: s.generation, Source: s.cfg.Source, Trusted: s.cfg.Trusted,
 	}, found.InputSchema, nil
 }
@@ -210,14 +214,15 @@ func (m *Manager) ValidateArguments(call capability.MCPCall) error {
 // AcquiredCall owns one serialized server slot and the exact captured
 // descriptor lifetime. Execute is one-use; Close must run on every path.
 type AcquiredCall struct {
-	server  *server
-	call    capability.MCPCall
-	ctx     context.Context
-	cancel  context.CancelFunc
-	stop    func() bool
-	timeout time.Duration
-	close   sync.Once
-	used    atomic.Bool
+	resultBudget *Budget
+	server       *server
+	call         capability.MCPCall
+	ctx          context.Context
+	cancel       context.CancelFunc
+	stop         func() bool
+	timeout      time.Duration
+	close        sync.Once
+	used         atomic.Bool
 }
 
 func (m *Manager) AcquireCall(ctx context.Context, call capability.MCPCall) (*AcquiredCall, error) {
@@ -259,6 +264,13 @@ func (m *Manager) AcquireCall(ctx context.Context, call capability.MCPCall) (*Ac
 		return nil, ctx.Err()
 	}
 	acquired := &AcquiredCall{server: s, call: call, ctx: ctx, cancel: cancel, stop: stop, timeout: timeout}
+	if m.budget != nil {
+		if !m.budget.reserveResult() {
+			acquired.Close()
+			return nil, errors.New("MCP active result capacity reached")
+		}
+		acquired.resultBudget = m.budget
+	}
 	if err := acquired.validate(); err != nil {
 		acquired.Close()
 		return nil, err
@@ -286,7 +298,16 @@ func (c *AcquiredCall) boundSession() (*sdkmcp.ClientSession, error) {
 }
 func (c *AcquiredCall) validate() error { _, err := c.boundSession(); return err }
 
-func (c *AcquiredCall) Close() { c.close.Do(func() { c.stop(); c.cancel(); <-c.server.calling }) }
+func (c *AcquiredCall) Close() {
+	c.close.Do(func() {
+		c.stop()
+		c.cancel()
+		<-c.server.calling
+		if c.resultBudget != nil {
+			c.resultBudget.releaseResult()
+		}
+	})
+}
 
 func (c *AcquiredCall) Execute(parent context.Context) (capability.MCPResult, error) {
 	var none capability.MCPResult

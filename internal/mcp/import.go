@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net"
@@ -39,14 +41,15 @@ const (
 // enough to render a row and nothing that could leak a secret: no command
 // line, env or headers cross this type's exported surface.
 type Candidate struct {
-	Name      string
-	Source    string // codex | claude | project | opencode
-	State     CandidateState
-	Gated     bool   // the source's enabled gate is off: the screen ignores that, the CLI honours it
-	Note      string // the source's own reason, when it gave one
-	BrandHint string // URL host, or the command's package/binary name
-	BrandKey  string // registrable domain of a remote server (mcp.figma.com → figma.com); "" when there is no company behind the host
-	config    ServerConfig
+	Fingerprint string // exact private declaration and source; never a credential value
+	Name        string
+	Source      string // codex | claude | project | opencode
+	State       CandidateState
+	Gated       bool   // the source's enabled gate is off: the screen ignores that, the CLI honours it
+	Note        string // the source's own reason, when it gave one
+	BrandHint   string // URL host, or the command's package/binary name
+	BrandKey    string // registrable domain of a remote server (mcp.figma.com → figma.com); "" when there is no company behind the host
+	config      ServerConfig
 }
 
 // Candidates lists every discovered server once, resolved by the same source
@@ -74,11 +77,21 @@ func Candidates(cwd string, native map[string]ServerConfig, policy ImportPolicy)
 			default:
 				c.State = CandidateImportable
 			}
+			identity, _ := json.Marshal(struct {
+				Name, Source string
+				State        CandidateState
+				Gated        bool
+				Config       ServerConfig
+			}{c.Name, c.Source, c.State, c.Gated, c.config})
+			c.Fingerprint = fmt.Sprintf("%x", sha256.Sum256(identity))
 			byName[name] = c
 		}
 	}
 	return slices.SortedFunc(maps.Values(byName), func(a, b Candidate) int { return strings.Compare(a.Name, b.Name) }), d.errs
 }
+
+// BrandMetadata never includes endpoint credentials, command arguments or headers.
+func BrandMetadata(cfg ServerConfig) (hint, key string) { return brandHint(cfg), brandKey(cfg) }
 
 // unsupported reports whether discovery turned the server off because whip
 // cannot run it: an OAuth sign-in or the legacy sse transport, each marked by
