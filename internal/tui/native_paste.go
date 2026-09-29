@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -17,6 +18,7 @@ const nativeDraftLimit = 256 << 10
 // These registries are presentation only. InputRecord contains the original
 // text, never a chip or an instruction to resolve client-local state later.
 type nativeDraft struct {
+	design *protocol.DesignContext
 	text   string
 	pastes map[string]string
 	images map[string]nativeImage
@@ -24,6 +26,10 @@ type nativeDraft struct {
 
 func (d nativeDraft) bytes() int {
 	n := len(d.text)
+	if d.design != nil {
+		raw, _ := json.Marshal(d.design)
+		n += len(raw)
+	}
 	for chip, value := range d.pastes {
 		n += len(chip) + len(value)
 	}
@@ -96,9 +102,9 @@ func (m *nativeModel) pasteText(text string) tea.Cmd {
 // Drafts remain with their exact owner. Hidden paste bytes count toward the
 // same aggregate limit as visible text; navigation never publishes them.
 func (m *nativeModel) switchDraft(owner protocol.ID) (nativeDraft, error) {
-	current := nativeDraft{text: m.input.Value()}
-	if strings.HasPrefix(strings.TrimSpace(current.text), "/") {
-		current.text = ""
+	current := nativeDraft{text: m.input.Value(), design: m.draftDesign}
+	if current.text == "" || strings.HasPrefix(strings.TrimSpace(current.text), "/") {
+		current.text, current.design = "", nil
 	}
 	current.pastes = m.livePastes(current.text)
 	current.images = m.liveImages(current.text)

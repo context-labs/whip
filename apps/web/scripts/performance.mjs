@@ -5,6 +5,7 @@ import { chromium } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { createSessionView } from '../../../packages/sdk/dist/state.js';
 import { checkComposerReading } from './composer-reading.mjs';
+import { traceInput } from './performance-trace.mjs';
 import { deadline, eventually } from './native-fixture.mjs';
 import { startHistoryFixture } from './native-history-fixture.mjs';
 
@@ -25,7 +26,7 @@ const summarize = (samples) => {
     max: values.at(-1),
   };
 };
-let isolation, host, fixture, client, browser, context, page, view;
+let isolation, host, fixture, client, browser, context, page, view, inputTrace;
 let succeeded = false;
 const errors = [];
 const metrics = { recordedAt: new Date().toISOString(), platform: process.platform, checks: [] };
@@ -559,8 +560,11 @@ const frame = () =>
     }, { requestID, marker, rowID: `input:${JSON.stringify([fixture.history.root_id, client.clientID, requestID])}` });
     acceptedProbes.push(probe);
     await page.waitForFunction(id => window.__performanceAcceptedDOM.some(item => item.requestID === id), requestID);
+    // Capture the key itself, excluding the preceding queue-observation wait.
+    if (index === 0 && process.env.WHIP_WEB_PERFORMANCE_TRACE_INPUT === '1') inputTrace = await traceInput(context, page, join(directory, 'input-layout-trace.json'));
     // Trusted key events retain native EventTiming; insertText cannot do this.
     await page.keyboard.type('x'); await frame();
+    if (inputTrace && index === 0) metrics.inputTrace = { ...(await inputTrace.finish()), firstProbe: 1, probes: 1, workloadProbes: 40 };
     assert.equal((await client.session(fixture.history.root_id).inputs.cancel(probe.inputID, deadline())).state, 'cancelled');
   }
   // Let completed keyboard interactions render and the performance timeline
@@ -737,6 +741,7 @@ const frame = () =>
   throw error;
 } finally {
   const cleanupErrors = [];
+  await inputTrace?.finish().catch(error => cleanupErrors.push(error));
   await view?.dispose().catch(error => cleanupErrors.push(error));
   if (desktop && isolation) await finishDesktopPerformance(isolation, host, fixture, succeeded, cleanupErrors);
   else {

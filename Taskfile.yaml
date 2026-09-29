@@ -233,6 +233,8 @@ tasks:
       - node apps/web/scripts/composer-queue.mjs
       - node apps/web/scripts/agent-dock.mjs
       - node apps/web/scripts/turn-failures.mjs
+      - node apps/web/scripts/permission-requests.mjs
+      - node apps/web/scripts/standing-grants.mjs
 
   check:product-settings:
     desc: Native Settings, provider connections, stored conversation and REPL workflows
@@ -317,7 +319,8 @@ tasks:
       - go test -tags=integration -count=1 -timeout=2m ./cmd/whip -run '^TestNativeCompiledCLI'
       - go test -race -tags=integration -count=1 -timeout=3m ./cmd/whip -run '^TestDesktopCompiledUpdate$'
       # Keep all native and retained terminal tests with independent unchanged deadlines.
-      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui -run '^TestNative'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui -run '^TestNative[A-L]'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui -run '^TestNative' -skip '^TestNative[A-L]'
       - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui -skip '^TestNative'
       - go vet ./cmd/whip
 

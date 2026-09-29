@@ -22,10 +22,10 @@ const nativeHelp = `Native terminal commands
 
 Conversation: /sessions · /resume <owner> · /rename <title> · /status
 History: /older · /newer · /latest · /export [local path] · /copy [last|repl]
-Edits: /stop · /start · /clear · /rewind <sequence> · /fork <title> · /fork-at <sequence> <title>
+Edits: /stop · /start · /clear · /rewind [sequence] · /fork <title> · /fork-at <sequence> <title>
 Input: /queue <text> · /steer <text> · !<shell command>
 Images: /attach <client-local path> · /attach clipboard|check|retry|discard · Ctrl+V reads a clipboard image
-Recovery: /check · /retry · /rejected restore|discard
+Recovery: /check · /retry · /rejected restore|discard · /redraft restore|replace|discard|clear-context
 Configuration: /model · /model-for-session · /effort [level|default] · /setup · /settings · /theme
 Context: /context-doctor [attempt ID] · /compact · /compact log|retry|off|model <model>|provider <provider>
 Goals: /goal [text|status|resume|clear] · /goal-from-context [2..100]
@@ -47,8 +47,8 @@ Paste collapse is opt-in in /settings; original text is restored before sending.
 Commands act on the displayed owner. Export writes a private local file. Direct shell uses the host's normal permission and receipt path.`
 
 func (m *nativeModel) directShell(command string) tea.Cmd {
-	if len(m.liveImages(command)) > 0 || m.attachmentBusy || m.attachment != nil {
-		m.status = "Direct shell does not accept image attachments; remove the chips or submit them as a prompt."
+	if m.draftDesign != nil || len(m.liveImages(command)) > 0 || m.attachmentBusy || m.attachment != nil {
+		m.status = "Direct shell does not accept attached content or design context; remove those references or submit them as a prompt."
 		return nil
 	}
 	command, err := m.expandPastes(command)
@@ -173,8 +173,34 @@ func (m *nativeModel) contextDoctor(args string) tea.Cmd {
 		} else {
 			text += "\nCapture is unavailable."
 		}
-		return nativeControlResult{notice: text}
+		var sources protocol.InstructionManifestResult
+		if err := connection.Call(ctx, "turns.instructions", protocol.TurnParams{TurnID: inspection.TurnID}, &sources); err != nil {
+			return nativeControlResult{err: err}
+		}
+		return nativeControlResult{notice: nativeBoundedNotice(text + "\n" + nativeInstructionAudit(sources.Manifest))}
 	})
+}
+
+// Raw source bytes are evidence, not additive model context: comments can be
+// filtered, metadata can be framed, and the composed base also contains host
+// identity/module/hook instructions. Never sum these rows as token occupancy.
+func nativeInstructionAudit(manifest *protocol.InstructionManifest) string {
+	if manifest == nil {
+		return "Applied instruction sources: no captured manifest for this turn."
+	}
+	var text strings.Builder
+	fmt.Fprintf(&text, "Applied instruction base: %d bytes (~%d tokens, bytes/4 heuristic only)\nInstruction digest: %s\nSource evidence (raw bytes, already represented in the composed base; not additive):", manifest.Bytes, (manifest.Bytes+3)/4, manifest.SHA256)
+	for _, source := range manifest.Sources {
+		fmt.Fprintf(&text, "\n%s · %s", source.Kind, source.Scope)
+		if source.RootID != nil {
+			fmt.Fprintf(&text, " root %s", *source.RootID)
+		}
+		fmt.Fprintf(&text, " · %s · %d bytes · %s", source.Path, source.Bytes, source.SHA256)
+		if text.Len() > nativeNoticeLimit {
+			return nativeBoundedNotice(text.String())
+		}
+	}
+	return text.String()
 }
 
 func (m *nativeModel) nativeReport() string {

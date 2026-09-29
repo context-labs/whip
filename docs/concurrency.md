@@ -1,517 +1,219 @@
 # Concurrency and ownership
 
-whip separates durable ordering from independent execution. One root actor
-serializes state transitions for a session; model calls, kernels, MCP calls,
-and unrelated roots may run concurrently under explicit limits.
+The native Go runtime separates durable ordering from independent execution.
+SQLite transactions admit and settle work; a bounded scheduler owns live turns.
+Roots and children use the same session path. There is no root actor or client
+stream reducer that owns a second copy of durable session state.
 
-## Session title invalidation
+This guide describes the redesign source, not an installed release. The
+[domain contract](backend-domain.md) owns detailed transition rules and limits;
+[frontend architecture](frontend.md) owns renderer state and retention budgets.
+The [development record](backend-redesign-development.md) records validation and
+remaining cutover work.
 
-Committed title writes notify protocol servers through a small daemon-owned
-listener registry. Its dedicated mutex protects listener registration/snapshots
-only; callbacks run after that mutex and the root-registry/DB locks are released.
-Each Server registers once and unregisters on Close. It snapshots eligible
-connections under its mutex, releases it, and uses existing bounded outbound
-queues. The per-connection writer remains the only socket writer; slow-client
-overflow follows the existing disconnect policy. No title notification spawns a
-worker or owns a durable replay cursor.
+## Runtime and turn lifetimes
 
-Only initialized connections that negotiated `session_title_notifications` receive
-`sessions.title.changed`. The root ID is an invalidation hint, not a title value
-to apply, so dropped or reordered hints are safe. SDK/AppRuntime listeners own
-coalesced refreshes and retire on disposal/detach; polling and reconnect reads
-remain authoritative recovery paths. See [frontend ownership](frontend.md).
+[`runtime.Open`](../internal/runtime/runtime.go) acquires exclusive ownership of
+its private directory and opens configuration/storage. It does not start work.
+`Start` performs crash recovery under that ownership and launches the scheduler.
+One claimed session has at most one active turn, enforced by SQL as well as the
+live worker registry. Provider calls, filesystem work and other external effects
+run outside database transactions and the scheduler lock.
 
-## Root actors
+A turn captures its configuration and history revision. A later model or policy
+edit affects later admission; it does not rewrite an active provider request.
+Each session kernel has one serialized owner. Independent sessions can progress
+within worker, active-turn and ancestor resource limits. A boundary wait releases
+its execution permit only after owned attempts, cells and operations settle;
+resumption reacquires permission before guest execution continues. Durable queued
+work remains authoritative while a session waits for capacity.
 
-Every client command receives a stable ID and durable ingress sequence before
-execution. Root actors order inbox admission, turn commits, schedules,
-permissions, child lifecycle, messages, and events. They do not hold registry
-locks while provider or tool work blocks.
+Shutdown cancels live work, closes owned process/service resources and joins
+workers before releasing storage and the execution lock. Resources that can
+block a worker are closed as part of shutdown, not left for that worker to finish
+indefinitely. A successful subtree deletion also retires its kernels. Exact turn,
+history and process identities keep late completions from reviving retired work.
+See [runtime lifecycle](../internal/runtime/runtime.go),
+[capacity](../internal/runtime/capacity.go) and
+[resource rules](backend-domain.md#reusable-resource-capacity).
 
-Clients move through:
+## Admission, settlement and recovery
 
-```text
-disconnected -> reconnecting -> snapshotting -> live
-```
+A durable request carries a stable client/request identity and exact payload.
+Admission records its receipt and required input atomically. An identical retry
+resolves that request; changed bytes under its identity conflict. Losing the
+transport acknowledgement does not establish rejection. A request context owns
+admission or observation, while the runtime owns accepted execution.
 
-A retry with the same command ID retrieves the stored status or outcome. It
-does not execute the operation twice.
+After restart, unclaimed inputs remain queued. Claimed work and uncertain live
+effects are interrupted, not automatically replayed. Completed messages, cells,
+operations and accounting evidence remain readable. Provider attempts are
+recorded independently from transcript settlement: retrying a persistence write
+must never dispatch the provider again. Bounded settlement failure faults the
+runtime and leaves recovery evidence intact.
 
-### Session state ownership
+Cancelling a local read or wait stops that observation only. Input cancellation,
+turn cancellation, session stop, subtree deletion and host shutdown are distinct
+operations with explicit scopes. Session stop retains queued input for possible
+resume. Rewind requires a stopped owner with no active turn or uncancelled queue,
+compares revision/tail and retires whole history groups. Fork creates a new tree
+from a captured prefix. Neither action restores external files, spending, browser
+ownership or an uncertain effect. See
+[atomic transitions](backend-domain.md#atomic-transitions) and
+[history editing](backend-domain.md#raw-history-and-selected-model-context).
 
-Saved facts (title, goal, archive state, directory, the selected model and
-effort) belong to the session store and are read there at the decision that
-needs them. The daemon `Session` keeps only immutable identity (ID, kind,
-execution engine, definition revision) and the installed runner's selection
-(model, provider, effort), which changes only when a runner is installed or
-its effort changes. No daemon object holds a copy of the sessions row.
+## Canonical history and live observations
 
-The root agent's `agents` row copies model, provider, effort and cwd at open;
-every agent read derives the root's values from `sessions` instead, so
-`agents.inspect` and root snapshots agree with `sessions.get` after a live
-change. Children keep the selection they were admitted with.
+Immutable message bodies, groups and exact sequence identities belong to the
+store. History pages carry bounded revision-aware evidence; a stale cursor after
+rewind fails instead of combining incompatible histories. A retained transcript
+is not the model's selected context, and imported provenance grants no source
+session access.
 
-Mutations persist before they apply: a rejected effort save leaves the runner
-at the previous level. `goal.set` and `goal.run` refuse while a client
-operation is busy, like effort, model and workspace changes, so a goal
-formulation and an explicit goal cannot overwrite each other. Turn completion
-no longer writes model or provider back to `sessions`; the selection commands
-own that row.
+Text, reasoning and live cell output are bounded provisional observations. Their
+loss or replacement cannot execute work or change canonical history. Committed
+records replace matching provisional evidence by identity. Usage is derived from
+the complete attempt ledger, never by adding only the messages a client retained.
 
-## Recursive agents
+Instructions are assembled once for an ordinary turn under its captured policy.
+The manifest records applied source identity, scope, digest and byte counts.
+Inspection reads captured evidence; it does not run instruction hooks or rescan
+files and claim that new bytes were already applied. See
+[instruction capture](backend-domain.md#instruction-capture).
 
-Each live agent has one serialized kernel because its guest heap belongs
-to that worker. Different agents can progress concurrently up to the shared
-`rlm.maxWorkers` pool. Children are admitted durably and queue for a worker;
-idle workers can be evicted, while a running turn pins its worker.
+## Host operations and resource owners
 
-Scratch restoration is part of acquiring a worker. A failed load or restore
-stops the new subprocess before releasing its pool reservation and remains
-retryable. Post-cell checkpoint failure preserves the cell result and the
-previous checkpoint; it never replays a cell. Restore audit work belongs to
-the root supervisor and ends with that owner.
+Authorization and resource capacity are checked at the operation boundary.
+Roots and children cannot widen an issuer's grant or ancestor allowance.
+Permission waiting, approval, revocation and an operation's final outcome remain
+separate facts. A standing grant is explicit authority for future admissions;
+it does not silently answer an already pending approval.
 
-Children are retained identities, not goroutines treated as records. A live
-node owns its cancellation context, provider loop, services, and kernel. The
-recursive runtime owns the tree and closes a whole subtree exactly once.
+Workspace operations use confined paths and their mutation coordinator. MCP
+connections, shell jobs, language servers, model helpers and custom executors
+have explicit owners, queues and cancellation. A transmitted effect with an
+unknown outcome is never retried automatically. Connection-bound executor loss
+revokes that binding; reconnect does not recreate it. Detailed rules are in
+[host operations](backend-domain.md#host-operations-and-permission-decisions),
+[MCP](backend-domain.md#mcp-ownership-imports-and-delegated-discovery) and
+[language services](backend-domain.md#workspace-discovery-and-language-diagnostics).
 
-The budget ledger limits active children, concurrent child turns, recursion
-depth, durable bytes, record count, operations, and schedules/subscriptions.
-Cumulative model tokens, cost, and elapsed usage are unlimited by default;
-explicit child caps narrow inherited authority. Every model transport attempt,
-including retries, reserves and settles against the same ancestor rows using
-its own model prices. Settlement runs outside the root actor and survives caller
-cancellation. Missing usage becomes uncertain exposure, not known spend;
-restart moves orphan model reservations to uncertainty and reconstructs live
-capacity. Generic durable-operation consumption remains unchanged.
+Kernel workers receive a restricted environment and use typed host operations.
+A checkpoint covers settled execution; it is not a replay script. Process groups
+provide cleanup of owned processes, not a security sandbox against other code
+running as the same OS user or ownership of arbitrary detached descendants.
 
-## Message flow
+Human terminals are command-owned PTYs independent of session/agent lifetime.
+Their exact process epoch, bounded byte ring and decimal offsets make restart
+and truncation explicit. Reader detach does not close the terminal. Uncertain
+open is inspected through the current terminal list; input has no durable replay
+receipt. Explicit close and host shutdown join the owned readers and processes.
+Network use requires the operator's explicit terminal opt-in.
 
-There is no separate notification queue. `agent_messages` is canonical; a
-node is runnable when it has a `queued` inbox row or `pending` mail whose
-`available_at` has passed, and the actor re-derives that from SQLite after
-every commit, wake, restart, permission decision, and budget change. Explicit
-work (`submit`, `steer`, `goal`, `schedule`) starts a turn by claiming one row.
-Additional human steers are claimed against that exact running turn before
-a loop boundary exposes them. A commit may acknowledge only claimed input.
+Desktop Browser tabs remain human-owned. Agent attachment binds an exact native
+provider/connection epoch; delegation transfers scoped control. Releasing agent
+authority does not close the human tab. Disconnect/revocation retires dependent
+work, and a lost mutation reply remains unknown rather than eligible for replay.
+See [Browser ownership](browser-computer-use.md) for the native bridge contract.
 
-Steer-class mail and human steers are injected at the running turn's next
-loop boundary by the one delivery engine in `AgentSession.RunTurn`; there is
-no stream interruption. Queued mail starts a mailbox-triggered turn whose
-input is a bounded digest (excerpts, never bodies). Ten messages to a busy
-node produce one digest, not ten turns. Messages become `delivered` only when
-the turn that showed them commits successfully. After a failed, cancelled, or
-interrupted root turn, pending mail waits for explicit inbox input instead of
-immediately launching another failing mailbox turn. This retry barrier is
-derived from the latest durable root turn, so opening a view, receiving another
-wake, or restarting the daemon cannot bypass it. A successful explicit turn
-restores automatic mailbox delivery. Delivery records include a message
-revision: a replacement or deferral
-creates a newer revision that an older turn cannot acknowledge. Listing
-metadata establishes a revision for explicit controls without marking it
-delivered. A stale explicit completion or deferral fails with a reread request.
+## Socket and gateway lifetimes
 
-Agent completion posts an `agent.completed|failed|cancelled` message to the
-parent according to the child's durable report mode: a 160-byte preview and
-evidence handle by default, up to 4 KiB for `inline`, or explicit child
-messages for successful `message` turns. Failures still notify the parent.
-The child's transcript is never copied into a parent turn.
+The [RPC server](../internal/rpc/server.go) bounds active peers before accepting
+connections and joins them during shutdown. Each ordinary connection initializes
+protocol major 4 and owns serial framing, read/write deadlines and bounded
+requests. Browser-provider and executor bindings have their own explicit duplex
+lifetimes. No socket context owns already accepted work.
 
-## Recovery and request ownership
+[`internal/gateway`](../internal/gateway) serves the production renderer and
+forwards restricted native traffic. Each WebSocket owns one upstream socket,
+pinned to runtime identity, process epoch and the acknowledged network marker.
+Shutdown explicitly closes and joins hijacked WebSockets and content transfers.
+The gateway neither reconnects to a replacement host nor replays a mutation.
+Host/Origin checks are not user authentication.
 
-Restart and nonterminal daemon shutdown preserve unclaimed queued input and
-its correlated queued root command. Claimed input, including injected steers,
-and uncertain running operations are interrupted instead of replayed. A
-terminal root stop or failure also interrupts queued work. Every transition
-is scoped to that root; retained children become idle without changing other
-roots' work or reservations.
+`whipcode web` runs an independent foreground gateway attached to an existing
+native host. `WHIPCODE_NETWORK=1` opts a host launch into an in-process managed
+gateway. Its readiness/error/endpoint is live host status. Managed gateway
+failure leaves core execution available; host shutdown closes the gateway.
+There is no managed gateway child or automatic restart loop. See
+[web setup](web-app.md) and [gateway ownership](backend-domain.md#browser-gateway-ownership-and-network-controls).
 
-Invalid input fails that input and settles its receipt or child turn without
-terminating the session or retrying the bad payload. Ordinary failed child
-execution keeps its existing bounded retry policy. A turn journal starts
-empty before kernel acquisition or input preparation.
+## SDK and terminal clients
 
-Cancelling a child interrupts the active input; separately queued follow-ups
-remain runnable. A subtree stop/delete settles the durable turn before its
-worker exits, so a late completion cannot revive it. An unexpected child
-commit failure fails its root and interrupts outstanding claims.
+The [native SDK](../packages/sdk/README.md) verifies runtime identity and owns
+bounded SessionView, TreeCatalogView, ExecutionView and TraceView snapshots.
+Views reconcile native reads; there is no retired event replay log. Suspending,
+disposing or replacing a view joins observation without cancelling execution.
+Callers must explicitly reconnect views to the same runtime's new client.
 
-Actor calls own one reply. Queries and unadmitted actor calls can be skipped on
-cancellation. Accepted protocol commands use daemon/root supervision even after
-the requesting connection disappears; callers may stop waiting independently. Results and mutable
-arguments transfer ownership across that boundary. Bounded database claims
-must resolve once started so the caller knows whether it owns settlement.
-Cancellation after a mutation starts does not prove that it had no effect.
-Shutdown settles pending replies before closing resources whose workers may
-be awaiting those replies, and continues draining while workers exit.
+DurableCommand and RecoveryJournal retain exact recoverable requests before
+transmission. Recovery checks original acceptance; explicit retry retains the
+same identity and payload. Capacity refuses new sends rather than evicting
+unresolved requests. Provider credentials, terminal input and other ephemeral
+effects do not enter the journal. Browser persistence contains exact request
+text; mobile's persistent recovery retains receipt metadata only.
 
-## Transcript and prompt ownership
-
-The turn worker journals each original message before focusing, decay, or
-compaction can alter the model view. Every journal message receives an agent-local
-raw sequence; derived summaries retain the highest covered sequence. Root and
-child commits append these raw deltas and compactions atomically with their
-existing lifecycle transitions. Explicit idle compaction uses the same raw
-coordinate mapping. Clearing or rewinding also resets the live journal.
-
-History reads freeze an upper sequence and copy current-turn message headers
-under the node mutex, then read committed rows one at a time. Bodies and nested
-slices are immutable to readers. Final tool timing/status replaces its metadata
-slice after the batch settles, before compaction or commit. Provisional messages
-are marked with their turn identity and are never counted twice after commit.
-
-Environment assembly happens once at the start of each root or child turn.
-Applied source metadata and the explicit skill catalog share that snapshot;
-context inspection does not rescan files and claim they were already applied.
-No filesystem watcher or mid-turn prompt mutation is involved.
-
-## Host operations
-
-- Same-path file mutations serialize through the workspace coordinator;
-  unrelated paths proceed concurrently. Queued mutations recheck the canonical
-  target after acquiring their lock and reject a retargeted path as stale.
-- Path canonicalization and locking do not grant access. The session ledger
-  derives filesystem authority from the saved mode and validates the current
-  file-grant issuer chain. Full Access permits host paths; Ask uses the stable
-  bootstrap project boundary. Explicit path ceilings apply in both modes.
-  Default new children inherit authority instead of copying the current cwd.
-  Mode changes cancel pending permissions in the same transaction as the mode
-  event; already admitted background processes retain their existing lifecycle.
-- Shell commands take no lock. They run concurrently with each other and with
-  edits, as in Prime; their shell capability and effective writer authority
-  are checked at admission. Full Access requires an unrestricted writer for
-  general shell execution; an explicit project-only grant cannot bypass its
-  ceiling through shell. Ask preserves its ordinary project-writer requirement
-  and shell still runs with OS-user authority. Keeping parallel editors off the
-  same files is the parent's decomposition job, not the coordinator's.
-- A cell's 30 s compute clock excludes time waiting for host results. Time inside host
-  calls (shell, permission prompts, `agents.wait`, MCP) is not counted; each
-  host call is bounded by its own limit and by turn cancellation.
-- `models.batch` fans out stateless calls and returns results in input order.
-- MCP calls reserve existing operation capacity and serialize per server without
-  workspace writer locks. Tool deadlines include the server queue. Immediately
-  before transmission they recheck the live manager/catalog generation, exact
-  definition, permission policy, and every issuer grant in the delegation chain.
-  Disable, reconnect, replacement, and root shutdown cancel queued and active
-  work. An interrupted transmitted effect is never automatically replayed.
-- A root session owns the MCP manager behind a mutex. RLM hosts and protocol
-  adapters resolve that owner at use time; runtimes keep no duplicate pointer.
-- MCP tool errors, RPC failures, cancellation, and output-storage failures
-  settle the same durable operation and release its reservation. If content
-  storage fails, a small inline failed result preserves settlement.
-- Every managed process belongs to a root and is cancelled on root shutdown.
-
-Callbacks copy state under a mutex, release the mutex, then invoke external
-code. The repository’s analyzer and race tests enforce this ownership rule.
-
-## Desktop Browser ownership
-
-The experimental desktop Browser path has a separate native
-lifetime, not a newest-client-wins destination. The broker binds each root to
-one exact authenticated connection/provider epoch and admits at most eight
-active attachments. Each tab serializes an entire helper batch with **one active
-and four queued**; distinct tabs may progress independently. Waiting is
-cancellable, does not hold the provider registry mutex, and rechecks live
-attachment/document/issuer authority before execution. Permission waiting is
-outside the page execution timeout. Delegation requires an idle handoff and
-transfers control rather than sharing it.
-
-Command IDs are separate from operation IDs. Exact-identity cancellation can
-retire pending work, but a delivered mutation may already have happened:
-`outcome_unknown` is not permission to replay. Late results cannot revive a
-retired command, attachment or epoch. Exact-holder/epoch unbind, disconnect and
-revocation cancel dependent work; reconnect does not rebind automatically.
-Agent release never owns the human tab's lifetime. The SDK waits for native
-selection acknowledgement and bounds ordered observations; see the
-[SDK provider lifetime and queue limits](../packages/legacy-sdk/README.md#experimental-native-browser-provider)
-and [Browser lifecycle](browser-computer-use.md#desktop-browser-tabs). These
-ownership rules are not a packaged-release acceptance claim.
-
-## Kernel containment
-
-Kernel cells have limits for Starlark steps or QuickJS jobs, host requests, compute time, memory,
-captured output, and frame size. Workers receive an allowlisted environment,
-closed unintended descriptors, and no daemon or provider credentials. Useful
-work crosses the typed host boundary.
-
-QuickJS has one VM owner and one protocol reader. Correlated host requests run
-through the same daemon authority/accounting gate, with at most 16 outstanding
-requests and `rlm.maxConcurrentHostCalls` active host calls (default 16,
-configurable 1–16). Excess admitted requests queue; Starlark uses one active
-host call. Mutable host groups retain their existing ordering. Cancellation
-stops admission and settles already admitted calls before releasing ownership.
-Only terminal cells with no unresolved owned jobs or host calls can publish
-a checkpoint. The QuickJS profile additionally bounds guest memory to 32 MiB,
-WASM memory to 64 MiB, jobs to 100,000/cell, and total cell lifetime to 10 minutes.
-
-Shell and kernel subprocesses run in managed process groups. This is
-operational containment, not a security sandbox against another hostile
-process already running as the same OS user.
-
-## Gateway process ownership
-
-The socket-only daemon owns execution; `internal/webgateway` owns HTTP/WS
-listeners and adapters, not runtime lifetime. `whip web` runs it in the
-foreground. Daemon launch orchestration may start the same implementation as
-one owned child per daemon generation when `WHIP_NETWORK=1` is explicit.
-Neither browser disconnect nor gateway failure cancels accepted daemon work.
-
-The gateway owns its listener, upgraded WebSockets, upstream connections and
-relay workers. Each browser gets a separate bounded protocol connection;
-HTTP content transfers use request-scoped chunk RPCs and release their resources
-on cancellation. All upstream connections require acknowledged restrict-only
-network initialization. A slow client is disconnected, not given unbounded
-buffers or local-client privileges. HTTP shutdown alone does not close hijacked
-WebSockets; the gateway explicitly owns and closes them.
-
-Managed startup uses bounded readiness/error reporting plus a lifetime pipe.
-The parent reaps the child; cancellation closes the lifetime channel and bounded
-graceful shutdown escalates to a kill. Parent death produces EOF without relying
-on a signal handler, and descendants must not retain ownership descriptors.
-Daemon readiness is separate from gateway readiness. Only a ready child for the
-selected generation is advertised through `gateway.status` and
-`init.network_endpoint`; exit clears that endpoint. Foreground instances never
-publish over managed status. The gateway also watches its selected daemon and
-exits on loss instead of following a replacement generation.
-
-There is no automatic child restart loop. A managed failure leaves the daemon
-usable and is reported independently; a foreground gateway is the non-disruptive
-recovery path. See [web setup](web-app.md#optional-managed-startup).
-
-## V2 connections and views
-
-Adapters own framing, deadlines and connection cancellation. Every WebSocket
-control/data write holds the same write lock; fragmented messages have a total
-size cap. Each connection has bounded requests, output bytes and subscriptions.
-A slow consumer loses its connection and must replay or resynchronize.
-
-Command acceptance commits the operation and required input before replying.
-Blocking provider preparation, shell/integration work, compaction and root
-shutdown execute in supervised workers; actors admit and apply completions.
-Network acceptance allocates no per-retry receipt. The Go wait convenience uses
-lifecycle wakeups plus authoritative status polling without consuming UI events.
-
-Snapshots and their event cursor share a SQLite transaction. Question registry
-updates hold the registry lock through event commit; snapshots hold it through
-SQL capture and question copying. Answers wake the agent only after the answer
-event commits. Replay validates retention and reads envelopes in one transaction.
-Subscriptions poll every 50 ms, deliver strictly after the selected cursor, and
-report replay failures. A retiring stream cannot remove a replacement stream.
-
-History revisions change on destructive edits, while collection revisions change
-with collection rows. Pagination rejects stale revisions instead of mixing views.
-Configuration writes serialize revision comparison, fresh patch application and
-atomic replacement. Provider flows and terminals are ephemeral; restart interrupts
-login flows and terminal input is never automatically retried.
-
-## TUI startup and provider connection
-
-The TUI owns one `RootClient` and one Bubble Tea program. New interactive roots
-opt into deferred creation: `RootLive` can initially mean host RPCs are ready
-without a root subscription. Session execution is gated by TUI startup state.
-`StartSession` admits a model/provider pair once under the client lock, freezes
-its create payload, then closes the active connection to use the existing
-reconnect, stable create-command identity, snapshot and subscription path.
-No root is created when a user closes the provider dialog to draft.
-
-Provider dialog RPCs use the TUI lifecycle context with bounded request deadlines.
-Replies and clipboard commands carry dialog ownership and request versions;
-delayed login polls also carry their flow ID and cannot supersede an in-flight
-mutation. Closing a dialog cancels observation. Explicit login cancellation uses
-the host operation; an already admitted login may be rediscovered on reopening.
-A permission-preparation completion must still own the current startup state.
-Late completions never auto-submit an onboarding draft. Terminal client closure
-ends observation and displays the failure instead of leaving creation pending.
-
-## TypeScript connection and view ownership
-
-`WhipClient` owns one native transport, pending RPC table, reconnect generation,
-heartbeat and waiter-driven command polling. Each connection attempt has an epoch;
-late readers, initialization and heartbeat continuations cannot revive a closed
-client or mutate a replacement connection. Request and outbound buffers use the
-daemon's negotiated bounds. Closing rejects pending queries and subscriptions;
-it does not cancel accepted execution.
-
-Command handles retain frozen request bytes and runtime/client/command identities.
-Application storage commits identity-only recovery metadata before submission.
-Acknowledgement loss remains uncertain until status resolves it; absent commands
-are retried only explicitly. Cancellation waits for original admission before
-sending its exact target. Concurrent waiters share status lookups and wakeups,
-without retaining a permanent poller for historical commands.
-
-A subscription registers routing before admission and owns one bounded async
-iterator. Abort during admission retains cleanup until the late acknowledgement
-can be unsubscribed; uncertain admission refreshes the connection. Stream IDs,
-root IDs and decimal sequence counters guard delivery. A slow consumer or gap
-fails explicitly rather than dropping deltas. Views own snapshot/subscription
-replacement and immutable bounded state; React only subscribes. Notification
-batching does not discard events. Local UI drafts/layout are application-owned.
-
-Permission decisions are typed requests from trusted clients. The live resolver
-claims each permission once under its mutex and retains the claim until the
-entire dispatcher invocation settles; consuming a channel value does not release
-it. This includes early answers before waiter registration. Invocation cleanup
-bounds retained state for both built-ins and MCP. The durable ledger revalidates
-execution authority before resuming an operation. Decision replies acknowledge
-the handoff; the revalidation and operation outcome settle asynchronously.
-There is no client enrollment or shared signing nonce to serialize. An uncertain decision is reconciled through pending permission state,
-not automatically replayed. Provider secrets and terminal input never enter a
-replay queue. HTTP transfer lifetimes are bound to the connection as well as the
-caller's abort signal.
+The native terminal borrows a verified Go client and owns its Bubble Tea loop,
+bounded reads, dialogs and local drafts/recovery. Dialog operations capture the
+selected owner and request identity. Closing or replacing a dialog cancels its
+observation; stale replies cannot overwrite a new owner's draft or submit work.
+The local CLI composition owns host readiness and client attachment. Retained
+terminal implementation files still awaiting deletion are not native execution
+owners; see [CLI disposition](backend-native-cli-disposition.md).
 
 ## React application lifetimes
 
-The [frontend guide](frontend.md) explains why these ownership boundaries exist
-and how app features should use them. This section records their lifecycle rules.
+AppRuntime owns a window's host attachments, Query client, view leases, command
+observations, drafts and presentation state. HostConnections has a separate
+client, abort scope and bounded catalog per host. Detachment retires that host's
+reads and listeners; it does not detach other hosts or cancel accepted work.
+Recovery rediscovers the pinned host and replaces observation only.
 
-The rules in this section describe the web renderer. The native companion uses
-the same SDK with the narrower [mobile lifetime rules](#native-companion-lifetimes)
-below.
+Visible panes lease the exact selected root or child. A transcript/ExecutionView
+pair is shared per session; trace filters and reading anchors have their own
+view identities. Lease release is idempotent. The current count/byte/expiry
+budgets live in [the frontend guide](frontend.md#current-retention-budgets), not a
+second set of limits here. TanStack Query owns bounded detail reads, not session
+truth. Automatic mutation retries remain disabled.
 
-`packages/app/src/runtime.ts` owns one Query client, root-view leases and local
-command observations for the window. `hosts.ts` owns an independent SDK client,
-list view, abort controller and connection identity per daemon. Local supplies
-the revision-checked `remote_hosts` configuration registry; each remote connects
-directly from the browser and verifies its expected runtime ID before use.
-There is no application-wide host-replacement epoch. A source client and runtime
-scope accompany each command, view and read. Late connection/configuration replies
-must still match their connection and configuration version. Explicit detach
-aborts that host's waits, disposes its views/listeners, clears its queries and
-closes its client. Other hosts remain attached; accepted daemon work keeps its
-existing supervision. Local's absence blocks profile edits, not remote execution.
-An observer's `AbortError` still rejects its local wait, but shared application
-error reporting omits that expected cancellation from global banners. Timeouts
-and command failures remain visible.
+Tree catalog revision changes invalidate native title, search, attention and tab
+summary reads. Visible tab summaries use `trees.summaries` without acquiring a
+transcript lease. There is no `session_title_notifications` capability or
+`sessions.title.changed` event in the native client path.
 
-Components lease one shared SDK `SessionView` per `(runtimeId, rootId)` pair.
-Leases release idempotently, and a zero-user view expires after 30 seconds; at
-most four views are retained across the whole window, within each daemon's
-16-subscription limit. Admission never evicts an actively observed root. Route
-preloading does not open a root subscription. React StrictMode and duplicate
-views of the same host/root share the lease instead of creating independent event
-reducers. The SDK alone owns replay, snapshot replacement, sequence checks and
-history revision invalidation.
-
-TanStack Query handles explicit host reads with automatic request/mutation retries
-and browser-online heuristics disabled. A new daemon connection invalidates host
-reads scoped to that runtime; detach clears only those keys. Mutation helpers
-use runtime/client/command identities and acceptance/outcomes. Uncertain delivery holds the matching draft against a new-ID
-resend, and only an authoritative absence enables explicit original-request
-retry. Permission acknowledgement loss is reconciled by refreshing the pending
-ledger before another decision. No reconnect path submits a draft, credential or
-terminal input automatically.
-
-Drafts are keyed by runtime/root/recipient and stored separately from identity-only
-command recovery. The application bounds drafts by count and bytes and batches
-persistence for 150 ms, flushing at teardown. Acceptance clears only the matching
-submission/recipient; a late result cannot unlock a newer submission. Browser
-storage adapters serialize concurrent recovery writes, with visible memory-only
-fallback when persistent storage is unavailable. The browser shell owns cross-tab
-storage coordination; the SDK does not assume localStorage is transactional.
-
-Appearance has no daemon execution lifetime. The document and portal host share
-one theme, and theme changes update a fixed variable allowlist without remounting
-sessions. Code highlighting is lazy and bounded to 16 KiB of text and 4,096 tokens;
-theme switches restyle retained nodes rather than tokenizing again. Transcript
-virtualization keeps focused/selected rows mounted, distinguishes following the
-latest output from reading older rows, and uses history identities for paging.
-One TanStack Virtual instance owns end anchoring and dynamic row measurements at
-every history size; switching rendering modes or also applying manual prepend
-offsets would lose or double-adjust the reading position. The loaded-production
-regression in `apps/web/scripts/performance.mjs` checks four successive prepends,
-selection across an 8,000-pixel scroll, and cached recipient switches against
-10,000 stored messages and 100 retained child agents.
-
-The corresponding ownership regressions are in `packages/app/test/runtime.test.ts`,
-`composer.test.tsx`, `timeline.test.tsx`, and `requests.test.tsx`. Component/CSP and
-packed-consumer checks live under `packages/ui/tests`; the production fake-daemon
-browser workflow suite lives at `apps/web/scripts/browser.mjs`. Manual device and
-screen-reader gates are tracked separately in the accepted web plan.
-
-Session tabs are navigation metadata, not view leases. `SessionTabs` publishes an
-immutable bounded v3 window record spanning hosts; every view descriptor stores
-its runtime ID, and the router remains the sole focused-root authority. Original
-v1/v2 layouts remain available for explicit recovery when the shared pane/tab
-budget has room. Migration validates combined metadata before consuming a layout;
-individual previous tabs remain recoverable when the whole layout cannot fit.
-Tab mutations cannot submit commands. Late create/fork completions check the
-originating route and client before selecting their result. Root and child load
-errors stay in their own view. The workspace releases obsolete root leases before
-admitting replacements and preserves healthy host leases when a different host
-detaches. One visible-window TanStack Query per host batches `sessions.summaries`
-for that host's open IDs; lifecycle wakeups coalesce at 250 ms and steady polling
-runs every two seconds. Background labels never acquire root views.
-
-Search observes each host's existing catalog only while its dialog is open;
-filtered reads retain one bounded page per host with independent cursors. Closing
-removes observers and aborts pending search reads. Highlighting is keyed by runtime
-and root, so host completion order cannot retarget a keyboard action. Attention
-polls one bounded advisory page per connected host without root hydration, with
-per-host errors and navigation. Both use the shared Query client and clear old
-pages rather than accumulating result history.
-
-`CompositionStore` owns transient upload controllers and scoped attachment refs
-independently of mounted composers. Its serial queue bounds source copies; unmount
-is not cancellation. Removing a file, explicitly detaching its host or disposing
-the runtime aborts the owned transfer. Focusing a tab on another host leaves
-other transfers and attachments alone. Submission tokens prevent late acceptance from clearing
-newer drafts. `ReadingPositions` retains only bounded row/revision/offset/follow
-hints; TanStack Virtual remains the single scrolling authority. Expired closed-tab
-metadata releases associated reading hints, and view eviction never deletes drafts.
+CompositionStore owns uploads and scoped attachments across composer mounts.
+Removing a file or explicitly retiring its owner aborts the transfer; changing
+a visible tab does not. Acceptance clears only the matching submission and draft
+revision. ReadingPositions retains bounded hints while the timeline remains the
+scrolling authority. Tabs and appearance are navigation/device state, never
+execution authority. See [frontend lifetimes](frontend.md#runtime-construction-and-lifetimes).
 
 ## Native companion lifetimes
 
-`apps/mobile/src/runtime/runtime.ts` owns one SDK client, one QueryClient and one
-root view with at most one selected child. Replacing the host synchronously
-increments the epoch, aborts local waits, clears scoped state and closes the old
-client before awaiting cleanup. Old continuations cannot publish into the new
-host. Releasing navigation leases never cancels accepted daemon execution.
+[MobileRuntime](../apps/mobile/src/runtime/runtime.ts) owns one selected host,
+Query client and selected session/ExecutionView pair. Host replacement increments
+its epoch and aborts the previous local lifetime before asynchronous cleanup.
+Old continuations cannot publish into a new host. Backgrounding suspends views,
+cancels reads and requests a storage flush; foregrounding reconnects and verifies
+the same runtime before enabling actions.
 
-The bootstrap owns the native AppState listener outside React. Actual backgrounding
-flushes queued draft writes where possible, cancels Query reads and calls SDK
-`pause()` to stop connection, heartbeat and command-observation timers. A temporary
-inactive state does not detach. Foreground resume validates the same runtime and
-reconciles unresolved identities before enabling actions. `close()` remains
-terminal. Critical storage writes happen before network admission; a final
-background callback is not assumed to run before process death.
-
-The native recovery adapter commits command identity and recipient/draft-revision
-correlation in one SQLCipher transaction before sending. Draft text is a separate
-bounded encrypted record. A failed durable write blocks admission; unresolved
-records are not evicted to admit another send. Restored metadata can check the
-original outcome but cannot recreate or automatically replay a request body.
-Permission decisions use their typed status namespace and retain their own
-decision identity through uncertain replies.
-
-One foreground Attention query observer serves every route and the tab badge.
-Screen focus and explicit refresh join an existing request; hidden screens do
-not create extra polling loops. Background/host cleanup cancels the shared read.
-Catalog polling follows the focused Sessions list, and history remains owned by
-SDK views. See [the frontend guide](frontend.md#native-mobile-companion) for
-package boundaries and [mobile setup](mobile.md) for the private network contract.
-Native runtime, storage, decision and Attention tests live under
-`apps/mobile/src`; device evidence is tracked separately from these unit checks.
+Recovery metadata and its draft correlation are saved before admission. Restored
+metadata can inspect an outcome but cannot reconstruct or replay the request.
+The original payload is available for explicit retry only while retained in
+memory. Failed durable storage blocks sending; unresolved records are not evicted
+to make room. Device tests and physical-device evidence remain distinct; see
+[mobile setup](mobile.md).
 
 ## Desktop backend replacement
 
-`LocalRuntime` coalesces backend synchronization and queues it behind an in-flight
-local preparation. Installation, ownership selection, and approval writes use the
-same mutation guard. A release-specific restart approval is persisted before the
-GUI updater exits and consumed only after the new backend reports matching
-readiness; failed handoff preserves it for retry. A later release's approval is
-not consumed by an older app's connection attempt.
+Desktop preparation and update own local installation/maintenance separately
+from renderer observations. A replacement verifies staged bytes, coordinates the
+maintenance and runtime ownership locks, and waits for matching native readiness.
+An existing owner requires explicit interruption approval; cancellation or an
+unconfirmed shutdown cannot authorize replacing a still-running backend.
+Release-specific approval survives a failed handoff for explicit recovery.
 
-The Go handoff verifies and fsyncs staged bytes before stopping work, then holds
-an exclusive `maintenance.lock` through owner inspection, graceful SIGTERM,
-atomic replacement, child launch, and readiness. Ordinary daemon startup takes a
-nonblocking shared lock before the owner lock, so an old executable cannot wait
-through replacement and later become the owner. The replacement inherits the
-held descriptor; it must identify the same inode and retain exclusive ownership.
-Closing that inherited descriptor never explicitly unlocks the parent's lock.
-
-Any existing daemon owner requires explicit interruption approval, even if a
-status snapshot looks idle. Cancellation is checked before signaling, replacement,
-and launch. Shutdown never escalates to SIGKILL; a timeout leaves an actionable
-retry instead of replacing a still-running backend. These guarantees are covered
-by maintenance-lock tests, native runtime tests, and the two-build compiled
-update integration test. Remote daemons are outside this local update lifetime.
+This implementation is validated in disposable compiled fixtures; it is not
+permission to update an installed runtime. Remote hosts and signed release
+acceptance have separate scope. See [native CLI disposition](backend-native-cli-disposition.md)
+and [desktop setup](desktop.md).

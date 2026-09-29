@@ -76,6 +76,9 @@ type nativeModel struct {
 	imageSequence                   uint64
 	attachment                      *nativeImageUpload
 	attachmentBusy                  bool
+	historyDialog                   *nativeHistoryDialog
+	redraft                         *nativeRedraft
+	draftDesign                     *protocol.DesignContext
 	selection                       *nativeSelection
 	selectionClick                  nativeSelectionClick
 	messageRows                     []nativeMessageRows
@@ -505,6 +508,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "Session attachment failed: " + err.Error()
 					return m, nil
 				}
+				m.stageRedraft(value.redraft)
 				return m, m.read()
 			}
 			if value.policy != nil && value.policy.TreeID == m.owner.TreeID && (m.permissionPolicy == nil || value.policy.Revision >= m.permissionPolicy.Revision) {
@@ -533,6 +537,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.refresh()
 			}
 		}
+		if value.err == nil {
+			m.stageRedraft(value.redraft)
+		}
 	case nativeCancelled:
 		if value.generation != m.generation {
 			return m, nil
@@ -546,6 +553,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if value.String() != "ctrl+c" {
 			m.initialPrompt = ""
+		}
+		if m.historyDialog != nil && value.String() != "ctrl+c" {
+			return m, m.historyDialogKey(value)
 		}
 		if m.picker != nil && value.String() != "ctrl+c" {
 			return m, m.pickerKey(value)
@@ -587,8 +597,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+v":
 			return m, m.attachCommand("clipboard")
 		case "ctrl+r":
-			return m, m.replCommand("")
+			return m, m.commandKeepingDraft("/repl")
 		case "ctrl+c":
+			m.historyDialog = nil
 			m.closeCompletion(false)
 			m.palette = nil
 			if m.quitArmed {
@@ -635,6 +646,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.follow = m.browse == nil && m.vp.AtBottom()
 		}
 	case tea.PasteMsg:
+		if m.historyDialog != nil {
+			m.historyDialogPaste(value.Content)
+			return m, nil
+		}
 		m.initialPrompt = ""
 		m.closeCompletion(false)
 		if m.picker != nil {
@@ -687,6 +702,10 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 		m.status = err.Error()
 		return nil
 	}
+	if m.redraft != nil {
+		m.status = "An original input is staged. /redraft restore, replace, or discard before another submission."
+		return nil
+	}
 	if m.rejected != nil {
 		m.status = "A rejected draft is retained. /rejected restore or /rejected discard before another submission."
 		return nil
@@ -703,7 +722,11 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 		m.status = "Choose a provider and model with /setup or /model before submitting. Your draft has been kept."
 		return nil
 	}
-	params := protocol.SubmitParams{Source: "user", Identity: protocol.RequestIdentity{ClientID: "tui", RequestID: protocol.ID(uuid.NewString())}, Parts: parts}
+	if !nativeDesignPartsPresent(m.draftDesign, parts) {
+		m.status = "Design context attachments were removed. Restore them, or explicitly /redraft clear-context before sending the edited draft."
+		return nil
+	}
+	params := protocol.SubmitParams{DesignContext: m.draftDesign, Source: "user", Identity: protocol.RequestIdentity{ClientID: "tui", RequestID: protocol.ID(uuid.NewString())}, Parts: parts}
 	if delivery != "queue" && m.activity.ActiveTurn != nil && m.activity.ActiveTurn.Kind == "prompt" {
 		params.Delivery, params.TargetTurnID = "steer", new(m.activity.ActiveTurn.ID)
 	}
@@ -737,6 +760,7 @@ func (m *nativeModel) submitPreparedInput(command *client.InputCommand) tea.Cmd 
 	m.input.Reset()
 	m.pastes = nil
 	m.images = nil
+	m.draftDesign = nil
 	m.sizeInput()
 	m.notice = ""
 	m.latest()
@@ -895,6 +919,11 @@ func (m *nativeModel) refresh() {
 }
 
 func (m *nativeModel) View() tea.View {
+	if m.historyDialog != nil {
+		view := tea.NewView(m.historyDialog.view(m.width, m.height))
+		view.AltScreen = true
+		return view
+	}
 	if m.menu != nil {
 		view := tea.NewView(m.menu.View(m.width, m.height))
 		view.AltScreen = true
@@ -975,6 +1004,7 @@ func (m *nativeModel) restoreRejectedDraft() bool {
 	if !m.restoreParts(params.Parts) {
 		return false
 	}
+	m.draftDesign = params.DesignContext
 	m.rejected = nil
 	return true
 }

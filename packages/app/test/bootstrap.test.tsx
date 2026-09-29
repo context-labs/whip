@@ -123,6 +123,21 @@ it('warns browsers for memory-only text and removes the warning after explicit c
   expect(cleared.defaultPrevented).toBe(false);
 });
 
+it('installs the browser leave warning for edits to a saved draft without replacing app state', () => {
+  const f = fixture(false), key = 'runtime:root:agent';
+  f.app.runtime.setDraft(key, 'saved'); f.app.runtime.flushDrafts();
+  const saved = f.app.runtime.getSnapshot();
+  f.app.runtime.setDraft(key, 'unsaved edit');
+  expect(f.app.runtime.getSnapshot()).toBe(saved);
+  const write = vi.spyOn(f.source, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
+  const leave = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(leave);
+  expect(leave.defaultPrevented).toBe(true);
+  expect(f.app.runtime.draft(key)).toBe('unsaved edit');
+  expect(f.source.getItem('whip.web.draft.v1:' + key)).toBe('saved');
+  write.mockRestore();
+});
+
 it('lets browsers leave after a successful final text flush and preserves the back-forward cache lifetime', () => {
   const f = fixture(false);
   f.app.runtime.setDraft('runtime:root:agent', 'final change');

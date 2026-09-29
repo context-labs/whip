@@ -256,6 +256,9 @@ export class AppRuntime {
   };
   private update(patch: Partial<RuntimeSnapshot>) {
     this.state = Object.freeze({ ...this.state, ...patch });
+    this.notify();
+  }
+  private notify() {
     for (const listener of this.listeners) listener();
   }
   setPreferences(patch: Partial<DevicePreferences>) {
@@ -473,6 +476,7 @@ export class AppRuntime {
     return merged;
   }
   setDraft(key: string, text: string) {
+    const draftCount = this.draftIdentities.size;
     if (!key || key.length > 512) throw new Error('Invalid draft identity');
     if (text) {
       const next = this.mergedDrafts();
@@ -489,7 +493,10 @@ export class AppRuntime {
     for (const listener of this.draftListeners.get(key) ?? []) listener();
     clearTimeout(this.draftTimer);
     this.draftTimer = setTimeout(() => this.flushDrafts(), 150);
-    if (hadDraft !== !!text || wasUnsaved !== this.hasUnsavedDrafts()) this.update({});
+    if (hadDraft !== !!text || draftCount !== this.draftIdentities.size) this.update({});
+    // The leave-warning listener needs this transition immediately. React's
+    // app snapshot is unchanged; the recipient's draft has its own subscribers.
+    else if (wasUnsaved !== this.hasUnsavedDrafts()) this.notify();
   }
   hasUnsavedDrafts() {
     return this.dirtyDrafts.size > 0 || (this.platform.storage.persistent === false && this.draftIdentities.size > 0);
@@ -499,6 +506,7 @@ export class AppRuntime {
     clearTimeout(this.draftTimer);
     this.draftTimer = undefined;
     const wasUnsaved = this.hasUnsavedDrafts();
+    const draftCount = this.draftIdentities.size;
     try {
       // Bound first, so drafts evicted here are removed by the deletion pass below.
       if (this.dirtyDrafts.size) this.evictDrafts(this.mergedDrafts());
@@ -537,7 +545,8 @@ export class AppRuntime {
     }
     const unsaved = this.hasUnsavedDrafts();
     if (!unsaved && this.state.error === 'Drafts could not be saved; keep this page open to retain them.') this.clearError();
-    if (wasUnsaved !== unsaved) this.update({});
+    if (draftCount !== this.draftIdentities.size) this.update({});
+    else if (wasUnsaved !== unsaved) this.notify();
     return unsaved
       ? { saved: false, error: 'Device storage is unavailable. Closing or reloading may lose draft changes; keep this page open to retain them.' }
       : { saved: true };

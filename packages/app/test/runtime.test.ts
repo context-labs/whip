@@ -1,3 +1,5 @@
+import { act, renderHook } from '@testing-library/react';
+import { useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryObserver } from '@tanstack/react-query';
 import { DeliveryError, DurableCommand, RecoveryPersistenceError, type Client, type Admission } from '@whip/sdk';
@@ -154,6 +156,60 @@ describe('draft persistence and bounded storage', () => {
     try {
       expect(app.getSnapshot().error).toBeUndefined();
       expect(app.draft('runtime:root:agent')).toBe('é'.repeat(128 * 1024));
+    } finally { app.dispose(); }
+  });
+  it('notifies draft safety transitions without rerendering unchanged app state', () => {
+    vi.useFakeTimers();
+    const values = new Map<string, string>();
+    const app = runtime({ keys: () => [...values.keys()], getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } });
+    const key = 'runtime:root:agent';
+    const safety: boolean[] = [];
+    const off = app.subscribe(() => safety.push(app.hasUnsavedDrafts()));
+    const renders = vi.fn();
+    const workspace = renderHook(() => { renders(); return useSyncExternalStore(app.subscribe, app.getSnapshot); });
+    const composer = renderHook(() => useSyncExternalStore(listener => app.subscribeDraft(key, listener), () => app.draft(key)));
+    try {
+      const empty = workspace.result.current;
+      act(() => app.setDraft(key, 'first'));
+      expect(workspace.result.current).not.toBe(empty);
+      expect(app.hasSessionDraft('runtime', 'root')).toBe(true);
+      const present = workspace.result.current, rendered = renders.mock.calls.length;
+      act(() => { expect(app.flushDrafts().saved).toBe(true); });
+      expect(workspace.result.current).toBe(present);
+      act(() => app.setDraft(key, 'edited'));
+      expect(composer.result.current).toBe('edited');
+      expect(workspace.result.current).toBe(present);
+      act(() => { expect(app.flushDrafts().saved).toBe(true); });
+      expect(renders).toHaveBeenCalledTimes(rendered);
+      expect(safety).toEqual([true, false, true, false]);
+      expect(values.get('whip.web.draft.v1:' + key)).toBe('edited');
+      act(() => app.setDraft(key, ''));
+      expect(workspace.result.current).not.toBe(present);
+      expect(app.hasSessionDraft('runtime', 'root')).toBe(false);
+      expect(composer.result.current).toBe('');
+    } finally { composer.unmount(); workspace.unmount(); off(); app.dispose(); }
+  });
+  it('publishes actual draft badge changes when editing or flushing evicts another recipient', () => {
+    const values = new Map<string, string>();
+    const app = runtime({ keys: () => [...values.keys()], getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } });
+    try {
+      app.setDraft('runtime:kept:agent', 'small');
+      for (const root of ['first', 'second', 'third']) app.setDraft(`runtime:${root}:agent`, 'a'.repeat(256 * 1024));
+      app.flushDrafts();
+      const beforeEdit = app.getSnapshot();
+      app.setDraft('runtime:kept:agent', 'b'.repeat(256 * 1024));
+      expect(app.hasSessionDraft('runtime', 'first')).toBe(false);
+      expect(app.hasSessionDraft('runtime', 'kept')).toBe(true);
+      expect(app.getSnapshot()).not.toBe(beforeEdit);
+      app.flushDrafts();
+      app.setDraft('runtime:kept:agent', 'b'.repeat(256 * 1024));
+      const beforeFlush = app.getSnapshot();
+      values.set('whip.web.draft.v1:other:root:agent', 'c'.repeat(256 * 1024));
+      app.flushDrafts();
+      expect(app.hasSessionDraft('runtime', 'kept')).toBe(false);
+      expect(app.getSnapshot()).not.toBe(beforeFlush);
     } finally { app.dispose(); }
   });
   it('debounces drafts separately from metadata and restores them after reload', () => {

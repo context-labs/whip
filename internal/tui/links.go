@@ -392,6 +392,11 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 }
 
 func hyperlinkGlamourLinksWith(s string, exists func(string) bool, uri func(string, string) string) string {
+	return hyperlinkGlamourLinksTo(s, func(dest string) string { return targetURIWith(dest, exists, uri) })
+}
+
+// hyperlinkGlamourLinksTo applies an explicit destination policy without file I/O.
+func hyperlinkGlamourLinksTo(s string, targetURI func(string) string) string {
 	s = stripOSC8(bareSGR.Replace(s)) // accept raw glamour v2 output as well as renderMarkdownAt's
 	atoms := parseLinkAtoms(s)
 	if len(atoms) == 0 {
@@ -415,7 +420,7 @@ func hyperlinkGlamourLinksWith(s string, exists func(string) bool, uri func(stri
 			sb.WriteString(h.text)
 		}
 		hrefText := sb.String()
-		target := targetURIWith(hrefText, exists, uri)
+		target := targetURI(hrefText)
 		if target == "" {
 			continue // leave glamour's output untouched
 		}
@@ -471,6 +476,16 @@ func linkAtomAt(s string) (string, byte) {
 		}
 		if strings.HasPrefix(s, cand.sgr) {
 			return cand.sgr, cand.kind
+		}
+		// Glamour's wrapped continuation canonicalizes bold/underline before
+		// the color. Match that equivalent form without rearranging RGB args.
+		for _, attribute := range []string{"1", "4"} {
+			if before, ok := strings.CutSuffix(cand.sgr, ";"+attribute+"m"); ok {
+				alternate := "\x1b[" + attribute + ";" + strings.TrimPrefix(before, "\x1b[") + "m"
+				if strings.HasPrefix(s, alternate) {
+					return alternate, cand.kind
+				}
+			}
 		}
 	}
 	return "", 0
