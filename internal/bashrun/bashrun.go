@@ -16,7 +16,6 @@
 package bashrun
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -75,6 +74,9 @@ func passwdShell() string {
 type Result struct {
 	// Output is the combined stdout+stderr captured for the model.
 	Output string
+	// TotalBytes includes bytes discarded from the bounded retained tail.
+	TotalBytes int64
+	Truncated  bool
 	// Exit is the human-readable exit status fed back to the model. It is
 	// empty for a clean exit 0.
 	Exit string
@@ -269,7 +271,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	_ = errW.Close()
 	// Drain both pipes concurrently; the readers finish on pipe EOF (process
 	// exit) OR when we close them below after Wait returns.
-	var out bytes.Buffer
+	var out outputBuffer
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -343,7 +345,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	_ = stderr.Close()
 	wg.Wait()
 
-	res := Result{Output: out.String()}
+	res := Result{Output: out.String(), TotalBytes: out.total, Truncated: out.truncated()}
 	if ctx.Err() == context.DeadlineExceeded {
 		res.TimedOut = true
 		res.Killed = true
@@ -397,7 +399,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 		stop()
 	}()
 
-	var buf bytes.Buffer
+	var buf outputBuffer
 	outCh := make(chan []byte, 16)
 
 	// Output pump: copy PTY -> caller + buffer; on read error the child has
@@ -471,7 +473,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			// command exited). Wait for the child and return.
 			if !ok || chunk == nil {
 				waitErr := process.Wait()
-				res := Result{Output: buf.String(), Interactive: true}
+				res := Result{Output: buf.String(), TotalBytes: buf.total, Truncated: buf.truncated(), Interactive: true}
 				if ctx.Err() == context.DeadlineExceeded {
 					res.TimedOut = true
 					res.Killed = true
@@ -502,7 +504,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				stop()
 				_ = process.Wait()
-				res := Result{Output: buf.String(), Killed: true, Interactive: true}
+				res := Result{Output: buf.String(), TotalBytes: buf.total, Truncated: buf.truncated(), Killed: true, Interactive: true}
 				if errors.Is(ctxErr, context.DeadlineExceeded) {
 					res.TimedOut = true
 					res.Exit = "timed out"
@@ -516,6 +518,8 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 				_ = process.Wait()
 				res := Result{
 					Output:      buf.String(),
+					TotalBytes:  buf.total,
+					Truncated:   buf.truncated(),
 					Exit:        "timed out waiting for input",
 					Killed:      true,
 					Interactive: true,
