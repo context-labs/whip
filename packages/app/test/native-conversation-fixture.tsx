@@ -118,6 +118,7 @@ export function cellRow(
     parts: [{ type: 'tool_call', call }],
   };
   return {
+    output: null,
     cell: {
       id,
       session_id: 'root',

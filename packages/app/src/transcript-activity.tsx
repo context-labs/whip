@@ -1,7 +1,7 @@
 import type { CellExecutionRow, DeepReadonly } from '@whip/sdk/state';
 import type { Session, SessionRecord } from '@whip/sdk';
 import { ContentRead } from './details/content-read';
-import { executionOutput, recordedDuration } from './execution-output';
+import { cellOutput, recordedDuration } from './execution-output';
 import { useState } from 'react';
 import { Button, CodeBlock } from '@whip/ui';
 import {
@@ -51,7 +51,7 @@ export function ActivityHeader({
     preview?.host?.resource ||
     preview?.row?.text ||
     (preview?.cell
-      ? executionOutput(preview.cell.result?.value.output ?? '').output
+      ? cellOutput(preview.cell, connected).output
       : '')
   )
     .slice(0, 512)
@@ -234,7 +234,9 @@ export function ActivityStep({
 function ExecutionDetails({
   cell,
   onOpenRepl,
+  connected,
 }: {
+  connected: boolean;
   cell: CellExecutionRow;
   onOpenRepl?(): void;
 }) {
@@ -243,7 +245,7 @@ function ExecutionDetails({
     typeof cell.call?.value.arguments.code === 'string'
       ? cell.call.value.arguments.code
       : undefined;
-  const output = executionOutput(cell.result?.value.output ?? '');
+  const output = cellOutput(cell, connected);
   const language =
     cell.cell.checkpoint?.engine === 'quickjs'
       ? 'javascript'
@@ -256,8 +258,10 @@ function ExecutionDetails({
         <CodeBlock code={code} language={language} label="Executed code" />
       )}
       {output.output && (
-        <CodeBlock code={output.output} language="text" label="Output" />
+        <CodeBlock code={output.output} language="text" label={output.provisional ? "Live output · provisional" : "Output"} />
       )}
+      {output.provisional && <p {...stylex.props(styles.muted)}>Provisional stdout; the committed result will replace it.</p>}
+      {output.truncated && <p {...stylex.props(styles.muted)}>Live output is truncated to the first 64 KiB.</p>}
       {output.value !== undefined && (
         <CodeBlock code={output.value} language="json" label="Value" />
       )}
@@ -383,7 +387,7 @@ export function ActivityDetail({
         </>
       )}
       {item.cell && (
-        <ExecutionDetails cell={item.cell} onOpenRepl={onOpenRepl} />
+        <ExecutionDetails connected={connected} cell={item.cell} onOpenRepl={onOpenRepl} />
       )}
     </div>
   );
@@ -446,7 +450,7 @@ export function InlineAgent({
             Launch details
           </summary>
           {details && (
-            <ExecutionDetails cell={row.cell} onOpenRepl={onOpenRepl} />
+            <ExecutionDetails connected={connected} cell={row.cell} onOpenRepl={onOpenRepl} />
           )}
         </details>
       </div>

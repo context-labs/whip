@@ -38,3 +38,10 @@ export function recordedDuration(start: string, end: string | null): string | un
   if (!Number.isFinite(milliseconds) || milliseconds < 0) return undefined;
   return milliseconds < 1 ? '<1ms' : milliseconds < 1000 ? `${milliseconds}ms` : `${(milliseconds / 1000).toFixed(1)}s`;
 }
+
+/** The SDK joined this preview to the exact cell. A committed result always wins. */
+export function cellOutput(row: import('@whip/sdk/state').CellExecutionRow, connected: boolean) {
+  const result = executionOutput(row.result?.value.output ?? '');
+  const preview = !row.result && connected && row.cell.state === 'running' ? row.output ?? null : null;
+  return { ...result, output: preview?.text ?? result.output, provisional: preview !== null, truncated: preview?.truncated ?? false };
+}

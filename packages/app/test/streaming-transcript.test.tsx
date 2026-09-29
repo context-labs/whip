@@ -20,7 +20,7 @@ function operation(id: string, capability: string, state: HostOperation['state']
 function execution(operations: HostOperation[] = [], failed = false): CellExecutionRow {
   const call = { id: 'call', name: 'execute', arguments: { code: '42' } };
   const result = { call_id: 'call', output: 'exception', is_error: true };
-  const cell: CellExecutionRow = { cell: { id: 'cell', session_id: 'root', turn_id: 'turn', call_message_id: 'call-message', call_id: 'call',
+  const cell: CellExecutionRow = { output: null, cell: { id: 'cell', session_id: 'root', turn_id: 'turn', call_message_id: 'call-message', call_id: 'call',
     state: failed ? 'failed' : 'running', result_message_id: failed ? 'result-message' : null, checkpoint: null, created_at: created, finished_at: failed ? created : null },
     turn: null, call: { message: message({ id: 'call-message', parts: [{ type: 'tool_call', call }] }), value: call },
     result: failed ? { message: message({ id: 'result-message', role: 'tool', sequence: '2', parts: [{ type: 'tool_result', result }] }), value: result } : null, operations };

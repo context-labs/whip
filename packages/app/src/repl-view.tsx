@@ -10,7 +10,7 @@ import { HistoryGapControl } from './history-gap';
 import { ContentRead } from './details/content-read';
 import { styles } from './repl-view.stylex';
 import { ErrorNotice } from './error-feedback';
-import { executionOutput, recordedDuration, safeJSON } from './execution-output';
+import { cellOutput, recordedDuration, safeJSON } from './execution-output';
 
 const executionLabel = (engine: string) => engine === 'quickjs' ? 'JavaScript (QuickJS)' : 'Starlark';
 type Row = { id: string; seq?: string; cell: CellExecutionRow; gap?: never } | { id: string; seq: string; gap: DeepReadonly<HistoryGap>; cell?: never };
@@ -84,7 +84,7 @@ export function formatJsonOutput(output: string): string {
 export function ExecutionCellCard({ row, number, session, engine, connected, expanded, onToggle }: {
   row: CellExecutionRow; number: number; session: Session; engine: 'starlark' | 'quickjs'; connected: boolean; expanded: boolean; onToggle(): void;
 }) {
-  const cell = row.cell, result = executionOutput(row.result?.value.output ?? '');
+  const cell = row.cell, result = cellOutput(row, connected);
   const actualEngine = cell.checkpoint?.engine ?? engine;
   const label = executionLabel(actualEngine), running = cell.state === 'running', uncertain = cell.state === 'uncertain';
   const code = typeof row.call?.value.arguments.code === 'string' ? row.call.value.arguments.code : undefined;
@@ -106,9 +106,11 @@ export function ExecutionCellCard({ row, number, session, engine, connected, exp
       {operation.result?.failure && <ErrorNotice type="execution" owner={operation.id} title={`${operation.capability} failed`} error={operation.result.failure} />}
       {operation.result?.content_references?.map(reference => <ContentRead key={reference} session={session} connected={connected} reference={reference} label="Host result" />)}
     </div>)}</div>}
-    {result.output && <div {...stylex.props(styles.section)}><CodeBlock code={output.text} language={formatted !== result.output ? 'json' : undefined} label={output.hidden && running ? `Output · last 6 lines (${output.hidden} earlier)` : 'Output'} xstyle={styles.code} copyText={result.output} copyLabel="Copy output" />
+    {result.output && <div {...stylex.props(styles.section)}><CodeBlock code={output.text} language={formatted !== result.output ? 'json' : undefined} label={output.hidden && running ? `Output · last 6 lines (${output.hidden} earlier)` : result.provisional ? 'Live output · provisional' : 'Output'} xstyle={styles.code} copyText={result.output} copyLabel="Copy output" />
       {(output.hidden > 0 || expanded) && <Button variant="ghost" size="sm" onClick={onToggle} aria-expanded={expanded}>{expanded ? 'Collapse output' : `Show ${output.hidden} more ${output.hidden === 1 ? 'line' : 'lines'}`}</Button>}
     </div>}
+    {result.provisional && <p {...stylex.props(styles.meta)}>Provisional stdout; the committed cell result will replace it.</p>}
+    {result.truncated && <p role="status" {...stylex.props(styles.meta)}>Live output is truncated to the first 64 KiB.</p>}
     {result.value !== undefined && <div {...stylex.props(styles.result)}><CodeBlock code={result.value} language="json" label="Return value" xstyle={styles.code} /></div>}
     {result.warning && <p aria-label="Scratch checkpoint" {...stylex.props(styles.meta)}>{result.warning}</p>}
     {result.error && <ErrorNotice type="execution" owner={cell.id} error={result.error} />}

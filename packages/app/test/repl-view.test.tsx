@@ -21,7 +21,8 @@ const output = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`).join
 const result = (value = output, engine: 'starlark' | 'quickjs' = 'starlark') => JSON.stringify({ result: { format_version: 2, execution_engine: engine, language: engine === 'quickjs' ? 'javascript' : 'starlark', output: value, has_value: true, value: 42, steps: 7, metrics: { quickjs_jobs: 3 } } });
 
 async function fixture(raw = result(), engine: 'starlark' | 'quickjs' = 'starlark', empty = false) {
-  const state = {
+  const state: { turn: Turn; cell: Cell; messages: Message[]; operations: HostOperation[]; preview: Operations['sessions.observe']['result']['preview']; output: Operations['cells.output']['result']['preview'] } = {
+    output: null,
     turn: { ...sample('Turn'), id: 'turn', session_id: 'session_child', state: 'succeeded', kind: 'prompt', finished_at: '2026-09-27T12:00:01Z' } as Turn,
     cell: { ...sample('Cell'), id: 'cell', turn_id: 'turn', state: 'succeeded', checkpoint: null } as Cell,
     messages: [] as Message[],
@@ -39,9 +40,10 @@ async function fixture(raw = result(), engine: 'starlark' | 'quickjs' = 'starlar
     const history = { session_id: 'session_child', revision: '1', through_sequence: state.messages.at(-1)?.sequence ?? '0', message_count: String(state.messages.length) };
     let value: unknown;
     if (request.method === 'initialize') value = { major: 4, minor: 0, runtime_id: 'host', process_epoch: 'boot', network_client: false, builtins: [] };
-    else if (request.method === 'sessions.activity') value = { ...sample('SessionActivity'), active_turn: null, active_input_id: null };
+    else if (request.method === 'sessions.activity') value = { ...sample('SessionActivity'), active_turn: state.turn.state === 'running' ? state.turn : null, active_input_id: state.turn.state === 'running' ? 'input_fixture' : null };
     else if (request.method === 'sessions.history_page') value = { snapshot: history, messages: state.messages, next_cursor: null };
     else if (request.method === 'sessions.observe') value = { snapshot: history, epoch: 'boot', messages: [], preview: state.preview };
+    else if (request.method === 'cells.output') value = { epoch: 'boot', preview: state.output };
     else if (request.method === 'sessions.turns') value = { items: [state.turn], next_cursor: null };
     else if (request.method === 'turns.cells') value = { items: after || empty ? [] : [state.cell] };
     else if (request.method === 'turns.operations') value = { items: after ? [] : state.operations };
@@ -120,4 +122,26 @@ it('keeps uncertain cell metadata when exact transcript bodies are outside the w
   expect(screen.getByText('The exact result message is outside the loaded transcript window.')).toBeDefined();
   expect(screen.getByText('Effects may already have happened. The recorded outcome is uncertain.')).toBeDefined();
   expect(screen.queryByRole('region', { name: 'Output' })).toBeNull();
+});
+
+it('renders native provisional stdout verbatim, then replaces it with the exact committed result and clears on detach', async () => {
+  const f = await fixture();
+  f.state.turn.state = 'running'; f.state.turn.finished_at = null;
+  f.state.cell.state = 'running'; f.state.cell.finished_at = null; f.state.cell.result_message_id = null;
+  f.state.messages = f.state.messages.slice(0, 1);
+  f.state.output = { session_id: 'session_child', turn_id: 'turn', cell_id: 'cell', call_message_id: 'message_call', call_id: 'call_fixture', history_revision: '1', revision: '9007199254740993', text: '{"result":{"output":"must stay raw"}}', truncated: true };
+  await f.view.latest(); await f.view.refresh(); await f.execution.refresh();
+  expect(f.execution.getSnapshot().output).not.toBeNull();
+  const mounted = render(f.app());
+  expect(screen.getByRole('region', { name: 'Live output · provisional' }).textContent).toContain('must stay raw');
+  expect(screen.getByText('Live output is truncated to the first 64 KiB.')).toBeDefined();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy output' })); await waitFor(() => expect(f.copy).toHaveBeenCalledWith(f.state.output!.text));
+  mounted.rerender(f.app(false)); expect(screen.queryByRole('region', { name: 'Live output · provisional' })).toBeNull();
+  mounted.rerender(f.app());
+  f.state.cell.state = 'succeeded'; f.state.cell.result_message_id = 'message_result'; f.state.cell.finished_at = '2026-09-27T12:00:01Z';
+  f.state.turn.state = 'succeeded'; f.state.turn.finished_at = '2026-09-27T12:00:01Z';
+  f.state.messages.push({ ...f.state.messages[0], id: 'message_result', sequence: '9007199254740994', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call_fixture', output: result('committed stdout'), is_error: false } }] });
+  await act(async () => { await f.view.latest(); await f.execution.refresh(); });
+  expect(screen.queryByRole('region', { name: 'Live output · provisional' })).toBeNull();
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('committed stdout');
 });
