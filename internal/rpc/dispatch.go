@@ -172,6 +172,24 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			value, data, err := r.ReadContent(ctx, session.SessionID(p.SessionID), string(p.ReferenceID), session.MaxContentBytes)
 			return protocol.ReadContentResult{Reference: protocol.ContentReferenceFromDomain(value), DataBase64: base64.StdEncoding.EncodeToString(data)}, err
 		})
+	case "host.status":
+		return decode(raw, func(protocol.EmptyParams) (any, error) {
+			if host.Lifecycle == nil {
+				return nil, fmt.Errorf("%w: process lifecycle is unavailable", store.ErrNotFound)
+			}
+			return host.Lifecycle.snapshot(), nil
+		})
+	case "host.stop":
+		return decode(raw, func(p protocol.StopHostParams) (any, error) {
+			if host.Lifecycle == nil {
+				return nil, fmt.Errorf("%w: process lifecycle is unavailable", store.ErrNotFound)
+			}
+			current := host.Lifecycle.snapshot()
+			if p.RuntimeID != current.RuntimeID || p.ProcessEpoch != current.ProcessEpoch {
+				return nil, ErrIdentity
+			}
+			return protocol.HostStopAccepted(p), nil
+		})
 	case "initialize":
 		return decode(raw, func(p protocol.InitializeParams) (any, error) {
 			if p.ExpectedProcessEpoch != nil && string(*p.ExpectedProcessEpoch) != r.ProcessEpoch() {

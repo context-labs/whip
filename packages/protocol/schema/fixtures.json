@@ -1,5 +1,33 @@
 [
   {
+    "type": "HostStatus",
+    "value": {
+      "runtime_id": "runtime_fixture",
+      "process_epoch": "boot_fixture",
+      "pid": 123,
+      "build": "fixture",
+      "started_at": "2026-09-27T12:00:00.123456Z",
+      "web_endpoint": ""
+    },
+    "valid": true
+  },
+  {
+    "type": "StopHostParams",
+    "value": {
+      "runtime_id": "runtime_fixture",
+      "process_epoch": "boot_fixture"
+    },
+    "valid": true
+  },
+  {
+    "type": "HostStopAccepted",
+    "value": {
+      "runtime_id": "runtime_fixture",
+      "process_epoch": "boot_fixture"
+    },
+    "valid": true
+  },
+  {
     "type": "HostExecutionDefaults",
     "value": {
       "engine": "quickjs",

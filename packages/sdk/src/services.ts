@@ -20,9 +20,18 @@ export class Sessions {
   list(treeID: string, params: Omit<Params<'sessions.list'>, 'tree_id' | 'limit'> & { limit?: number } = {}, options: CallOptions = {}) { return this.client.call('sessions.list', { limit: 100, ...params, tree_id: treeID }, options); }
 }
 
-/** Saved attachment declarations. Reads/edits never initiate connections. */
+/** Native host controls and saved declarations. Reads never initiate attachments. */
 export class Hosts {
   constructor(private readonly client: Client) {}
+  async status(options: CallOptions = {}) {
+    const value = await this.client.call('host.status', {}, options);
+    if (value.runtime_id !== this.client.runtimeID) throw new TypeError('Host status runtime identity mismatch');
+    return value;
+  }
+  /** Local-only explicit process control. Never replay an uncertain stop against another epoch. */
+  stop(processEpoch: string, options: CallOptions = {}) {
+    return this.client.call('host.stop', { runtime_id: this.client.runtimeID, process_epoch: processEpoch }, options);
+  }
   executionDefaults(options: CallOptions = {}) { return this.client.call('host.execution_defaults', {}, options); }
   /** Attempts include the initial request; goal continuations exclude its initial input. Reread after uncertain CAS delivery. */
   setExecutionDefaults(expectedRevision: string, defaults: Params<'host.set_execution_defaults'>['defaults'], options: CallOptions = {}) {

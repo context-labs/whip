@@ -22,6 +22,8 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"host.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostStatus]()},
+		{"host.stop", reflect.TypeFor[StopHostParams](), reflect.TypeFor[HostStopAccepted]()},
 		{"workspace.inspect", reflect.TypeFor[SessionParams](), reflect.TypeFor[WorkspaceInspection]()},
 		{"workspace.set", reflect.TypeFor[WorkspaceSetParams](), reflect.TypeFor[ControlEdit]()},
 		{"run.configure", reflect.TypeFor[RunConfigureParams](), reflect.TypeFor[ControlEdit]()},
@@ -348,6 +350,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		attentionSchema(schema, t)
 		traceSchema(schema, t)
 		controlsSchema(schema, t)
+		lifecycleSchema(schema, t)
 		steeringSchema(schema, t)
 		if t == reflect.TypeFor[InputSummary]() {
 			schema.Properties["text_preview"].MaxLength = new(512)

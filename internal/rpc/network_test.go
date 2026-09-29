@@ -44,12 +44,12 @@ func TestNetworkMarkerCannotBeDowngradedOnInitializedSocket(t *testing.T) {
 			if result.NetworkClient != network || result.ProcessEpoch != protocol.ID(r.ProcessEpoch()) {
 				t.Fatalf("initialize=%+v", result)
 			}
-			for _, method := range []string{"terminal.open", "terminals.open", "shell.input", "shell.interaction"} {
+			for _, method := range []string{"terminal.open", "terminals.open", "shell.input", "shell.interaction", "host.stop"} {
 				response := invoke(method, map[string]any{})
 				if response.Error == nil {
 					t.Fatal("unimplemented method unexpectedly available")
 				}
-				restricted := network && !allowed && method != "shell.interaction"
+				restricted := network && (method == "host.stop" || !allowed && method != "shell.interaction")
 				if (response.Error.Kind == "NETWORK_RESTRICTED") != restricted {
 					t.Fatalf("network=%v method=%s error=%+v", network, method, response.Error)
 				}

@@ -5,6 +5,16 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "host.status",
+      "params": "EmptyParams",
+      "result": "HostStatus"
+    },
+    {
+      "name": "host.stop",
+      "params": "StopHostParams",
+      "result": "HostStopAccepted"
+    },
+    {
       "name": "workspace.inspect",
       "params": "SessionParams",
       "result": "WorkspaceInspection"

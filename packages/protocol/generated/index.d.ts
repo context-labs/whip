@@ -3416,6 +3416,18 @@ export interface HostSkillsResult {
   }[];
   truncated: boolean;
 }
+export interface HostStatus {
+  runtime_id: string;
+  process_epoch: string;
+  pid: number;
+  build: string;
+  started_at: string;
+  web_endpoint: string;
+}
+export interface HostStopAccepted {
+  runtime_id: string;
+  process_epoch: string;
+}
 export interface HostThemeResolveParams {
   name: string;
   json: string;
@@ -9107,6 +9119,10 @@ export interface SteerInputParams {
   input_id: string;
   turn_id: string;
 }
+export interface StopHostParams {
+  runtime_id: string;
+  process_epoch: string;
+}
 export type SubmitParams = {
   [k: string]: unknown;
 } & {
@@ -9705,6 +9721,8 @@ export interface ContractTypes {
   HostProfiles: HostProfiles;
   HostSkillsParams: HostSkillsParams;
   HostSkillsResult: HostSkillsResult;
+  HostStatus: HostStatus;
+  HostStopAccepted: HostStopAccepted;
   HostThemeResolveParams: HostThemeResolveParams;
   HostThemeResolved: HostThemeResolved;
   HostThemesResult: HostThemesResult;
@@ -9840,6 +9858,7 @@ export interface ContractTypes {
   StateVersion: StateVersion;
   StateVersionsResult: StateVersionsResult;
   SteerInputParams: SteerInputParams;
+  StopHostParams: StopHostParams;
   SubmitParams: SubmitParams;
   SubscribeStateParams: SubscribeStateParams;
   TerminalAccepted: TerminalAccepted;
@@ -9880,6 +9899,8 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "host.status": { params: EmptyParams; result: HostStatus };
+  "host.stop": { params: StopHostParams; result: HostStopAccepted };
   "workspace.inspect": { params: SessionParams; result: WorkspaceInspection };
   "workspace.set": { params: WorkspaceSetParams; result: ControlEdit };
   "run.configure": { params: RunConfigureParams; result: ControlEdit };

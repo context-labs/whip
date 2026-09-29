@@ -40,12 +40,16 @@ func Run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	webHosts := flags.String("web-hosts", "", "comma-separated exact allowed HTTP Host authorities")
 	webOrigins := flags.String("web-origins", "", "comma-separated exact allowed browser origins")
 	webTerminals := flags.Bool("web-terminals", false, "allow human terminal methods from network clients")
+	build := flags.String("build", "dev", "runtime build identity")
 	workers := flags.Int("workers", 4, "maximum concurrent session turns")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	if len(*build) > 256 {
+		return errors.New("runtime build identity exceeds 256 bytes")
 	}
 	if flags.NArg() != 0 || *directory == "" {
 		return errors.New("an explicit -directory is required; positional arguments are unsupported")
@@ -115,7 +119,8 @@ func Run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	defer providers.Close()
 	terminals := terminal.NewManager(ctx)
 	defer terminals.Shutdown()
-	server, err := rpc.Listen(r, rpc.HostServices{Terminals: terminals, NetworkTerminals: *webTerminals, OpenAI: accounts, Inference: inferenceAccounts, Config: authority, ProviderHost: providers})
+	lifecycle := rpc.NewHostLifecycle(protocol.ID(r.Identity()), protocol.ID(r.ProcessEpoch()), os.Getpid(), *build, time.Now(), cancel)
+	server, err := rpc.Listen(r, rpc.HostServices{Lifecycle: lifecycle, Terminals: terminals, NetworkTerminals: *webTerminals, OpenAI: accounts, Inference: inferenceAccounts, Config: authority, ProviderHost: providers})
 	if err != nil {
 		return err
 	}
@@ -150,6 +155,7 @@ func Run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		}
 		defer func() { _ = browser.Close() }()
 		ready["web"] = browser.Endpoint()
+		lifecycle.SetWebEndpoint(browser.Endpoint())
 		if err := json.NewEncoder(out).Encode(ready); err != nil {
 			return err
 		}

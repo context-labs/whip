@@ -71,6 +71,9 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"HostStatus", HostStatus{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture", PID: 123, Build: "fixture", StartedAt: created.Format(time.RFC3339Nano)}},
+		{"StopHostParams", StopHostParams{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},
+		{"HostStopAccepted", HostStopAccepted{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},
 		{"HostExecutionDefaults", HostExecutionDefaults{Revision: ref.Revision, Engine: "quickjs", Effort: "high", CompactionPercent: 0, GoalMaxContinuations: 9007199254740993, MaxAttempts: 3}},
 		{"SetExecutionDefaultsParams", SetExecutionDefaultsParams{ExpectedRevision: ref.Revision, Defaults: ExecutionDefaults{Engine: "starlark", GoalMaxContinuations: 0, MaxAttempts: 1}}},
 		{"BrowserProviderBindParams", BrowserProviderBindParams{RootID: "session_root", Version: 2, DesktopID: "desktop", WindowID: "window", OfferRevision: "offer", CreateProfileID: "profile", OfferedTabs: []BrowserOfferedTab{{TabID: "tab", TabGeneration: "tab_generation", ProfileID: "profile", DocumentRevision: "document", URL: "https://example.test/", Title: "Example", Preview: browserScope.Preview}}, OfferedPreviewHosts: []BrowserPreviewScope{*browserScope.Preview}}},
