@@ -107,57 +107,49 @@ export function operationStatus(state: HostOperation['state'], connected: boolea
   }
 }
 
-/** One footer for a response to an authored input. Internal deliveries and tool
- * steps remain within that response; queued input does not finish active work.
- * This is a view of retained prose, not a second turn/event store.
- */
+export interface ResponseActions { text: string; label: string; sentAt?: string; sequence?: string }
+
+/** One footer per response, before Markdown splits. A sequence is a canonical
+ * selection anchor; the command owner resolves its actual whole-group end. */
 export function responseCopies(
-  rows: readonly ConversationActivityRow[],
-  active: boolean,
-  hasEarlier = false,
-): ReadonlyMap<string, { text: string; label: string }> {
-  const copies = new Map<string, { text: string; label: string }>();
-  let prose: string[] = [];
-  let last: string | undefined;
-  let incomplete = hasEarlier;
-  let bytes = 0;
-  const finish = () => {
-    if (last && prose.length)
-      copies.set(last, {
-        text: prose.join('\n\n'),
-        label: incomplete ? 'Copy visible response' : 'Copy response',
-      });
-    prose = [];
-    last = undefined;
-    bytes = 0;
-    incomplete = false;
+  rows: readonly ConversationActivityRow[], active: boolean, hasEarlier = false, latestMissing = false,
+): ReadonlyMap<string, ResponseActions> {
+  const copies = new Map<string, ResponseActions>();
+  let prose: string[] = [], last: string | undefined, assistant = false;
+  let sentAt: string | undefined, assistantSeq: string | undefined, sequence: string | undefined;
+  let incomplete = hasEarlier, uncertain = hasEarlier, bytes = 0;
+  const finish = (missingTail = false) => {
+    if (last && assistant) copies.set(last, {
+      text: prose.join('\n\n'), label: incomplete || missingTail ? 'Copy visible response' : 'Copy response',
+      ...(sentAt && Number.isFinite(new Date(sentAt).getTime()) ? { sentAt } : {}),
+      ...(!uncertain && !missingTail && sequence ? { sequence } : {}),
+    });
+    prose = []; last = undefined; assistant = false; sentAt = undefined;
+    assistantSeq = undefined; sequence = undefined; incomplete = false; uncertain = false; bytes = 0;
   };
   for (const row of rows) {
     if (row.queued) continue;
-    if (row.historyGap) {
-      incomplete = true;
-      finish();
-      incomplete = true;
-      continue;
+    if (row.historyGap) { incomplete = true; uncertain = true; finish(); incomplete = true; uncertain = true; continue; }
+    if (row.role === 'user') finish(); else last = row.id;
+    if (row.live || row.seq === undefined) uncertain = true;
+    for (const seq of [row.seq, ...(row.memberSeqs ?? [])]) {
+      if (!seq || !/^[1-9]\d*$/.test(seq)) uncertain = true;
+      else if (!sequence || BigInt(seq) > BigInt(sequence)) sequence = seq;
     }
-    if (row.role === 'user') {
-      finish();
-      continue;
+    const recorded = row.assistantSeq ?? (row.role === 'assistant' ? row.seq : undefined);
+    if (recorded && (!assistantSeq || BigInt(recorded) >= BigInt(assistantSeq))) {
+      assistant = true; assistantSeq = recorded; sentAt = row.sentAt;
     }
-    last = row.id;
     if (row.role !== 'assistant') continue;
-    if (row.body) incomplete = true;
+    if (row.body || row.truncated) incomplete = true;
     const source = row.copyText ?? row.text;
+    assistant ||= !!(source.trim() || row.text.trim() || row.images?.length || row.body || row.references?.length);
     if (!source.trim()) continue;
-    // Bound derived copy strings as well as the underlying SDK window.
-    if (bytes + source.length > 256 * 1024) {
-      incomplete = true;
-      continue;
-    }
-    prose.push(source);
-    bytes += source.length;
+    const size = new TextEncoder().encode(source).byteLength + (prose.length ? 2 : 0);
+    if (bytes + size > 256 * 1024) { incomplete = true; continue; }
+    prose.push(source); bytes += size;
   }
-  if (!active) finish();
+  if (!active) finish(latestMissing);
   return copies;
 }
 
@@ -273,9 +265,13 @@ export function conversationActivityRows(
         ),
       ).values(),
     ];
+    const latestAssistant = members.filter(row => row.assistantSeq).reduce<TimelineRow | undefined>(
+      (latest, row) => !latest || BigInt(row.assistantSeq!) > BigInt(latest.assistantSeq!) ? row : latest, undefined);
     output.push({
       id,
       role: 'activity',
+      assistantSeq: latestAssistant?.assistantSeq,
+      sentAt: latestAssistant?.sentAt,
       text: '',
       seq: members[0]?.seq,
       cells: groupedCells,
@@ -286,7 +282,7 @@ export function conversationActivityRows(
       memberIds: [...aliases].slice(0, 512),
       memberSeqs: [
         ...new Set(
-          members.flatMap((row) => (row.seq === undefined ? [] : [row.seq])),
+          members.flatMap((row) => [...(row.seq === undefined ? [] : [row.seq]), ...(row.memberSeqs ?? [])]),
         ),
       ],
       live: pending.some((item) =>

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { Message } from '@whip/sdk';
-import { historyBoundary, readLargeMessage } from '../src/conversation-history';
+import { historyBoundary, historyGroupEnd, readLargeMessage } from '../src/conversation-history';
 import {
   history,
   messageBase,
@@ -185,4 +185,32 @@ it('caps explicit exchange lookup and rejects unordered or retired boundary evid
   await expect(
     historyBoundary(f.client.session('root'), current, '1000'),
   ).rejects.toThrow('owner or cursor');
+});
+
+
+it('keeps the exact end of a response across non-contiguous and imported history', async () => {
+  const f = await providerFixture();
+  const messages = [message('opening', 'imported', '9007199254740993'), message('answer', 'imported', '9007199254741993'), message('result', 'imported', '9007199254742999'), message('next', 'next', '9007199254744000')];
+  expect(await historyGroupEnd(f.client.session('root'), history(messages), messages[1]!.sequence)).toBe('9007199254742999');
+  expect(f.count('sessions.history_page')).toBe(0);
+});
+it('resolves a response tail beyond the loaded window with captured revision and no sequence arithmetic', async () => {
+  const f = await providerFixture();
+  const current = history([message('answer', 'group', '15')]);
+  current.snapshot!.through_sequence = '200'; current.latestMissing = true;
+  f.data.handlers['sessions.history_page'] = () => ({ snapshot: current.snapshot,
+    messages: [message('result', 'group', '100'), message('next', 'next', '200')], next_cursor: null });
+  expect(await historyGroupEnd(f.client.session('root'), current, '15')).toBe('100');
+  expect(f.calls.at(-1)?.params).toMatchObject({ direction: 'forward', cursor: '15', expected_revision: current.snapshot!.revision });
+  f.data.handlers['sessions.history_page'] = () => ({ snapshot: { ...current.snapshot, through_sequence: '201' }, messages: [], next_cursor: null });
+  await expect(historyGroupEnd(f.client.session('root'), current, '15')).rejects.toThrow('History changed');
+});
+it('does not guess a response boundary across missing records or malformed pages', async () => {
+  const f = await providerFixture();
+  const current = history([message('answer', 'group', '15'), message('next', 'next', '200')]);
+  current.gaps = [{ messageID: 'large', sequence: '100', bytes: 5000000, reason: 'message_too_large' }];
+  f.data.handlers['sessions.history_page'] = () => ({ snapshot: current.snapshot, messages: [], next_cursor: null });
+  await expect(historyGroupEnd(f.client.session('root'), current, '15')).rejects.toThrow('incomplete');
+  f.data.handlers['sessions.history_page'] = () => ({ snapshot: current.snapshot, messages: [message('foreign', 'group', '14')], next_cursor: '14' });
+  await expect(historyGroupEnd(f.client.session('root'), current, '15')).rejects.toThrow('owner or cursor');
 });

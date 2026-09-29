@@ -16,7 +16,7 @@ import {
   type TraceView as TraceObservation,
 } from '@whip/sdk/state';
 import { useQuery } from '@tanstack/react-query';
-import { historyBoundary, readLargeMessage } from './conversation-history';
+import { historyBoundary, historyGroupEnd, readLargeMessage } from './conversation-history';
 import {
   Badge,
   Button,
@@ -181,9 +181,9 @@ function ConversationHostStatus({
   return <div {...stylex.props(layout.empty)}>Opening session…</div>;
 }
 
-type HistoryConfirmation =
+type HistoryConfirmation = { afterSelection?: boolean } & (
   | { action: 'fork'; command: DurableCommand<'sessions.fork'> }
-  | { action: 'rewind' | 'clear'; command: DurableCommand<'sessions.rewind'> };
+  | { action: 'rewind' | 'clear'; command: DurableCommand<'sessions.rewind'> });
 
 /** Shared native observers are leased by the workspace. This component owns only
  * presentation, bounded control reads, drafts and explicit action confirmations. */
@@ -517,6 +517,7 @@ export function SessionContent({
   async function prepareHistory(
     action: 'fork' | 'rewind' | 'clear',
     row?: TimelineRow,
+    afterSelection = false,
   ) {
     if (
       !connected ||
@@ -535,7 +536,7 @@ export function SessionContent({
       const keep =
         action === 'clear'
           ? '0'
-          : await historyBoundary(
+          : await (afterSelection ? historyGroupEnd : historyBoundary)(
               session,
               state.history,
               row!.seq!,
@@ -548,6 +549,7 @@ export function SessionContent({
         action === 'fork'
           ? {
               action,
+              afterSelection,
               command: runtime.command(client, 'sessions.fork', {
                 fork_id: id,
                 session_id: session.id,
@@ -560,6 +562,7 @@ export function SessionContent({
             }
           : {
               action,
+              afterSelection,
               command: runtime.command(client, 'sessions.rewind', {
                 edit_id: id,
                 session_id: session.id,
@@ -578,7 +581,8 @@ export function SessionContent({
     }
   }
   async function applyHistory() {
-    if (!confirmation || !connected || historyStarted || historyLock.current)
+    if (!confirmation || !connected || historyStarted || historyLock.current ||
+      (confirmation.afterSelection && confirmation.action === 'rewind' && activeTurn))
       return;
     if (confirmation.action === 'fork' && !runtime.tabs.canOpen()) {
       setActionError(
@@ -858,6 +862,11 @@ export function SessionContent({
           }}
           bookmarkKey={`${expectedRuntimeId}:${viewId ?? rootId}:${session.id}`}
           historyRevision={history.snapshot?.revision}
+          historyThroughSeq={history.snapshot?.through_sequence}
+          rewindDisabled={!!activeTurn || historyPending}
+          responseHistoryAction={session.id === rootId && connected && state.status === 'live' && !historyPending
+            ? (sequence, action) => { void prepareHistory(action, { id: '', role: 'assistant', text: '', seq: sequence }, true); }
+            : undefined}
           historyCursor={history.olderCursor ?? undefined}
           historyReady={!!history.snapshot}
           canLoadOlder={connected}
@@ -1132,17 +1141,21 @@ export function SessionContent({
         title={
           confirmation?.action === 'clear'
             ? 'Clear conversation history?'
-            : `${confirmation?.action === 'fork' ? 'Fork' : 'Rewind'} before this exchange?`
+            : confirmation?.afterSelection
+              ? confirmation.action === 'fork' ? 'Fork from here?' : 'Rewind to here?'
+              : `${confirmation?.action === 'fork' ? 'Fork' : 'Rewind'} before this exchange?`
         }
         description={
           confirmation?.action === 'fork'
-            ? 'Create a separate session with the earlier complete exchanges. The current session continues independently.'
+            ? confirmation.afterSelection
+              ? 'Create a separate session including this response. The current session continues independently.'
+              : 'Create a separate session with the earlier complete exchanges. The current session continues independently.'
             : 'Later conversation and its REPL checkpoint will be retired. Files are not restored. The host rejects a changed history revision or tail.'
         }
         footer={
           <Button
             variant={confirmation?.action === 'fork' ? 'primary' : 'danger'}
-            disabled={!connected || historyPending || historyStarted}
+            disabled={!connected || historyPending || historyStarted || !!(confirmation?.afterSelection && confirmation.action === 'rewind' && activeTurn)}
             loading={historyPending}
             onClick={() => void applyHistory()}
           >

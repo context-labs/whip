@@ -114,6 +114,8 @@ function fixture() {
   const runtime = {
     readingPositions,
     report,
+    subscribe: () => () => {},
+    getSnapshot: () => ({ preferences: { toolDensity: 'comfortable' } }),
     platform: { copy: vi.fn() },
   } as unknown as AppRuntime;
   const app = (
@@ -144,6 +146,28 @@ function fixture() {
   );
   return { readingActions, readingPositions, loadOlder, paging, report, app, runtime };
 }
+
+it('retains completed-response copy and timestamp offline while hiding history mutations', async () => {
+  const f = fixture(), historyAction = vi.fn();
+  const sentAt = '2026-09-29T12:00:00Z';
+  const visible = [{ id: 'answer', role: 'assistant', text: 'Recorded answer', seq: '5', sentAt },
+    { id: 'tool', role: 'tool', text: 'tool output', toolName: 'inspect', seq: '9' }];
+  const app = (connected: boolean) => <RuntimeContext.Provider value={f.runtime}><UIProvider>
+    <Timeline rows={visible} connected={connected} hasMore={false} loadOlder={f.loadOlder} readBody={() => {}}
+      responseHistoryAction={historyAction} historyThroughSeq="12" />
+  </UIProvider></RuntimeContext.Provider>;
+  const mounted = render(app(false));
+  const footer = mounted.container.querySelector('[data-response-actions]')!;
+  expect(mounted.container.querySelectorAll('[data-response-actions]')).toHaveLength(1);
+  expect(footer.querySelector('time')?.dateTime).toBe(sentAt);
+  expect(screen.queryByRole('button', { name: 'Response history actions' })).toBeNull();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy response' })); });
+  expect(f.runtime.platform.copy).toHaveBeenCalledWith('Recorded answer');
+  expect(historyAction).not.toHaveBeenCalled();
+  mounted.rerender(app(true));
+  expect(screen.getByRole('button', { name: 'Response history actions' })).toBeTruthy();
+});
+
 it('focusing a closed activity header does not open it; explicit disclosure still works', () => {
   const f = fixture();
   const group = { id: 'group', role: 'activity', text: '', cells: [], items: [{ id: 'thought', kind: 'reasoning', row: { id: 'thought', role: 'reasoning', text: 'Saved reasoning' } }], memberIds: ['thought'], memberSeqs: [] };

@@ -6093,3 +6093,12 @@ fork/rewind/compaction and migration rollback. A physical backup fixture verifie
 matching-binary restore after the additive migration. See the
 [implementation record](frontend-ux-restoration-progress.md); SDK projection and
 comparative UI handover are still in progress. No real runtime is migrated.
+
+## 2026-09-29 — restore completed-response footer and history actions
+
+Restored timestamp, offline copy and root response fork/rewind controls using
+the latest reference markup. Native forward group-boundary lookup retains exact
+revision/tail/owner checks across imported and noncontiguous history. Active-root
+rewind is blocked both at the control and confirmation. Focused checks cover
+131 tests and app TypeScript; comparative browser acceptance remains pending.
+See the [implementation record](frontend-ux-restoration-progress.md).

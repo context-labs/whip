@@ -456,8 +456,11 @@ turn. Full input payloads load only when explicitly opened.
 
 Fork/rewind confirmation captures selected owner, immutable request ID, history
 revision, observed tail and whole exchange boundary before dispatch. A bounded
-backward lookup can locate an opening outside the current window; never subtract
-sequence numbers. Host conflicts do not silently capture a different edit.
+backward lookup can locate an opening outside the current window. Completed
+response footers resolve the actual whole-group end with a bounded forward
+lookup; neither action performs sequence arithmetic. Timestamp and bounded
+canonical-prose copy remain available offline. A partial/missing response tail
+does not expose history actions. Host conflicts do not silently capture a different edit.
 Workspace restoration is a separate durable effect with explicit uncertain states.
 
 New Chat's tab UUID is its tree-creation identity. Verify accepted native root,

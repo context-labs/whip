@@ -235,6 +235,27 @@ it('uses canonical admission provenance to distinguish authored attachments from
     {
       text: 'Taking a screenshot.\n\nHere is what I found.',
       label: 'Copy response',
+      sentAt: messageBase.created_at,
+      sequence: '4',
     },
   ]);
+});
+
+it('places one response footer after trailing activity using its actual tail and assistant timestamp', () => {
+  const rows = [
+    { id: 'user', role: 'user', text: 'Question', seq: '9007199254740993' },
+    { id: 'prose', role: 'assistant', text: 'Answer', seq: '9007199254740997', sentAt: messageBase.created_at },
+    { id: 'work', role: 'activity', text: '', seq: '9007199254740999', assistantSeq: '9007199254740999',
+      sentAt: messageBase.created_at, memberSeqs: ['9007199254741004'], cells: [], memberIds: [] },
+  ];
+  expect([...responseCopies(rows, false)]).toEqual([['work', {
+    text: 'Answer', label: 'Copy response', sentAt: messageBase.created_at, sequence: '9007199254741004',
+  }]]);
+  expect(responseCopies(rows, true).size).toBe(0);
+  expect([...responseCopies(rows, false, false, true).values()]).toEqual([{
+    text: 'Answer', label: 'Copy visible response', sentAt: messageBase.created_at,
+  }]);
+  expect([...responseCopies(rows.slice(-1), false).values()]).toEqual([{
+    text: '', label: 'Copy response', sentAt: messageBase.created_at, sequence: '9007199254741004',
+  }]);
 });
