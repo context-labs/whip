@@ -22,7 +22,8 @@ execution snapshot across pages.
 
 This SDK talks directly to the native Go runtime. The shared app/web renderer,
 desktop bridge, mobile renderer and public agent/client examples consume it.
-Remaining TUI, acceptance and retired-core cutover work is tracked in
+CLI/TUI and ACP use the matching native Go client, and the retired core has been
+removed. Final combined and platform acceptance is tracked in
 [the redesign plan](../../docs/backend-redesign-plan.md).
 
 ```sh
@@ -296,7 +297,9 @@ is appended. Read its recorded model attempts, then
 a crash after activation can leave an accepted goal and interrupted helper turn.
 The nullable goal `origin_formulation_attempt_id` links that decision. Retrying
 admission does not run the provider again, and later cancellation or child deletion
-does not rewrite candidate acceptance. Product UI adoption remains pending.
+does not rewrite candidate acceptance. Shared web/Desktop, mobile and terminal
+goal controls use these native services; their final acceptance is tracked
+separately in [the gate audit](../../docs/backend-native-gate-audit.md).
 
 Use `content.put` with `{session_id, reference_id, media_type, data_base64}` to
 upload up to 4 MiB. Generate and retain a unique reference ID before sending;
@@ -332,7 +335,10 @@ logout retry. Status reads never rewrite credentials. Setup/logout leave model
 defaults and custom routes unchanged. Errors `ACCOUNT_CREDENTIALS`, `ACCOUNT_SETUP`, `ACCOUNT_CONFIGURATION`
 and `ACCOUNT_LOGOUT` distinguish the required recovery. Public values contain
 no access/refresh/device secret; terminal flows clear the approval URL/code.
-Catalogs and product-client adoption remain pending.
+Provider catalogs and shared/mobile/terminal account controls are implemented;
+see [provider setup and catalog evidence](#provider-setup-and-catalog-evidence).
+Local catalog or deterministic fixture evidence does not establish live-account
+or inference readiness.
 
 Inference.net has parallel host methods: `beginInferenceLogin`,
 `getInferenceLogin`, `listInferenceLogins`, `cancelInferenceLogin`,
@@ -373,7 +379,9 @@ Chat routes support both preferences. API Responses and subscription routes
 reject explicit sampling before credential lookup or HTTP dispatch.
 
 See [the runnable example](examples/session.mjs), [Go client](../../internal/client/client.go),
-and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Product-client adoption remains in progress.
+and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs).
+Supported clients use the native contract; [the gate audit](../../docs/backend-native-gate-audit.md)
+distinguishes their exact validated checkpoints from final acceptance.
 
 
 The v4 transcript now includes assistant `tool_call` parts with a stable call ID,
@@ -915,8 +923,9 @@ free text or dismissal. On uncertain delivery, preserve the original answer and
 inspect `getQuestion`; a caller may explicitly resend that same answer. The SDK
 never substitutes a new answer or retries on its own. A later different answer
 conflicts. After runtime interruption, unanswered questions close and do not
-resume; an already committed answer survives. Product rendering and recovery
-still belong to the later supported-client adoption work.
+resume; an already committed answer survives. Shared/mobile/terminal decision
+controls render these exact owner-scoped values and preserve uncertain answers
+for explicit inspection; reconnect never answers a question automatically.
 
 
 ### Language servers
@@ -988,8 +997,9 @@ accepted work survives disconnection, and the transport never reconnects or
 replays a request. Content transfers preserve the owning session and reference,
 verify the digest and exact byte length, and share the runtime's4MiB bound.
 Retain the original upload identity and bytes after uncertain delivery.
-The gateway currently serves API discovery and transport only; product UI
-packaging is a separate increment.
+The native gateway also serves the packaged product renderer when assets are
+available. SDK transports remain independent of UI packaging; see the
+[gateway and asset contract](../../docs/frontend.md#gateway-and-daemon-ownership).
 
 
 `ExecutorClient` owns one explicit persistent connection, supplied by `executorSocket`
