@@ -17,10 +17,11 @@ import (
 
 	"github.com/context-labs/whip/internal/instruction"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/store"
 )
 
 // Instructions captures external sources once for this turn. Already captured
-// bytes survive later file edits or grant revocation; the next turn checks again.
+// bytes survive later file edits or authority revocation; the next turn checks again.
 func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy session.Instructions) (string, error) {
 	current, err := r.store.ConfigurationSession(ctx, turn.SessionID, turn.ConfigRevision)
 	if err != nil {
@@ -55,7 +56,7 @@ func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy se
 		invoked = instruction.InvokedNames(input.Parts)
 	}
 	catalogNeeded := policy.DiscoverSkills || len(invoked) > 0
-	var grants []session.Grant
+	var authorities []store.InstructionReadAuthority
 	ids := append([]string(nil), policy.SkillRoots...)
 	if len(policy.ProjectFiles) > 0 || catalogNeeded {
 		ids = append(ids, "")
@@ -64,24 +65,24 @@ func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy se
 		if id != "" && !catalogNeeded {
 			continue
 		}
-		grant, err := r.store.InstructionReadGrant(ctx, turn.ID, id)
+		authority, err := r.store.InstructionReadAuthority(ctx, turn.ID, id)
 		if err != nil {
 			return "", err
 		}
-		if grant != nil {
-			grants = append(grants, *grant)
+		if authority != nil {
+			authorities = append(authorities, *authority)
 		}
 	}
 	if policy.ProjectRoot != nil && (len(policy.ProjectFiles) > 0 || catalogNeeded) {
-		grant, err := r.store.ProjectInstructionReadGrant(ctx, turn.ID, *policy.ProjectRoot)
+		authority, err := r.store.ProjectInstructionReadAuthority(ctx, turn.ID, *policy.ProjectRoot)
 		if err != nil {
 			return "", err
 		}
-		if grant != nil {
-			grants = append(grants, *grant)
+		if authority != nil {
+			authorities = append(authorities, *authority)
 		}
 	}
-	roots, closeRoots, err := r.instructionRoots(ctx, current.WorkingDirectory, policy, grants, catalogNeeded)
+	roots, closeRoots, err := r.instructionRoots(ctx, current.WorkingDirectory, policy, authorities, catalogNeeded)
 	if err != nil {
 		return "", err
 	}
@@ -155,18 +156,18 @@ func (r *Runtime) invokedInstructions(ctx context.Context, turn session.TurnID, 
 				break
 			}
 		}
-		var grant *session.Grant
+		var authority *store.InstructionReadAuthority
 		var err error
 		if selected.Source.Scope == "project" {
-			grant, err = r.store.ProjectInstructionReadGrant(ctx, turn, id)
+			authority, err = r.store.ProjectInstructionReadAuthority(ctx, turn, id)
 		} else {
-			grant, err = r.store.InstructionReadGrant(ctx, turn, id)
+			authority, err = r.store.InstructionReadAuthority(ctx, turn, id)
 		}
 		if err != nil {
 			return "", err
 		}
-		if root == nil || grant == nil || (id == "" && grant.Resource != root.Name()) {
-			return "", fmt.Errorf("%w: skill invocation requires standing read authority", session.ErrInvalid)
+		if root == nil || authority == nil || (id == "" && authority.Resource != root.Name()) {
+			return "", fmt.Errorf("%w: skill invocation requires read authority", session.ErrInvalid)
 		}
 		body, source, err := instruction.ReadSkill(ctx, root, selected)
 		if err != nil {
@@ -188,12 +189,12 @@ func (r *Runtime) Skills(ctx context.Context, id session.SessionID, prefix, afte
 	if limit < 1 || limit > 100 || len(prefix) > 64 || len(after) > 64 || !utf8.ValidString(prefix+after) || strings.ContainsRune(prefix+after, 0) {
 		return nil, nil, fmt.Errorf("%w: invalid skill page bounds", session.ErrInvalid)
 	}
-	owner, grants, err := r.store.SessionInstructions(ctx, id)
+	owner, authorities, err := r.store.SessionInstructions(ctx, id)
 	if err != nil {
 		return nil, nil, err
 	}
 	result := []instruction.Skill{}
-	roots, closeRoots, err := r.instructionRoots(ctx, owner.WorkingDirectory, owner.Config.Instructions, grants, true)
+	roots, closeRoots, err := r.instructionRoots(ctx, owner.WorkingDirectory, owner.Config.Instructions, authorities, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -215,8 +216,8 @@ func (r *Runtime) Skills(ctx context.Context, id session.SessionID, prefix, afte
 }
 
 // instructionRoots resolves logical names only against the explicit host registry.
-// Registry selection confers no authority; absent grants cause no filesystem probes.
-func (r *Runtime) instructionRoots(ctx context.Context, cwd string, policy session.Instructions, grants []session.Grant, catalog bool) ([]instruction.Root, func(), error) {
+// Registry selection confers no authority; absent read authority causes no filesystem probes.
+func (r *Runtime) instructionRoots(ctx context.Context, cwd string, policy session.Instructions, authorities []store.InstructionReadAuthority, catalog bool) ([]instruction.Root, func(), error) {
 	if err := policy.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -258,8 +259,8 @@ func (r *Runtime) instructionRoots(ctx context.Context, cwd string, policy sessi
 		if !catalog {
 			continue
 		}
-		for _, grant := range grants {
-			if grant.Capability == "skills.read" && grant.Resource == id {
+		for _, authority := range authorities {
+			if authority.Capability == "skills.read" && authority.Resource == id {
 				if err := open(id, path); err != nil {
 					closeRoots()
 					return nil, nil, err
@@ -276,8 +277,8 @@ func (r *Runtime) instructionRoots(ctx context.Context, cwd string, policy sessi
 			return nil, nil, fmt.Errorf("%w: unknown project instruction root %q", session.ErrInvalid, id)
 		}
 		if len(policy.ProjectFiles) > 0 || catalog {
-			for _, grant := range grants {
-				if grant.Capability != "instructions.read" || grant.Resource != "project:"+id {
+			for _, authority := range authorities {
+				if authority.Capability != "instructions.read" || authority.Resource != "project:"+id {
 					continue
 				}
 				project, err := openProjectInstructions(ctx, id, path, cwd)
@@ -294,9 +295,9 @@ func (r *Runtime) instructionRoots(ctx context.Context, cwd string, policy sessi
 		}
 	}
 	if len(policy.ProjectFiles) > 0 || catalog {
-		for _, grant := range grants {
-			if grant.Capability == "files.read" {
-				if err := open("", grant.Resource); err != nil {
+		for _, authority := range authorities {
+			if authority.Capability == "files.read" {
+				if err := open("", authority.Resource); err != nil {
 					closeRoots()
 					return nil, nil, err
 				}
@@ -314,8 +315,8 @@ func (r *Runtime) standingInstructions(ctx context.Context, turn session.TurnID)
 		// a home-directory filename or probe a path the host has not selected.
 		return instruction.Snapshot{}, nil
 	}
-	grant, err := r.store.StandingInstructionReadGrant(ctx, turn)
-	if err != nil || grant == nil {
+	authority, err := r.store.StandingInstructionReadAuthority(ctx, turn)
+	if err != nil || authority == nil {
 		return instruction.Snapshot{}, err
 	}
 	root, err := os.OpenRoot(filepath.Dir(path))
