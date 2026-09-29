@@ -1015,11 +1015,14 @@ Web/Desktop, mobile, CLI and TUI. The retired terminal model, browser wrappers
 and computer helper wrapper are removed with their supported behavior mapped in
 [the family disposition](backend-native-core-retirement.md).
 
-The complete native CLI/TUI gate and staged Desktop gate pass at `1fa8dbfb2`.
+The complete native CLI/TUI gate passes at `1fa8dbfb2`; the complete staged
+Desktop gate passes again on exact published `e85f72203`.
 The complete UI gate passes at `d9545097d`, including the two workspace repairs
 and typed native model-picker fixture. These are exact local checkpoints, not a
 final combined hosted pass. Native REPL/skills/chat, content and recovery probes
-have replacement evidence; current slash-input follow-through remains open. The previously failing hosted
+have replacement evidence; slash completion and the unchanged REPL gate also
+pass hosted in both browsers at `e85f72203`. The earlier intermittent REPL
+observation overlap remains unexplained. The previously failing hosted
 Settings history seed passes at `b1c9ca965`, without an optimization claim. The [current acceptance snapshot](backend-native-gate-audit.md#current-acceptance-snapshot)
 separates those gates from quiet performance, actual Safari, physical-device,
 signed-release and live-provider requirements. No Phase 5–7 completion is claimed.

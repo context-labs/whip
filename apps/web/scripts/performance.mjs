@@ -8,6 +8,7 @@ import { checkComposerReading } from './composer-reading.mjs';
 import { traceInput } from './performance-trace.mjs';
 import { sampleBrowserRetention } from './performance-retention.mjs';
 import { keyboardResult } from './performance-keyboard.mjs';
+import { installAnchorTrace, finishAnchorTrace } from './performance-anchors.mjs';
 import { deadline, eventually } from './native-fixture.mjs';
 import { startHistoryFixture } from './native-history-fixture.mjs';
 
@@ -32,6 +33,8 @@ let isolation, host, fixture, client, browser, context, page, view, inputTrace;
 let succeeded = false;
 const errors = [];
 const metrics = { recordedAt: new Date().toISOString(), platform: process.platform, checks: [] };
+const anchorDiagnostics = process.env.WHIP_WEB_PERFORMANCE_ANCHOR_TRACE === '1';
+if (anchorDiagnostics) metrics.diagnosticBoundary = 'Anchor event/layout tracing enabled; this run is diagnostic, not performance acceptance.';
 try {
 if (desktop) isolation = await isolateDesktopPerformance();
 fixture = await startHistoryFixture({ retainOnFailure: desktop, managedDirectory: desktop, workers: 16, performanceStreams: true });
@@ -313,6 +316,7 @@ const frame = () =>
     'Four real history prepends preserve scroll anchors; virtualized selection survives an 8,000px scroll',
   );
 
+  if (anchorDiagnostics) await page.evaluate(installAnchorTrace);
   // Each recipient restores its own retained reading anchor after unmounting.
   const captureAnchor = () =>
     viewport.evaluate((element) => {
@@ -412,6 +416,7 @@ const frame = () =>
       assert.equal(await viewport.getByText(/Root message/).count(), 0);
     }
   }
+  if (anchorDiagnostics) metrics.anchorTrace = await page.evaluate(finishAnchorTrace);
   metrics.cachedRootSwitchMilliseconds = summarize(switches);
   metrics.checks.push(
     '20 cached child-to-root switches restore independent reading anchors and never mix transcript content',
@@ -705,6 +710,7 @@ const frame = () =>
   );
   succeeded = true;
 } catch (error) {
+  if (anchorDiagnostics) metrics.anchorTrace ??= await page?.evaluate(finishAnchorTrace).catch(() => null);
   await page?.screenshot({
       path: join(directory, 'performance-failure.png'),
       fullPage: true,
