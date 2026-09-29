@@ -60,6 +60,7 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // nativeModel is the native chat composition. Commands and menus are added
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
+	localFilesystem                 bool
 	execution                       *nativeExecution
 	replBefore, replFocus           *protocol.ID
 	replGeneration                  uint64
@@ -959,7 +960,11 @@ func (m *nativeModel) View() tea.View {
 		main += "\n" + nativeFixedRows("Agents · Ctrl+T focuses\n"+m.agentRows(width, height-1), width, height)
 	}
 	main += "\n" + ansi.Truncate(nativeContextLabel(m.contextUsage), width, "…") + "\n" + ansi.Truncate(footer, width, "…")
-	view := tea.NewView(m.layoutFrame(main))
+	frame := m.layoutFrame(main)
+	if m.localFilesystem {
+		frame = nativeFileLinks(frame, m.owner.WorkingDirectory)
+	}
+	view := tea.NewView(frame)
 	view.AltScreen = true
 	if nativePreferenceLabel(m.preferences.Mouse, true) == "on" {
 		view.MouseMode = tea.MouseModeCellMotion

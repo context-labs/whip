@@ -23,6 +23,9 @@ type NativeOptions struct {
 	WorkingDirectory, ClientHome           string
 	InitialPrompt                          string
 	Cautious, Automatic                    bool
+	// KnownLocalFilesystem is supplied only by an explicitly local launcher;
+	// a socket path or runtime ID alone does not establish filesystem locality.
+	KnownLocalFilesystem bool
 }
 
 // RunNative borrows a pinned native connection. Detaching joins terminal work;
@@ -53,6 +56,7 @@ func RunNative(ctx context.Context, connection *client.Client, options NativeOpt
 		return string(owner.ID), err
 	}
 	defer m.close()
+	m.localFilesystem = options.KnownLocalFilesystem
 	m.notesHome, m.preferencesDirectory, m.preferences = options.ClientHome, directory, preferences
 	m.showReasoning = nativePreferenceLabel(preferences.Thinking, true) == "on"
 	m.recovery, err = openNativeRecovery(directory, connection.Identity())
