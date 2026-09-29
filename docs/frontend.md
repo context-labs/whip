@@ -18,8 +18,9 @@ boundaries and do not waive retained-feature parity.
 
 The [frontend UX restoration plan](frontend-ux-restoration-plan.md) records the
 approved latest-development reference, proposed minimal compatibility work and
-comparative acceptance criteria. It is a proposal, not implemented behavior;
-this guide continues to describe the current application until each change lands.
+comparative acceptance criteria. This guide describes implemented ownership;
+the [implementation record](frontend-ux-restoration-progress.md) tracks validation
+and remaining acceptance work.
 
 ## Start here
 
@@ -200,6 +201,12 @@ connection and catalog. A changed runtime identity stops automatic recovery and
 requires explicit acceptance. Explicit Connect retains the platform's normal
 user-requested native preparation contract. Local failure does not detach other
 hosts or cancel their accepted work.
+
+During transport recovery, already visible session panes retain their suspended
+SDK leases and lease-owned client while the new verified client is reconciled.
+Retained transcript/copy and local interaction state stay mounted; live reads and
+mutations require the current attached client. This does not admit a previously
+unseen offline session or preserve a lease after explicit Disconnect.
 
 Saved URL profiles use `client.hosts.profiles()` and `setProfiles()` through the
 single host configuration revision. Profiles retain exact validated root HTTP(S)
@@ -480,7 +487,9 @@ backward lookup can locate an opening outside the current window. Completed
 response footers resolve the actual whole-group end with a bounded forward
 lookup; neither action performs sequence arithmetic. Timestamp and bounded
 canonical-prose copy remain available offline. A partial/missing response tail
-does not expose history actions. Host conflicts do not silently capture a different edit.
+does not expose history actions. Rewind requires no active turn or uncancelled
+queued input; the host checks this atomically with history revision/tail and
+retirement, without a separate stop/restart. Host conflicts do not silently capture a different edit.
 Workspace restoration is a separate durable effect with explicit uncertain states.
 
 New Chat's tab UUID is its tree-creation identity. Verify accepted native root,

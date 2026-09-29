@@ -210,10 +210,70 @@ hole; that bounded SDK follow-up is being fixed before final acceptance.
 
 Projects/polish is draft [#295](https://github.com/context-labs/whip/pull/295).
 
-## Remaining work
+## Increment 10 — integration and comparative acceptance
 
-Backend/provider/settings/terminal and durable presentation prerequisites are
-being implemented in isolated branches. SDK bindings, restored ordinary forms,
-activity/REPL presentation, response actions and latest reference polish follow.
-A1–A12 comparative browser and desktop acceptance is still outstanding, including
-the previously open NATIVE findings; unit tests alone do not close those gates.
+The isolated combined acceptance branch stacks on draft
+[#297](https://github.com/context-labs/whip/pull/297). Browser comparison exposed
+and corrected an actual Projects virtualizer render loop, same-host settings
+draft loss during reconnect, narrow provider action clipping, a transient REPL
+engine-label change, and conversation unmounting during host/client recovery.
+ExecutionView now retains shared immutable bodies within its existing byte
+budget when the transcript moves away. Custom provider lifecycle controls and
+unavailable-provider filtering are restored.
+
+Idle response Rewind exposed a backend/UI mismatch: the original native guard
+required a stopped lifecycle even with no work. Rewind now checks active turns
+and uncancelled input atomically with its existing revision/tail/boundary guards.
+It leaves lifecycle alone. New concurrent-admission and active/queued refusal
+regressions, both-engine kernel reset cases, and RPC/history race checks pass.
+A later submission captures the new revision; exact retry cannot retire later
+work or reset its kernel. No stop/restart sequence or mutation replay was added.
+
+Current combined evidence:
+
+- Renderer: 1,472 tests across 117 files pass after the Projects fix. Later
+  recovery/handover changes pass 57 focused tests and app types; final full
+  renderer rerun follows the remaining acceptance fixes.
+- SDK: all 223 tests, source/test types and packed consumer/browser/native smoke
+  pass. Protocol: 18 interop tests and generator drift pass.
+- Native CLI/TUI/ACP: the complete `check:native-cli` gate passes, including real
+  compiled clients and `go vet`. Agent example: 18 acceptance tests; browser/Node
+  client example smoke and types pass.
+- Mobile: types, all 226 UI cases across the main and sandbox-enabled storage
+  rerun, six real-backend cases, two fixture cases, both platform bundles and
+  all 21 Expo doctor checks pass.
+- Native backend: full store race suite passes. Full runtime race suite found
+  three provider-work package boundary violations; all other runtime cases pass.
+  Boundary corrections are in progress. Model/runner/providerhost/hostview/
+  terminal/protocol/RPC race suites pass. Idle-rewind follow-up race suites pass.
+- A1/A2/A3/A11: reference and native Chromium/Firefox comparison passes. See
+  `apps/web/scripts/frontend-migration-parity.md` for exact scenario coverage;
+  focused fault tests supplement it.
+- A5/A6: approved reference five comparison groups and combined native eleven
+  fault/lifecycle/form groups pass in each browser. Both form drafts survive
+  real pre-publication socket loss; accepted-but-lost replies never replay or
+  falsely claim confirmation. Kimi's real 1,048,576 output setting is verified.
+- A7: native activity, ordered Markdown, durable reasoning, child work and
+  original 12px reading-intent assertions pass across Chromium/Firefox.
+  One Firefox status-label timeout after theme reload was retained; a repeat
+  with bounded response-identity evidence passes. No speculative product fix.
+- Packaged desktop: package verification, native browser/daemon discovery,
+  onboarding, ordinary and failed-turn workspace, terminal, and editor IPC
+  all pass using an isolated unsigned bundle. These runs use renderer
+  `0d021161ba140a68cdf755e7860a3d3efc90e849b1013d864af066b318afead8`;
+  final refresh follows the remaining shared-renderer changes.
+
+The original development HEAD and all 14 captured file hashes are unchanged.
+No installed runtime, deployment, merge, signing or notarization occurred.
+
+## Remaining acceptance work
+
+Complete actual approval fault recovery, REPL/history action browser checks,
+and the original cached-child/Back reading-position criterion. A12 exposed a
+Projects reading-anchor regression under a real scrolled reorder; it is being
+fixed without weakening the original threshold. Finish the provider package
+boundary correction, then rerun affected combined checks and refresh the
+isolated desktop package. Publish the final artifact matrix and dispositions.
+Broader historical Remember scopes and absent pre-migration reasoning remain
+explicit parity limits. Reference baseline contrast/focus defects are recorded
+separately from migration regressions. This record is not release approval.

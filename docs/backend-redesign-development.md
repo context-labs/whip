@@ -6135,3 +6135,15 @@ with stable owner/attempt/slot identity, exact canonical fallback and copy. Fail
 and imported evidence stays truthful. Combined77 focused tests and app types
 pass. Comparative acceptance is running; an immediate source-eviction SDK
 retention hole is tracked for the final integration fixes.
+
+## 2026-09-29 — combined UX acceptance and recovery corrections
+
+Combined acceptance restored bounded execution-body retention, Projects render
+stability, provider lifecycle/model filtering, narrow dialog wrapping and
+same-host form drafts. Visible conversations now survive suspended transport and
+client replacement. Native idle rewind uses the existing atomic busy/revision
+checks, preserving lifecycle and exact retry identity. Full renderer, SDK,
+protocol, CLI/TUI/ACP, mobile bundles and disposable desktop lifecycle evidence
+are recorded in [the UX progress record](frontend-ux-restoration-progress.md).
+Permission/reading-position acceptance and package-boundary cleanup remain open;
+no merge, deployment or installed runtime change is authorized or performed.
