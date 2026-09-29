@@ -207,6 +207,9 @@ SDK leases and lease-owned client while the new verified client is reconciled.
 Retained transcript/copy and local interaction state stay mounted; live reads and
 mutations require the current attached client. This does not admit a previously
 unseen offline session or preserve a lease after explicit Disconnect.
+A failed observation does not disable an explicit read of retained history on
+the current attached client: the SDK still checks its exact owner and captured
+revision. Mutation controls continue to require live observation.
 
 Saved URL profiles use `client.hosts.profiles()` and `setProfiles()` through the
 single host configuration revision. Profiles retain exact validated root HTTP(S)

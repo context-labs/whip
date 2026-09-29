@@ -870,7 +870,7 @@ export function SessionContent({
             : undefined}
           historyCursor={history.olderCursor ?? undefined}
           historyReady={!!history.snapshot}
-          canLoadOlder={connected}
+          canLoadOlder={hostConnected}
           loadingHistory={state.status === 'loading'}
           hasMore={history.olderCursor !== null}
           loadOlder={() => view.loadOlder()}

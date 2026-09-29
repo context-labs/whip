@@ -27,9 +27,12 @@ vi.mock('../src/timeline', async (original) => ({
     historyAction,
     responseHistoryAction,
     rewindDisabled,
+    canLoadOlder,
+    loadOlder,
     rows,
   }: ComponentProps<typeof import('../src/timeline').Timeline>) => (
     <>
+      <button disabled={!canLoadOlder} onClick={() => void loadOlder()}>Read earlier history</button>
       {(['rewind', 'fork'] as const).map((action) => (
         <button
           key={action}
@@ -217,4 +220,22 @@ it('disables response rewind while root work is active and refuses a newly activ
   fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm rewind' }));
   expect(f.run).not.toHaveBeenCalled();
   expect(screen.getByText('fork response')).toHaveProperty('disabled', false);
+});
+
+
+it('can explicitly retry retained history while observation is stale without enabling mutations', async () => {
+  const f = await fixture();
+  f.data.handlers['sessions.observe'] = () => { throw new Error('Observation read unavailable'); };
+  await act(async () => { await f.view.refresh(); });
+  expect(f.view.getSnapshot().status).toBe('stale');
+  const read = vi.spyOn(f.view, 'loadOlder').mockResolvedValue();
+  const earlier = screen.getByRole('button', { name: 'Read earlier history' });
+  expect(earlier).toHaveProperty('disabled', false);
+  fireEvent.click(earlier);
+  expect(read).toHaveBeenCalledOnce();
+  expect(screen.getByRole('button', { name: 'rewind exchange' })).toHaveProperty('disabled', true);
+  expect(f.run).not.toHaveBeenCalled();
+  f.state.hosts = [{ ...f.host, state: 'stale', client: undefined }];
+  f.rerender(f.wrap(f.app()));
+  expect(earlier).toHaveProperty('disabled', true);
 });
