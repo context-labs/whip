@@ -111,18 +111,34 @@ tasks:
       - go test -timeout=2m {{.REDESIGN_PACKAGES}}
       - go build {{.REDESIGN_INTEGRATION_PACKAGES}}
 
-  check:change:
-    desc: Redesign integration gate (run npm ci first)
+  check:build:
+    desc: Redesign formatting, fast regressions, active build and vet
     cmds:
       - task: check:fast
       - go build {{.REDESIGN_ALL_PACKAGES}}
       - go vet {{.REDESIGN_ALL_PACKAGES}}
-      # Race-instrumented SQLite and subprocess suites are CPU/memory intensive.
-      # Bound concurrent package binaries rather than weakening their deadlines.
+
+  check:race:
+    desc: Complete redesign race and shuffle suite with bounded package concurrency
+    cmds:
+      # SQLite and subprocess race suites are CPU/memory intensive. Preserve
+      # every package and its deadline, while limiting competing test binaries.
       - go test -p=2 -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_ALL_PACKAGES}}
+
+  check:clients:
+    desc: Generated contracts, SDK/examples, real-process clients and retained regressions
+    cmds:
       - task: contract
       - task: sdk
       - task: check:fixture
+      - task: check:retained
+
+  check:change:
+    desc: Redesign integration gate (run npm ci first)
+    cmds:
+      - task: check:build
+      - task: check:race
+      - task: check:clients
 
   check:fixture:
     desc: New v4 runtime and retained legacy reference, SDK admission and process-restart checks
@@ -149,6 +165,10 @@ tasks:
     desc: Redesign milestone gate; expands with supported capabilities
     cmds:
       - task: check:change
+
+  check:retained:
+    desc: Selected retained acceptance, restart and accounting invariants
+    cmds:
       - go test -race -shuffle=on -count=1 -timeout=3m ./internal/daemon -run '^(TestClientAcceptancePrecedesProviderConstructionAndSurvivesDisconnect|TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce|TestModelAccountingFailureRetriesSettlementWithoutProviderReplay|TestModelAdmissionWaitingForActorDoesNotHoldAccountingLock)$'
 
   dev:redesign:

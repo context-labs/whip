@@ -3207,3 +3207,20 @@ repetitions of the exact join/descendant/callback regressions pass3.127s;
 full affected race suites pass bashrun8.512s/shell2.552s/capability29.144s,
 with vet and pinned lint0. Logs are `/tmp/whip-shell-pty-repair-*.log`.
 Fresh hosted Linux evidence remains required; the failed head is not credited.
+
+
+The corrected PTY head a377b7683 completed every active Go race package on both
+platforms in run36513021610, but both jobs reached the20-minute job ceiling during
+later checks. Linux store521.554s/runtime519.320s/process192.730s and macOS
+store438.992s/runtime458.536s/process189.845s all passed; Linux stopped in contract
+drift, macOS during the production fixture. Analysis passed and aggregate failed.
+These cancellations are not passing end-to-end evidence. Exact logs:
+`/tmp/whip-execution-services-repair-ci-linux.log` and
+`/tmp/whip-execution-services-repair-ci-macos.log`.
+
+The growing gate now runs build, race and client stages as independent required
+jobs on both platforms, retaining the20-minute job ceiling,10-minute race package
+deadline, all package/scenario selections and the unchanged aggregate failure
+policy. Local `check:phase` still executes their complete union. Client acceptance
+also includes the selected retained regressions. No test deadline was extended
+and no scenario was removed; hosted evidence is required for the split workflow.
