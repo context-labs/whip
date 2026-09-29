@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { join } from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { DurableCommand } from '../../../packages/sdk/dist/index.js';
 import { deadline, eventually, startFixture } from './native-fixture.mjs';
 
@@ -9,6 +10,7 @@ test('production web fixture executes both engines, scopes consent and preserves
   const fixture = await startFixture({ executeCode: true, rejectInput: 'fixture-provider-rejection', rejectionMessage });
   try {
     let client = await fixture.connect('native-fixture-check');
+    await assert.rejects(client.listTerminals(deadline()), error => error.kind === 'NETWORK_RESTRICTED');
     const { root } = await fixture.createRoot(client), session = client.session(root.id);
     assert.equal((await client.hostDirectories({ path: '~', after: '', prefix: '', show_hidden: false, limit: 16 }, deadline())).path, join(fixture.directory, 'home'));
     await assert.rejects(client.call('host.directory.pick', { start: fixture.directory }, deadline()), /unavailable/);
@@ -93,4 +95,28 @@ print("evidence")
 test('fixture rejection body rejects oversized and invalid options before owning a process', async () => {
   await assert.rejects(startFixture({ rejectionMessage: '界'.repeat(22000) }), /64KiB/);
   await assert.rejects(startFixture({ rejectionMessage: null }), /64KiB/);
+});
+
+
+test('terminal fixture opt-in preserves the native network guard and exact ephemeral owner', { timeout: 120000 }, async () => {
+  await assert.rejects(startFixture({ networkTerminals: 'true' }), /must be a boolean/);
+  const fixture = await startFixture({ networkTerminals: true });
+  try {
+    const client = await fixture.connect('native-terminal-check');
+    const shell = await client.openTerminal({ cwd: fixture.directory, cols: 80, rows: 24 }, deadline());
+    const ref = { id: shell.id, process_epoch: shell.process_epoch };
+    assert.equal(shell.cwd, await realpath(fixture.directory)); assert.equal(shell.process_epoch, client.processEpoch);
+    await client.writeTerminal(ref, new TextEncoder().encode("printf 'terminal-%s\\n' native-check\n"), deadline());
+    const read = await eventually(async () => {
+      const page = await client.readTerminal(ref, '0', 32768, deadline());
+      return Buffer.from(page.data_base64, 'base64').toString().includes('terminal-native-check') && page;
+    }, { description: 'real terminal output through explicit network opt-in' });
+    assert.equal(BigInt(read.next) - BigInt(read.from), BigInt(Buffer.from(read.data_base64, 'base64').length));
+    const other = await fixture.connect('independent-terminal-reader');
+    const replay = await other.readTerminal(ref, '0', 32768, deadline());
+    assert.ok(Buffer.from(replay.data_base64, 'base64').toString().includes('terminal-native-check'));
+    assert.equal((await client.listTerminals(deadline())).items.length, 1);
+    await client.closeTerminal(ref, deadline());
+    await assert.rejects(other.readTerminal(ref, '0', 32768, deadline()), error => error.kind === 'NOT_FOUND');
+  } finally { await fixture.close(); }
 });

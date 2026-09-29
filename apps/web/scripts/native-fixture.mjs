@@ -38,7 +38,8 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, networkTerminals = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+  if (typeof networkTerminals !== 'boolean') throw new TypeError('networkTerminals must be a boolean');
   if (!Number.isInteger(workers) || workers < 1 || workers > 16) throw new RangeError('Fixture workers must be within 1..16');
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
   if (typeof rejectionMessage !== 'string' || Buffer.byteLength(rejectionMessage) > 65536) throw new RangeError('Fixture rejection message exceeds 64KiB');
@@ -185,7 +186,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     } catch (error) { await stop(child); throw error; }
   }
   async function start() {
-    const started = await startProcess(binary, ['-directory', state, '-workers', String(workers), '-web', '-web-listen', gatewayAddress, '-web-origins', allowedOrigins.join(','), ...(origin ? ['-web-hosts', gatewayAddress + ',' + new URL(origin).host] : [])]); runtime = started.child;
+    const started = await startProcess(binary, ['-directory', state, '-workers', String(workers), '-web', '-web-listen', gatewayAddress, '-web-origins', allowedOrigins.join(','), ...(networkTerminals ? ['-web-terminals'] : []), ...(origin ? ['-web-hosts', gatewayAddress + ',' + new URL(origin).host] : [])]); runtime = started.child;
     exited = new Promise(resolve => runtime.once('exit', (code, signal) => resolve([code, signal])));
     info = { ...started.ready, generation: (info?.generation ?? 0) + 1 };
     local = await Client.connect(unixSocket(info.socket), { clientID: 'native-web-setup', expectedRuntimeID: info.runtime_id, ...deadline() });
