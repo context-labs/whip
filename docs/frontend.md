@@ -351,7 +351,12 @@ Ordinary pending replies keep their original controls disabled in place; Check
 and Retry appear only after a failed/uncertain reply. The mounted dock retains one
 attempted approval, scoped to runtime/process/root/session, through cache eviction
 and client replacement. A later queue entry cannot replace it; an explicit Check
-reads that operation's state before releasing the captured decision. The request dock reads
+reads that operation's state before releasing the captured decision. The same dock
+retains at most four displayed question cards while reads recover, preserving their
+local authored drafts; attempted answers remain pinned until an exact question-state
+check resolves delivery. Late responses settle against immutable runtime/process/
+session/operation identity, so replacing a client does not strand pending controls.
+The request dock reads
 human approvals only for the root. Child operations retain native delegation
 and denial behavior; they cannot be turned into directly approvable requests.
 The root card shows the requested command/path and a readable requester; exact
