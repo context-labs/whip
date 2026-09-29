@@ -8,7 +8,7 @@ export function safeJSON(text: string): unknown {
   });
 }
 export function executionOutput(raw: string) {
-  const fallback = { output: raw, value: undefined as string | undefined, error: undefined as string | undefined, steps: undefined as number | undefined, jobs: undefined as number | undefined, warning: undefined as string | undefined, restored: undefined as string | undefined };
+  const fallback = { engine: undefined as 'starlark' | 'quickjs' | undefined, output: raw, value: undefined as string | undefined, error: undefined as string | undefined, steps: undefined as number | undefined, jobs: undefined as number | undefined, warning: undefined as string | undefined, restored: undefined as string | undefined };
   try {
     const envelope = safeJSON(raw);
     if (!object(envelope)) return fallback;
@@ -21,6 +21,7 @@ export function executionOutput(raw: string) {
     const restore = object(result.restored) ? result.restored : {};
     const names = Array.isArray(restore.restored) && restore.restored.every(value => typeof value === 'string') ? restore.restored : [];
     return {
+      engine: result.execution_engine,
       output: typeof result.output === 'string' ? result.output : '',
       value: result.has_value === true ? JSON.stringify(result.value, null, 2) : undefined,
       error,

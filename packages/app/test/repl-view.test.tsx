@@ -21,7 +21,9 @@ const output = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`).join
 const result = (value = output, engine: 'starlark' | 'quickjs' = 'starlark') => JSON.stringify({ result: { format_version: 2, execution_engine: engine, language: engine === 'quickjs' ? 'javascript' : 'starlark', output: value, has_value: true, value: 42, steps: 7, metrics: { quickjs_jobs: 3 } } });
 
 async function fixture(raw = result(), engine: 'starlark' | 'quickjs' = 'starlark', empty = false) {
-  const state: { turn: Turn; cell: Cell; messages: Message[]; operations: HostOperation[]; preview: Operations['sessions.observe']['result']['preview']; output: Operations['cells.output']['result']['preview'] } = {
+  const state: { attempts: NonNullable<Operations['sessions.observe']['result']['attempt_presentations']>; hasCell: boolean; turn: Turn; cell: Cell; messages: Message[]; operations: HostOperation[]; preview: Operations['sessions.observe']['result']['preview']; output: Operations['cells.output']['result']['preview'] } = {
+    attempts: [],
+    hasCell: !empty,
     output: null,
     turn: { ...sample('Turn'), id: 'turn', session_id: 'session_child', state: 'succeeded', kind: 'prompt', finished_at: '2026-09-27T12:00:01Z' } as Turn,
     cell: { ...sample('Cell'), id: 'cell', turn_id: 'turn', state: 'succeeded', checkpoint: null } as Cell,
@@ -41,11 +43,12 @@ async function fixture(raw = result(), engine: 'starlark' | 'quickjs' = 'starlar
     let value: unknown;
     if (request.method === 'initialize') value = { major: 4, minor: 0, runtime_id: 'host', process_epoch: 'boot', network_client: false, builtins: [] };
     else if (request.method === 'sessions.activity') value = { ...sample('SessionActivity'), active_turn: state.turn.state === 'running' ? state.turn : null, active_input_id: state.turn.state === 'running' ? 'input_fixture' : null };
-    else if (request.method === 'sessions.history_page') value = { snapshot: history, messages: state.messages, next_cursor: null };
-    else if (request.method === 'sessions.observe') value = { snapshot: history, epoch: 'boot', messages: [], preview: state.preview };
+    else if (request.method === 'sessions.history_page') value = { snapshot: history, messages: state.messages, next_cursor: null, attempt_presentations: state.attempts };
+    else if (request.method === 'sessions.observe') value = { snapshot: history, epoch: 'boot', messages: [], preview: state.preview, attempt_presentations: state.attempts };
     else if (request.method === 'cells.output') value = { epoch: 'boot', preview: state.output };
     else if (request.method === 'sessions.turns') value = { items: [state.turn], next_cursor: null };
-    else if (request.method === 'turns.cells') value = { items: after || empty ? [] : [state.cell] };
+    else if (request.method === 'turns.cells_page') value = { items: state.hasCell ? [state.cell] : [], next_cursor: null };
+    else if (request.method === 'context.read') return { jsonrpc: '2.0', id: request.id, error: { code: -32004, kind: 'NOT_FOUND', message: 'Recorded message unavailable' } };
     else if (request.method === 'turns.operations') value = { items: after ? [] : state.operations };
     else throw new Error(request.method);
     return { jsonrpc: '2.0', id: request.id, result: structuredClone(value) };
@@ -105,21 +108,23 @@ it('distinguishes failed empty turns and paused retained evidence', async () => 
   const mounted = render(f.app()); expect(screen.getByText('The last turn failed')).toBeDefined(); expect(screen.getByText('Invalid prompt_cache_key')).toBeDefined();
   mounted.rerender(f.app(false)); expect(screen.getByRole('status').textContent).toContain('paused'); expect(screen.queryAllByRole('article')).toHaveLength(0);
 });
-it('shows provisional code separately and exact host-operation state beside the committed cell', async () => {
+it('shows writing code in the ordinary card flow and exact host-operation state beside the committed cell', async () => {
   const f = await fixture();
   f.state.operations = [{ ...sample('HostOperation'), id: 'operation', session_id: 'session_child', turn_id: 'turn', cell_id: 'cell', state: 'waiting', result: null, dispatched_at: null, finished_at: null } as HostOperation];
-  f.state.preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'preview', text: '', reasoning: '', calls: [{ index: 0, id: 'next_call', name: 'execute', arguments: '{"code":' }], truncated: false, revision: '1' };
+  f.state.preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'preview', text: '', reasoning: '', calls: [{ index: 0, id: 'next_call', name: 'execute', arguments: '{"code":"print(7)' }], truncated: false, revision: '1' };
   await act(async () => { await f.view.refresh(); await f.execution.refresh(); }); render(f.app());
-  expect(screen.getByRole('article', { name: 'Provisional execution' })).toBeDefined(); expect(screen.getByText('waiting')).toBeDefined();
-  expect(document.querySelectorAll('[data-repl-cell]')).toHaveLength(1); expect(screen.getByText('Writing · provisional')).toBeDefined();
+  expect(screen.getByRole('article', { name: 'Execution 2' })).toBeDefined(); expect(screen.getByText('Waiting')).toBeDefined();
+  expect(document.querySelectorAll('[data-repl-cell]')).toHaveLength(2); expect(screen.getByText('Writing')).toBeDefined();
+  expect(screen.getByRole('region', { name: 'Cell 2 · Starlark' }).textContent).toBe('print(7)');
+  expect(screen.queryByText(/provisional|No execution cell|Incoming execute arguments/i)).toBeNull();
 });
 
 it('keeps uncertain cell metadata when exact transcript bodies are outside the window', async () => {
   const f = await fixture(); f.state.cell.state = 'uncertain'; f.state.messages = [];
   await f.view.latest(); await f.execution.refresh(); render(f.app());
   expect(screen.getByText('Outcome uncertain')).toBeDefined();
-  expect(screen.getByText('The exact call message is outside the loaded transcript window.')).toBeDefined();
-  expect(screen.getByText('The exact result message is outside the loaded transcript window.')).toBeDefined();
+  expect(screen.getByText('Code is unavailable in this record.')).toBeDefined();
+  expect(screen.getByText('The recorded output is unavailable.')).toBeDefined();
   expect(screen.getByText('Effects may already have happened. The recorded outcome is uncertain.')).toBeDefined();
   expect(screen.queryByRole('region', { name: 'Output' })).toBeNull();
 });
@@ -133,15 +138,72 @@ it('renders native provisional stdout verbatim, then replaces it with the exact 
   await f.view.latest(); await f.view.refresh(); await f.execution.refresh();
   expect(f.execution.getSnapshot().output).not.toBeNull();
   const mounted = render(f.app());
-  expect(screen.getByRole('region', { name: 'Live output · provisional' }).textContent).toContain('must stay raw');
-  expect(screen.getByText('Live output is truncated to the first 64 KiB.')).toBeDefined();
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).toContain('must stay raw');
+  expect(screen.getByText('Some details of this execution are unavailable or truncated.')).toBeDefined();
+  expect(screen.queryByText(/provisional/i)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Copy output' })); await waitFor(() => expect(f.copy).toHaveBeenCalledWith(f.state.output!.text));
-  mounted.rerender(f.app(false)); expect(screen.queryByRole('region', { name: 'Live output · provisional' })).toBeNull();
+  mounted.rerender(f.app(false)); expect(screen.queryByRole('region', { name: 'Output' })).toBeNull();
   mounted.rerender(f.app());
   f.state.cell.state = 'succeeded'; f.state.cell.result_message_id = 'message_result'; f.state.cell.finished_at = '2026-09-27T12:00:01Z';
   f.state.turn.state = 'succeeded'; f.state.turn.finished_at = '2026-09-27T12:00:01Z';
   f.state.messages.push({ ...f.state.messages[0], id: 'message_result', sequence: '9007199254740994', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call_fixture', output: result('committed stdout'), is_error: false } }] });
   await act(async () => { await f.view.latest(); await f.execution.refresh(); });
-  expect(screen.queryByRole('region', { name: 'Live output · provisional' })).toBeNull();
   expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('committed stdout');
+});
+
+it('keeps one selected card through partial ID, call commit, running cell and settled output', async () => {
+  const f = await fixture('', 'starlark', true);
+  f.state.turn.state = 'running'; f.state.turn.finished_at = null;
+  const presentation = { version: 1 as const, attempt_id: 'attempt', truncated: false, parts: [{ id: 'p0', type: 'tool_call' as const, call_index: 0, call_id: 'call_fixture' }] };
+  f.state.preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'message_call', text: '', reasoning: '', calls: [{ index: 0, id: '', name: 'execute', arguments: '{"code":"print(42)' }], presentation, truncated: false, revision: '1' };
+  await f.view.refresh(); await f.execution.refresh(); render(f.app());
+  const article = screen.getByRole('article', { name: 'Execution 1' });
+  const codeRegion = screen.getByRole('region', { name: 'Cell 1 · Starlark' });
+  const selection = window.getSelection()!; const range = document.createRange(); range.selectNodeContents(codeRegion); selection.removeAllRanges(); selection.addRange(range);
+  expect(selection.toString()).toBe('print(42)');
+  f.state.preview.calls![0]!.id = 'call_fixture';
+  await act(async () => { await f.view.refresh(); });
+  expect(screen.getByRole('article', { name: 'Execution 1' })).toBe(article); expect(selection.toString()).toBe('print(42)');
+  f.state.messages = [{ ...sample('Message'), id: 'message_call', session_id: 'session_child', turn_id: 'turn', group_id: 'turn', source: null, sequence: '9007199254740993', role: 'assistant', presentation, parts: [{ type: 'tool_call', call: { id: 'call_fixture', name: 'execute', arguments: { code: 'print(42)' } } }] } as Message];
+  f.state.preview = null;
+  await act(async () => { await f.view.latest(); });
+  expect(screen.getByRole('article', { name: 'Execution 1' })).toBe(article); expect(selection.toString()).toBe('print(42)'); expect(screen.getByText('Writing')).toBeDefined();
+  f.state.hasCell = true; f.state.cell.state = 'running'; f.state.cell.finished_at = null; f.state.cell.result_message_id = null;
+  await act(async () => { await f.execution.refresh(); });
+  expect(screen.getByRole('article', { name: 'Execution 1' })).toBe(article); expect(selection.toString()).toBe('print(42)'); expect(screen.getByText('Running')).toBeDefined();
+  f.state.cell.state = 'succeeded'; f.state.cell.result_message_id = 'message_result'; f.state.cell.finished_at = '2026-09-27T12:00:01Z';
+  f.state.messages.push({ ...f.state.messages[0]!, id: 'message_result', presentation: undefined, sequence: '9007199254740994', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call_fixture', output: result(), is_error: false } }] });
+  await act(async () => { await f.view.latest(); await f.execution.refresh(); });
+  expect(screen.getByRole('article', { name: 'Execution 1' })).toBe(article); expect(selection.toString()).toBe('print(42)'); expect(screen.getByText('Completed')).toBeDefined();
+  fireEvent.click(screen.getByRole('button', { name: 'Show 3 more lines' }));
+  await act(async () => { await f.execution.refresh(); });
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe(output); expect(screen.getByRole('button', { name: 'Collapse output' })).toBeDefined();
+  expect(document.querySelectorAll('[data-repl-cell]')).toHaveLength(1); expect(screen.queryByText(/provisional|protocol|checkpoint was recorded/i)).toBeNull();
+});
+
+it('renders imported code and output without claiming a local cell or starting a clock', async () => {
+  const f = await fixture();
+  f.state.hasCell = false;
+  f.state.messages = f.state.messages.map(message => ({ ...message, turn_id: null, group_id: 'imported', source: { session_id: 'original', message_id: message.id, sequence: message.sequence } }));
+  await f.view.latest(); await f.execution.refresh(); render(f.app());
+  expect(screen.getByText('Completed')).toBeDefined(); expect(screen.getByRole('region', { name: 'Output' }).textContent).toContain('line 1');
+  expect(screen.getByRole('button', { name: 'Copy Starlark code' })).toBeDefined();
+  expect(screen.queryByTitle('Recorded execution duration')).toBeNull(); expect(screen.queryByText(/elapsed/)).toBeNull();
+});
+
+it('retains the writing card as failed evidence and reloads it without inventing a cell', async () => {
+  const f = await fixture('', 'starlark', true);
+  f.state.messages = [{ ...sample('Message'), id: 'input', session_id: 'session_child', turn_id: 'turn', group_id: 'turn', source: null, role: 'user', parts: [{ type: 'text', text: 'Run this' }] } as Message];
+  const call = { index: 0, id: '', name: 'execute', arguments: '{"code":"before_failure' };
+  const presentation = { version: 1 as const, attempt_id: 'failed_attempt', truncated: false, parts: [{ id: 'p0', type: 'tool_call' as const, call_index: 0, call }] };
+  f.state.preview = { attempt_id: 'failed_attempt', turn_id: 'turn', message_id: 'pending', text: '', reasoning: '', calls: [call], presentation, truncated: false, revision: '1' };
+  await f.view.latest(); await f.view.refresh(); render(f.app());
+  const article = screen.getByRole('article', { name: 'Execution 1' }); expect(screen.getByText('Writing')).toBeDefined();
+  f.state.preview = null; f.state.attempts = [{ attempt_id: 'failed_attempt', turn_id: 'turn', group_id: 'turn', state: 'failed', presentation }];
+  await act(async () => { await f.view.refresh(); });
+  expect(screen.getByRole('article', { name: 'Execution 1' })).toBe(article); expect(screen.getByText('Failed')).toBeDefined();
+  expect(screen.getByRole('region', { name: 'Cell 1 · Execution' }).textContent).toBe('before_failure');
+  await act(async () => { await f.view.latest(); });
+  expect(screen.getByText('Failed')).toBeDefined(); expect(f.execution.getSnapshot().cells).toHaveLength(0);
+  expect(screen.queryByText(/effects may|checkpoint|provisional/i)).toBeNull();
 });
