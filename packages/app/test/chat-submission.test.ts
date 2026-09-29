@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import type { Session } from '@whip/legacy-sdk';
+import type { Session } from '@whip/sdk';
 import { submitChatInput, type ChatSubmission } from '../src/chat-submission';
 import { CompositionStore, compositionKey, type CompositionAttachment } from '../src/compositions';
 import { SubmittedInputs } from '../src/input-presentation';
@@ -10,7 +10,7 @@ function fixture() {
   const waits: { accepted(): void; finish(): void; reject(error: Error): void }[] = [];
   const drafts = new Map([['host:root:root', 'normal draft']]);
   const runtime = {
-    compositions: new CompositionStore(),
+    compositions: new CompositionStore(() => true),
     submittedInputs: new SubmittedInputs(),
     getSnapshot: () => ({ commands }),
     report: vi.fn(),
@@ -19,54 +19,65 @@ function fixture() {
     run: vi.fn((_handle: unknown, _label: string, accepted: () => void) =>
       new Promise((resolve, reject) => waits.push({ accepted, reject, finish: () => resolve({}) }))),
   };
+  const upload = vi.fn(async () => ({ id: 'normal-file', session_id: 'root', media_type: 'text/plain', size: '11', digest: '0'.repeat(64), created_at: '2026-09-28T00:00:00Z' }));
   const session = {
-    rootId: 'root',
-    submit: vi.fn(() => ({})),
-    steer: vi.fn(() => ({})),
-    command: vi.fn(() => ({})),
-    client: {
-      getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host' } }),
-      upload: vi.fn(async () => ({ asAttachment: (kind: string, name: string) => ({ kind, name, ref: 'normal-file' }) })),
-    },
+    id: 'root',
+    submission: vi.fn(() => ({})),
+    client: { runtimeID: 'host', clientID: 'client', session: () => ({ content: { upload } }) },
   };
+  const recovery = {};
+  Object.assign(runtime, { recovery });
   const accepted = vi.fn();
   const input: ChatSubmission = {
     runtime: runtime as unknown as AppRuntime, session: session as unknown as Session,
-    runtimeId: 'host', agentId: 'root', compositionKey: compositionKey('host', 'root', 'root', 'design:tab'),
+    runtimeId: 'host', rootId: 'root', agentId: 'root', compositionKey: compositionKey('host', 'root', 'root', 'design:tab'),
     connected: true, text: 'Change this', attachments: [], delivery: 'queued', onAccepted: accepted,
   };
   return { runtime, session, commands, waits, input, accepted, drafts };
 }
 
 const evidence: CompositionAttachment[] = [
-  { id: 'evidence', name: 'context.txt', size: 6, value: { kind: 'text', name: 'context.txt', ref: 'utf8-ref' } },
-  { id: 'screenshot', name: 'viewport.png', size: 12, value: { kind: 'image', name: 'viewport.png', ref: 'image-ref' } },
+  { id: 'evidence', name: 'context.txt', size: 6, value: { id: 'utf8-ref', session_id: 'root', media_type: 'text/plain', size: '6', digest: '0'.repeat(64), created_at: '2026-09-28T00:00:00Z' } },
+  { id: 'screenshot', name: 'viewport.png', size: 12, value: { id: 'image-ref', session_id: 'root', media_type: 'image/png', size: '12', digest: '1'.repeat(64), created_at: '2026-09-28T00:00:00Z' } },
 ];
 
 it.each([
-  ['root', 'queued', undefined, 'submit'],
-  ['root', 'queued', 'turn', 'submit'],
-  ['root', 'steer', undefined, 'submit'],
-  ['root', 'steer', 'turn', 'steer'],
-  ['child', 'queued', undefined, 'command'],
-  ['child', 'steer', 'turn', 'command'],
-] as const)('dispatches %s %s (%s) using %s and one preview command ID', async (agentId, delivery, activeTurn, method) => {
+  ['root', 'queued', undefined],
+  ['root', 'queued', 'turn'],
+  ['root', 'steer', undefined],
+  ['root', 'steer', 'turn'],
+  ['child', 'queued', undefined],
+  ['child', 'steer', 'turn'],
+] as const)('dispatches %s %s (%s) using the exact recipient and one preview command ID', async (agentId, delivery, activeTurn) => {
   const f = fixture();
-  const pending = submitChatInput({ ...f.input, agentId, delivery, activeTurn, attachments: evidence });
+  f.session.id = agentId;
+  const attachments = evidence.map(item => ({ ...item, value: { ...item.value!, session_id: agentId } }));
+  const pending = submitChatInput({ ...f.input, agentId, delivery, activeTurn, attachments });
   const [preview] = f.runtime.submittedInputs.getSnapshot();
   expect(preview).toMatchObject({ runtimeId: 'host', rootId: 'root', agentId, queued: !!activeTurn });
-  const payload = { text: f.input.text, attachments: evidence.map(item => item.value) };
-  if (method === 'command') {
-    expect(f.session.command).toHaveBeenCalledWith('agent.submit', { id: agentId, ...payload, delivery }, { commandId: preview!.id });
-  } else {
-    expect(f.session[method]).toHaveBeenCalledWith(payload, { commandId: preview!.id });
-  }
+  expect(f.session.submission).toHaveBeenCalledWith([
+    { type: 'text', text: f.input.text }, { type: 'content', reference_id: 'utf8-ref' }, { type: 'content', reference_id: 'image-ref' },
+  ], preview!.id, {
+    journal: {}, delivery: delivery === 'steer' && activeTurn ? 'steer' : 'queued',
+    ...(delivery === 'steer' && activeTurn ? { targetTurnID: activeTurn } : {}),
+  });
   expect(f.runtime.run.mock.calls[0]?.[1]).toBe(agentId === 'root' ? 'Send message' : 'Message child');
   expect(f.accepted).not.toHaveBeenCalled();
   f.waits[0]!.accepted();
   expect(f.accepted).toHaveBeenCalledOnce();
   f.waits[0]!.finish();
   expect(await pending).toEqual({ status: 'completed', accepted: true });
+});
+
+it.each(['recipient', 'runtime', 'content'] as const)('rejects mismatched %s before creating a submission or preview', async mismatch => {
+  const f = fixture();
+  if (mismatch === 'recipient') f.session.id = 'other';
+  if (mismatch === 'runtime') f.session.client.runtimeID = 'other';
+  const attachments = mismatch === 'content' ? evidence.map(item => ({ ...item, value: { ...item.value!, session_id: 'other' } })) : evidence;
+  expect(await submitChatInput({ ...f.input, attachments })).toMatchObject({ status: 'failed', accepted: false });
+  expect(f.session.submission).not.toHaveBeenCalled();
+  expect(f.runtime.submittedInputs.getSnapshot()).toEqual([]);
+  expect(f.runtime.compositions.get(f.input.compositionKey).sending).toBe(false);
 });
 
 it('keeps normal destination text and attachments isolated from Design acceptance', async () => {
@@ -94,10 +105,10 @@ it('rejects concurrent duplicate submission but permits a new input after admiss
   const f = fixture();
   const first = submitChatInput(f.input);
   expect(await submitChatInput(f.input)).toEqual({ status: 'skipped' });
-  expect(f.session.submit).toHaveBeenCalledOnce();
+  expect(f.session.submission).toHaveBeenCalledOnce();
   f.waits[0]!.accepted();
   const second = submitChatInput({ ...f.input, text: 'Next input' });
-  expect(f.session.submit).toHaveBeenCalledTimes(2);
+  expect(f.session.submission).toHaveBeenCalledTimes(2);
   // The first completion must not unlock the second admission.
   f.waits[0]!.finish();
   await first;
@@ -122,7 +133,7 @@ it('preserves uncertain admission, blocks a fresh command, and cleans up on late
   expect(clear).not.toHaveBeenCalled();
   expect(f.runtime.submittedInputs.getSnapshot()[0]!.id).toBe(id);
   expect(await submitChatInput(f.input)).toEqual({ status: 'skipped', delivery: 'uncertain' });
-  expect(f.session.submit).toHaveBeenCalledOnce();
+  expect(f.session.submission).toHaveBeenCalledOnce();
   f.waits[0]!.accepted(); // runtime.run's explicit status recovery owns this callback.
   expect(f.accepted).toHaveBeenCalledOnce();
   expect(clear).toHaveBeenCalledWith(f.input.compositionKey, ['evidence', 'screenshot']);
@@ -133,7 +144,7 @@ it('requires the original-command recovery path even after authoritative absence
   f.commands.push({ id: 'notice', commandId: 'original', runtimeId: 'host', label: 'Send message',
     draftKey: f.input.compositionKey, status: 'absent', delivery: 'absent' } as CommandNotice);
   expect(await submitChatInput(f.input)).toEqual({ status: 'skipped', delivery: 'absent' });
-  expect(f.session.submit).not.toHaveBeenCalled();
+  expect(f.session.submission).not.toHaveBeenCalled();
 });
 
 it('reports a local acceptance callback error without retaining the admission lock', async () => {
@@ -158,7 +169,7 @@ it('returns a non-vision rejection unchanged without clearing authored input or 
   expect(clear).not.toHaveBeenCalled();
   expect(f.runtime.submittedInputs.getSnapshot()).toEqual([]);
   expect(f.runtime.compositions.get(f.input.compositionKey).sending).toBe(false);
-  expect(f.session.submit).toHaveBeenCalledOnce();
+  expect(f.session.submission).toHaveBeenCalledOnce();
 });
 
 it('distinguishes failure after acceptance from rejected admission', async () => {
@@ -179,6 +190,6 @@ it.each([
 ])('skips unavailable, empty, pending or failed input %o', async (overrides) => {
   const f = fixture();
   expect(await submitChatInput({ ...f.input, ...overrides })).toEqual({ status: 'skipped' });
-  expect(f.session.submit).not.toHaveBeenCalled();
+  expect(f.session.submission).not.toHaveBeenCalled();
   expect(f.runtime.submittedInputs.getSnapshot()).toEqual([]);
 });

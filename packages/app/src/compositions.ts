@@ -132,9 +132,11 @@ export class CompositionStore {
     agentId: string,
     files: readonly File[],
     surfaceId?: string,
+    rootId = session.id,
   ): Promise<void> {
     if (
-      key !== compositionKey(runtimeId, session.id, agentId, surfaceId) ||
+      key !== compositionKey(runtimeId, rootId, agentId, surfaceId) ||
+      (rootId !== session.id && session.id !== agentId) ||
       session.client.runtimeID !== runtimeId ||
       !this.attached(session.client)
     )

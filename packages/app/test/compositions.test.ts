@@ -53,6 +53,17 @@ function fixture() {
 }
 
 describe('transient compositions', () => {
+  it('uploads through an exact child Session while retaining the root-scoped draft identity', async () => {
+    const f = fixture();
+    const child = { ...f.session, id: 'child' } as Session;
+    await f.store.add(f.key, child, 'host', 'child', [file()], undefined, 'root');
+    expect(f.store.get(f.key).attachments[0]?.value?.session_id).toBe('child');
+    expect(f.upload).toHaveBeenCalledExactlyOnceWith(expect.any(Uint8Array), expect.objectContaining({ agentId: 'child' }));
+    expect(() => f.store.add(f.key, { ...f.session, id: 'other' } as Session, 'host', 'child', [file()], undefined, 'root')).toThrow(/selected recipient/);
+    expect(() => f.store.add('host:other:child', child, 'host', 'child', [file()], undefined, 'root')).toThrow(/selected recipient/);
+    f.store.dispose();
+  });
+
   it('stages local files without uploading, then transfers their identities/previews to the created root', async () => {
     previewURLs();
     const f = fixture();
