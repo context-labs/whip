@@ -25,7 +25,7 @@ export interface RecoveryRecord {
   readonly accepted: boolean;
 }
 export type RecoveryEvidence = Admission | Operations['trees.creation']['result'] | Operations['permissions.mode_edit']['result'] | Operations['workspace.action']['result'];
-export type RecoveryCheck = { state: 'found'; evidence: RecoveryEvidence } | { state: 'missing' } | { state: 'unavailable' };
+export type RecoveryCheck = { state: 'found'; evidence: RecoveryEvidence } | { state: 'identity_only'; evidence: RecoveryEvidence } | { state: 'missing' } | { state: 'unavailable' };
 export class RecoveryError extends Error {
   constructor(message: string) { super(message); this.name = 'RecoveryError'; }
 }
@@ -157,6 +157,7 @@ export class DurableCommand<M extends DurableMethod> {
     const request = JSON.parse(this.current.request) as CommandRequest;
     try {
       let evidence: RecoveryEvidence;
+      let matchesRequest = this.current.accepted;
       switch (request.method) {
         case 'sessions.submit': case 'sessions.compact': case 'sessions.spawn': case 'goals.formulate': case 'goals.resume': {
           evidence = await this.client.call('receipts.get', request.params.identity, options);
@@ -172,6 +173,7 @@ export class DurableCommand<M extends DurableMethod> {
         case 'permissions.set_mode': {
           evidence = await this.client.getPermissionModeEdit(request.params.session_id, request.params.edit_id, options);
           if (evidence.id !== request.params.edit_id || evidence.session_id !== request.params.session_id || evidence.mode !== request.params.mode || evidence.expected_revision !== request.params.expected_revision) throw new TypeError('Permission edit receipt mismatch');
+          matchesRequest = true;
           break;
         }
         case 'workspace.capture': case 'workspace.restore': case 'workspace.release': {
@@ -181,6 +183,9 @@ export class DurableCommand<M extends DurableMethod> {
         }
         default: return { state: 'unavailable' };
       }
+      // Most evidence reads expose identity/outcome, not the original payload.
+      // A colliding ID must not turn an unacknowledged request into acceptance.
+      if (!matchesRequest) return { state: 'identity_only', evidence: freeze(evidence) as RecoveryEvidence };
       await this.persistAccepted(evidence);
       return { state: 'found', evidence: freeze(evidence) as RecoveryEvidence };
     } catch (error) {
@@ -208,7 +213,7 @@ export class DurableCommand<M extends DurableMethod> {
     if (!('identity' in this.params)) throw new TypeError('This mutation has no input/turn receipt to wait for');
     for (;;) {
       const check = await this.check(options);
-      if (check.state !== 'found' || !('receipt' in check.evidence)) throw new RecoveryError('Admission is not known; inspect delivery before waiting');
+      if (check.state !== 'found' || !('receipt' in check.evidence)) throw new RecoveryError('Exact request acceptance is not known; verify delivery before waiting');
       const value = check.evidence;
       if (value.receipt.deleted_at || value.input?.state === 'cancelled' || value.turn?.finished_at) return value;
       await delay(100, options.signal);

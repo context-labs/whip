@@ -31,7 +31,9 @@ test('prepared commands freeze exact input and recover a lost acknowledgement wi
   const storage = memoryStorage(), journal = new RecoveryJournal(storage);
   const { client, calls } = await clientFixture(request => {
     if (request.method === 'receipts.get') return exists ? { jsonrpc: '2.0', id: request.id, result: admission() } : missing(request.id);
-    assert.equal(storage.records.size, 1); exists = true; throw new DeliveryError('lost acknowledgement');
+    assert.equal(storage.records.size, 1);
+    if (exists) return { jsonrpc: '2.0', id: request.id, result: admission() };
+    exists = true; throw new DeliveryError('lost acknowledgement');
   });
   const input = params(); const command = client.command('sessions.submit', input, { journal });
   input.parts[0].text = 'mutated'; command.params.parts[0].text = 'also mutated';
@@ -41,9 +43,13 @@ test('prepared commands freeze exact input and recover a lost acknowledgement wi
   const loaded = DurableCommand.recover(client, (await journal.list())[0], { journal });
   assert.equal(calls.length, 1);
   assert.throws(() => loaded.send(), /explicit check\/retry/);
+  assert.equal((await loaded.check()).state, 'identity_only');
+  assert.equal(loaded.record.accepted, false);
+  await assert.rejects(loaded.wait(), /Exact request acceptance/);
+  assert.equal(calls.filter(value => value.method === 'sessions.submit').length, 1);
+  await loaded.retry(); // Only this explicit request verifies the original payload.
   assert.equal((await loaded.check()).state, 'found');
   assert.equal((await loaded.wait()).receipt.deleted_at !== null, true);
-  assert.equal(calls.filter(value => value.method === 'sessions.submit').length, 1);
   assert.equal(loaded.record.accepted, true);
   await loaded.forget(); assert.equal((await journal.list()).length, 0);
 });
@@ -125,4 +131,18 @@ test('slow recovery storage has bounded pending work and never becomes an unboun
   const one = journal.list(), two = journal.list();
   await assert.rejects(journal.list(), /pending work limit/);
   release(); assert.deepEqual(await one, []); assert.deepEqual(await two, []);
+});
+
+test('an identity collision cannot confirm or wait on another command payload', async () => {
+  const { client, calls } = await clientFixture(request => {
+    if (request.method === 'receipts.get') return { jsonrpc: '2.0', id: request.id, result: admission() };
+    return { jsonrpc: '2.0', id: request.id, error: { code: -32004, kind: 'CONFLICT', message: 'identity already has another payload' } };
+  });
+  const command = client.command('sessions.submit', { ...params(), parts: [{ type: 'text', text: 'different request' }] });
+  assert.equal((await command.check()).state, 'identity_only');
+  assert.equal(command.record.accepted, false);
+  await assert.rejects(command.wait(), /Exact request acceptance/);
+  assert.ok(calls.every(value => value.method === 'receipts.get'));
+  await assert.rejects(command.retry(), error => error.kind === 'CONFLICT');
+  assert.equal(command.record.accepted, false);
 });

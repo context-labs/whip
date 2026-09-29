@@ -105,7 +105,9 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
   const recoveryClient = await Client.connect(browserSocket(ready.web, { expectedRuntimeID: ready.runtime_id, expectedProcessEpoch: ready.process_epoch }), { clientID: 'browser', ...options() });
   for (const record of recoveryRecords) {
     const command = DurableCommand.recover(recoveryClient, record);
-    assert.equal((await command.check(options())).state, 'found');
+    assert.equal((await command.check(options())).state, 'identity_only');
+    await assert.rejects(command.wait(options()), /Exact request acceptance/);
+    await command.retry(options()); // Server compares the exact original payload before returning its receipt.
     assert.equal((await command.wait(options())).turn.state, 'succeeded');
   }
   assert.equal((await fresh.getTreeCreation('browser-root', options())).root.id, first.root.id);
