@@ -100,6 +100,52 @@ export async function launchDesktopPerformance(fixture, isolation, { executableP
   };
 }
 
+// Electron page emulation does not resize its native BrowserWindow. Keep the
+// requested CSS workload inside real content bounds before measuring rendering.
+export async function setDesktopViewport(host, size) {
+  assert(Number.isSafeInteger(size.width) && Number.isSafeInteger(size.height) && size.width > 0 && size.height > 0);
+  const window = await host.electron.browserWindow(host.page);
+  try { await window.evaluate((window, size) => { window.setContentSize(size.width, size.height); window.center(); }, size); }
+  finally { await window.dispose(); }
+  await host.page.setViewportSize(size);
+  const geometry = await assertDesktopViewport(host);
+  assert.equal(geometry.native.content.width, size.width, 'Native content width differs from requested viewport');
+  assert.equal(geometry.native.content.height, size.height, 'Native content height differs from requested viewport');
+  return geometry;
+}
+
+export async function assertDesktopViewport(host, { composer = false } = {}) {
+  const window = await host.electron.browserWindow(host.page);
+  let native;
+  try {
+    native = await window.evaluate(window => ({ content: window.getContentBounds(), bounds: window.getBounds(),
+      visible: window.isVisible(), minimized: window.isMinimized(), focused: window.isFocused() }));
+  } finally { await window.dispose(); }
+  const workArea = await host.electron.evaluate(({ screen }, bounds) => screen.getDisplayMatching(bounds).workArea, native.bounds);
+  const document = await host.page.evaluate(composer => {
+    const element = composer ? document.querySelector('[data-whip-composer]') : null;
+    return { width: innerWidth, height: innerHeight, visibility: document.visibilityState,
+      bounds: document.documentElement.getBoundingClientRect().toJSON(),
+      composer: element?.getBoundingClientRect().toJSON() ?? null,
+      composerFocused: element !== null && document.activeElement === element };
+  }, composer);
+  const inside = (inner, outer) => inner.x >= outer.x - 0.01 && inner.y >= outer.y - 0.01 &&
+    inner.x + inner.width <= outer.x + outer.width + 0.01 && inner.y + inner.height <= outer.y + outer.height + 0.01;
+  assert(native.visible && !native.minimized, 'Native window is not visible');
+  assert(inside(native.content, workArea), 'Native content lies outside its display work area');
+  assert.equal(document.visibility, 'visible');
+  const content = { x: 0, y: 0, width: native.content.width, height: native.content.height };
+  assert(document.width > 0 && document.height > 0 && inside({ ...content, width: document.width, height: document.height }, content),
+    'Emulated document viewport exceeds native content bounds');
+  assert(inside(document.bounds, content), 'Document lies outside native content bounds');
+  if (composer) {
+    assert(native.focused && document.composerFocused, 'Composer does not have native keyboard focus');
+    assert(document.composer?.width > 0 && document.composer?.height > 0 && inside(document.composer, content),
+      'Composer lies outside native content bounds');
+  }
+  return { native, workArea, document, boundary: 'Native window/content and CSS document/composer bounds; does not prove lack of OS occlusion or physical display latency.' };
+}
+
 // Bound cleanup even when Electron's main-thread inspector is unresponsive.
 // Signals target only this launcher-owned child, never a discovered/user app.
 export async function closeDesktopProcess(electron) {
