@@ -3886,3 +3886,24 @@ selection and the groups are disjoint. No scenario or assertion was removed.
 Repaired `task check:native-cli` passes: CLI race48.797s, ACP/MCP race18.889s,
 compiled CLI integration21.284s, and vet. Log:
 `/tmp/whip-observation-cli-split.log`. Exact-head hosted rerun remains pending.
+
+### Cold Linux CLI readiness and complete family gates — 2026-09-29
+
+Run `36540585469` at `90032ecf9` still failed Linux clients. The115-test
+non-protocol group exhausted its three-minute total deadline; its next auth
+fixture was still constructing a fresh schema. Separately,
+`TestDesktopManagedDiagnosticsAndApprovalCLI` hit its five-second fixture startup
+wait and then reported schema initialization cancelled during cleanup. This is
+not credited as a pass or merely hidden behind the protocol split.
+
+The desktop fixture now uses the same15-second readiness allowance and25ms poll
+cadence as production `localruntime.Start`, instead of a shorter five-second wait
+and millisecond filesystem polling. CLI groups are now auth24, lifecycle37,
+run/catalog/native54, and protocol25. Actual discovered names prove the four
+groups are disjoint and their union is exactly the original140 selected tests;
+each retains its three-minute deadline. Local auth13.189s, lifecycle6.173s and
+run32.965s pass. The subsequent protocol run exposed a separate real ACP startup
+data race between `SetAgentConnection` and the first outbound update (shuffle
+`1790669959083801000`). This run remains failed; the connection publication fix
+and repaired protocol/full CLI validation are required before publication. Log:
+`/tmp/whip-observation-cli-families.log`.
