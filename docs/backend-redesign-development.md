@@ -3498,3 +3498,18 @@ build, race-store, race-runtime, race-other and client jobs, analysis and the
 required aggregate. This supersedes the pending repair status above; the earlier
 Linux timeout is still a recorded failed run. Draft #258 remains pending hosted
 validation. Neither pull request was merged.
+
+
+The first integrated browser/defaults/steering phase attempt at dc0ed126b failed
+in the fast configuration suite: the computer-settings test still expected
+configuration version 18 after execution defaults advanced it to 19. The
+assertion now checks the current version constant; explicit rejection of the old
+format remains covered. Analysis passed with zero new lint issues and no reachable
+vulnerabilities. The failed phase run did not reach race/client gates. Logs:
+`/tmp/whip-browser-steering-phase.log` and
+`/tmp/whip-browser-steering-analysis.log`.
+
+Browser selection checkpoint 2b532b1c0 and contract declaration fix c4fe5276e
+are integrated with regenerated contracts. The browser-provider production
+fixture is now required by check:fixture. Combined phase validation follows;
+independent leaf results do not establish that pass.
