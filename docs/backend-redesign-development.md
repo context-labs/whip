@@ -4974,3 +4974,27 @@ other specialized browser probes, Desktop failures, performance acceptance and
 final old-core/package/test removal. Signed release, actual remote SSH, physical
 mobile, VoiceOver, Safari and live-provider acceptance remain explicitly
 unverified. No installed runtime or original development checkout was modified.
+
+### Shared terminal presentation extraction — 2026-09-29
+
+The structural checkpoint on `codex/backend-redesign-terminal-presentation`
+starts at `7d1f6c06dca7a169c8063c2d7ca9749f0a8694e6` (#270). Shared input styling,
+terminal background observations, transcript scroll geometry and selection
+geometry now live separately from the retained client model. The retired model's
+transcript projection and old-config theme loading have explicit legacy files.
+Function bodies and public behavior are unchanged; this prepares deletion without
+removing the native client's rendering dependencies. Link and Markdown helpers
+remain until their native parity work is complete.
+
+Semantic references were inspected before moving declarations. The complete
+retained TUI race/shuffle group passes in 9.851s; affected native presentation,
+completion, selection, palette and paste tests pass in 7.751s. Vet, native CLI
+build and pinned lint against the unchanged baseline all pass (zero lint issues).
+Logs are `/tmp/whip-terminal-presentation-{retained,native,vet,lint}.log`.
+This extraction does not retire the old model or complete Phases 5–7.
+
+The setup-only retry for #269 completed: its macOS store-rest job now passes.
+The run remains failed on the already-recorded client and desktop failures.
+#270's hosted run 36562851241 is still in progress; its desktop, activity,
+mobile, web, Settings, evaluator and distribution jobs have passed, but the
+aggregate is not yet accepted.

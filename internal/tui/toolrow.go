@@ -15,10 +15,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// diff bands (set by refreshBaseStyles): colored background across the
-// full row, terminal-default foreground on top (legible on both themes).
-var diffAddStyle, diffDelStyle lipgloss.Style
-
 // toolHeaderName maps a tool to its header verb ("Update" over "edit" — the
 // row reads as what happened, not which function ran).
 func toolHeaderName(name string) string {
