@@ -1,58 +1,60 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { chromium, firefox, expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { startFixture } from './native-fixture.mjs';
 
-const output = '/tmp/whip-claude-code-theme-results';
+const output = process.env.WHIP_THEME_RESULTS ?? '/tmp/whip-claude-code-theme-results';
 await mkdir(output, { recursive: true });
-for (const [name, launcher] of Object.entries({ chromium, firefox })) {
-  const fixture = await startFixture();
-  const browser = await launcher.launch();
-  const client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: crypto.randomUUID(), clientKind: 'human' });
-  let page;
+const browsers = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
+assert(browsers.length > 0 && browsers.length <= 2 && new Set(browsers).size === browsers.length && browsers.every(name => ['chromium', 'firefox'].includes(name)));
+for (const name of browsers) {
+  let fixture, browser, page;
+  const errors = [], csp = [];
   try {
-    await client.connect();
+    fixture = await startFixture();
+    const client = await fixture.connect(`theme-${crypto.randomUUID()}`);
     const roots = [];
     for (const title of ['Claude Code SDK process communication', 'Prime Agent and WHIP comparison', 'Review the runtime architecture']) {
-      const result = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
-      roots.push(result.result.root_id);
-      await client.session(roots.at(-1)).rename(title).result();
+      roots.push((await fixture.createRoot(client, { title })).root.id);
     }
-    const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
+    const origin = fixture.info.web;
+    browser = await ({ chromium, firefox }[name]).launch();
     page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
-    const errors = [];
-    page.on('pageerror', error => errors.push(error.message));
-    await page.addInitScript(() => {
-      window.__themeCsp = [];
-      document.addEventListener('securitypolicyviolation', event => window.__themeCsp.push(event.violatedDirective));
-    });
+    page.setDefaultTimeout(15_000);
+    page.on('pageerror', error => { if (errors.length < 64) errors.push(error.message.slice(0, 4096)); });
+    await page.exposeFunction('themeCSP', value => { if (csp.length < 64) csp.push(String(value).slice(0, 256)); });
+    await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => { void window.themeCSP(event.violatedDirective).catch(() => {}); }));
     await page.goto(`${origin}/settings`);
     const chooseTheme = async (current, label) => {
-      await page.getByRole('button', { name: current, exact: true }).click();
-      const dialog = page.getByRole('dialog', { name: 'Appearance', exact: true });
-      const search = dialog.getByRole('combobox', { name: 'Search themes' });
+      const picker = page.getByRole('combobox', { name: /^Color theme:/ });
+      await expect(picker).toContainText(current);
+      await picker.click();
+      const search = page.getByRole('combobox', { name: 'Search themes', exact: true });
       await search.fill(label);
-      await search.press('Enter');
-      await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+      await page.getByRole('option', { name: label + ' Dark', exact: true }).click();
+      await expect(search).toBeHidden();
     };
     await chooseTheme('System appearance', 'Claude Code');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'claude-code');
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Claude Code', exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Color theme: Claude Code', exact: true })).toBeVisible();
     const appearance = async () => page.locator('#whip-session-navigation').evaluate(element => ({
       background: getComputedStyle(document.documentElement).backgroundColor,
       foreground: getComputedStyle(document.documentElement).color,
       navigation: getComputedStyle(element).backgroundColor,
       border: getComputedStyle(element).borderRightColor,
     }));
-    assert.deepEqual(await appearance(), {background: 'rgb(20, 20, 20)', foreground: 'rgb(194, 192, 184)', navigation: 'rgb(17, 17, 16)', border: 'rgb(28, 28, 27)'});
+    assert.deepEqual(await page.evaluate(() => ({ background: getComputedStyle(document.documentElement).backgroundColor, foreground: getComputedStyle(document.documentElement).color })), { background: 'rgb(20, 20, 20)', foreground: 'rgb(194, 192, 184)' });
     await page.screenshot({ path: `${output}/${name}-settings.png` });
     await page.goto(`${origin}/h/${fixture.info.runtime_id}/s/${roots[0]}`);
+    await page.getByLabel('Message WHIP', { exact: true }).waitFor();
+    assert.deepEqual(await appearance(), { background: 'rgb(20, 20, 20)', foreground: 'rgb(194, 192, 184)', navigation: 'rgb(17, 17, 16)', border: 'rgb(28, 28, 27)' });
     await page.getByLabel('Message WHIP', { exact: true }).fill('Explain how the SDK communicates with the Claude Code process.');
     await page.getByRole('button', { name: 'Send message', exact: true }).click();
     await expect(page.locator('[data-user-bubble]').first()).toBeVisible();
+    await expect(page.getByText('Idle', { exact: true })).toBeVisible();
+    assert.deepEqual(await fixture.effects(), ['Explain how the SDK communicates with the Claude Code process.']);
     const selected = page.locator(`[data-sidebar-session="${roots[0]}"] > div`);
     const other = page.locator(`[data-sidebar-session="${roots[1]}"] > div`);
     await expect(selected).toHaveCSS('background-color', 'rgb(52, 52, 52)');
@@ -82,13 +84,16 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
     await page.goto(`${origin}/settings`);
     await chooseTheme('Claude Code', 'dark');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await page.goto(`${origin}/h/${fixture.info.runtime_id}/s/${roots[0]}`);
+    await page.getByLabel('Message WHIP', { exact: true }).waitFor();
     assert.notEqual((await appearance()).navigation, 'rgb(17, 17, 16)', 'Pinned navigation must reset when switching themes');
     assert.notEqual((await appearance()).border, 'rgb(28, 28, 27)', 'Pinned border must reset when switching themes');
-    assert.deepEqual(await page.evaluate(() => window.__themeCsp), []);
+    assert.deepEqual(csp, []);
     assert.deepEqual(errors, []);
+    await writeFile(`${output}/${name}.json`, JSON.stringify({ browser: browser.version(), checks: ['theme picker and reload', 'exact Paper surfaces', 'selection and hover', 'real native provider response', 'conversation and search contrast', 'mobile navigation', 'theme reset'], errors, csp }, null, 2));
     console.log(`${name}: Claude Code picker, reload, exact Paper surfaces, hover/selection, contrast, search, mobile, theme reset and CSP passed`);
   } catch (error) {
-    if (page) { await page.screenshot({ path: `${output}/${name}-failure.png` }); console.error(await page.locator('body').innerText()); }
+    if (page) { await page.screenshot({ path: `${output}/${name}-failure.png` }); console.error((await page.locator('body').innerText()).slice(0, 16384)); }
     throw error;
-  } finally { client.close(); await browser.close(); await fixture.close(); }
+  } finally { try { await browser?.close(); } finally { await fixture?.close(); } }
 }
