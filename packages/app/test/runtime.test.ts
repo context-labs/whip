@@ -92,7 +92,7 @@ describe('v4 application observation ownership', () => {
     offA(); offB(); app.dispose();
   });
   it('retains only host query metadata after its consumer leaves', async () => {
-    vi.useFakeTimers(); const app = runtime(); const keys = ['provider-list', 'runtime-configuration', 'provider-catalogs', 'definitions'];
+    vi.useFakeTimers(); const app = runtime(); const keys = ['provider-list', 'provider-presets', 'provider-readiness', 'provider-catalogs', 'host-permission-default', 'host-execution-defaults', 'mcp-configuration', 'definitions'];
     for (const key of [...keys, 'detail']) { const observer = new QueryObserver(app.queries, { queryKey: [key, 'runtime'], queryFn: async () => ({ value: true }) }); const off = observer.subscribe(() => {}); await observer.refetch(); off(); }
     await vi.advanceTimersByTimeAsync(1); expect(app.queries.getQueryData(['detail', 'runtime'])).toBeUndefined();
     for (const key of keys) expect(app.queries.getQueryData([key, 'runtime'])).toBeDefined();
