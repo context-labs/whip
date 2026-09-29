@@ -15,6 +15,13 @@ func (r *Runtime) RevokeGrant(ctx context.Context, id session.GrantID) (session.
 	grant, err := r.store.RevokeGrant(ctx, id)
 	if err == nil {
 		r.languageServers.RetireAll()
+		if grant.Capability == "browser.control" {
+			if owner, readErr := r.store.Session(ctx, grant.SessionID); readErr == nil {
+				if identity, identityErr := r.browserIdentity(ctx, owner); identityErr == nil {
+					r.browser.RevokeLineage(identity.RootID, grant.Resource)
+				}
+			}
+		}
 		if strings.HasPrefix(grant.Capability, "computer.") {
 			r.computerMu.Lock()
 			r.computer.Disconnect()

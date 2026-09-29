@@ -4,8 +4,6 @@
 package browserhost
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -15,7 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/session"
 )
 
 const (
@@ -63,19 +61,9 @@ type Identity struct {
 
 func (v Identity) valid() bool { return token(v.RootID) && token(v.AgentID) }
 
-type Preview = capability.BrowserPreviewScope
+type Preview = session.BrowserPreviewScope
 
-type Scope struct {
-	ProviderID           string   `json:"provider_id"`
-	ProviderEpoch        string   `json:"provider_epoch"`
-	TabID                string   `json:"tab_id"`
-	TabGeneration        string   `json:"tab_generation"`
-	ProfileID            string   `json:"profile_id"`
-	ControlLineage       string   `json:"control_lineage"`
-	AttachmentID         string   `json:"attachment_id"`
-	AttachmentGeneration string   `json:"attachment_generation"`
-	Preview              *Preview `json:"preview,omitempty"`
-}
+type Scope = session.BrowserScope
 
 func cloneScope(v Scope) Scope { v.Preview = clonePreview(v.Preview); return v }
 func clonePreview(v *Preview) *Preview {
@@ -85,16 +73,6 @@ func clonePreview(v *Preview) *Preview {
 	n := *v
 	n.Ports = slices.Clone(v.Ports)
 	return &n
-}
-
-// Resource is immutable across an explicit child handoff. Private attachments
-// still require exact owner and generation; this hash alone never grants control.
-func (v Scope) Resource() string {
-	v.AttachmentID = ""
-	v.AttachmentGeneration = ""
-	b, _ := json.Marshal(v)
-	sum := sha256.Sum256(b)
-	return "browser:" + hex.EncodeToString(sum[:])
 }
 
 type OfferedTab struct {
@@ -366,7 +344,7 @@ func validateArguments(operation string, a Arguments) error {
 	switch operation {
 	case "open":
 		u, e := url.Parse(a.URL)
-		if e != nil || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || a.TabID != "" || a.AttachmentID != "" || a.Port != 0 || a.ExpectedDocument != "" {
+		if e != nil || (a.URL != "about:blank" && (u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "")) || a.TabID != "" || a.AttachmentID != "" || a.Port != 0 || a.ExpectedDocument != "" {
 			return invalid
 		}
 	case "attach":

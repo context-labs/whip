@@ -32,6 +32,23 @@ type Capture struct {
 }
 
 func (c *Capture) Scope() Scope { return cloneScope(c.scope) }
+
+// Target is bounded display evidence captured before permission. It is not a
+// fresh page observation and never changes the scope or creates a handle.
+func (c *Capture) Target() (url, title, document string) {
+	if c.operation == "open" {
+		return c.args.URL, "", ""
+	}
+	return c.snapshot.URL, c.snapshot.Title, c.snapshot.DocumentRevision
+}
+
+func (c *Capture) PreviousResource() string {
+	if c.operation == "allow_preview_port" {
+		return c.snapshot.Scope.Resource()
+	}
+	return ""
+}
+
 func (c *Capture) Lifetime() context.Context {
 	if c.initial != nil {
 		return c.initial.ctx

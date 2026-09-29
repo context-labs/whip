@@ -140,12 +140,22 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		if duplicate != 0 {
 			return ErrConflict
 		}
+		if spec.Capability == "browser.control" {
+			if _, err := browserIntent(ctx, tx, spec); err != nil {
+				return err
+			}
+		}
 		var grantID *session.GrantID
 		var permissionRevision *session.Revision
 		state := session.OperationWaiting
 		switch spec.Capability {
 		case "permissions.inspect":
 			if err := validatePermissionInspection(ctx, tx, spec); err != nil {
+				return err
+			}
+			state = session.OperationReady
+		case "browser.catalog":
+			if err := validateBrowserCatalog(ctx, tx, spec); err != nil {
 				return err
 			}
 			state = session.OperationReady
@@ -312,6 +322,17 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 			return ErrConflict
 		}
 		return validatePermissionInspection(ctx, q, operation.OperationSpec)
+	}
+	if operation.Capability == "browser.catalog" {
+		if operation.GrantID != nil || operation.PermissionRevision != nil {
+			return ErrConflict
+		}
+		return validateBrowserCatalog(ctx, q, operation.OperationSpec)
+	}
+	if operation.Capability == "browser.control" {
+		if _, err := browserIntent(ctx, q, operation.OperationSpec); err != nil {
+			return err
+		}
 	}
 	if operation.Capability == "mcp.catalog" {
 		if operation.GrantID != nil || operation.PermissionRevision != nil {
@@ -620,38 +641,38 @@ func (s *Store) ResolvePermission(ctx context.Context, id session.OperationID, a
 }
 
 func (s *Store) RevokeGrant(ctx context.Context, id session.GrantID) (result session.Grant, err error) {
-	err = s.write(ctx, func(tx *sql.Tx) error {
-		grant, err := readGrant(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		if grant.RevokedAt != nil {
-			result = grant
-			return nil
-		}
-		if _, err := tx.ExecContext(ctx, "UPDATE grants SET revoked_at=? WHERE id=?", now(), id); err != nil {
-			return err
-		}
-		// Revocation also invalidates derived authority. Already dispatched effects
-		// retain their original outcome; only ready operations are denied here.
-		for {
-			operation, err := scanOperation(tx.QueryRowContext(ctx, `WITH RECURSIVE delegated(id) AS (
+	err = s.write(ctx, func(tx *sql.Tx) error { result, err = revokeGrant(ctx, tx, id); return err })
+	return
+}
+
+func revokeGrant(ctx context.Context, tx *sql.Tx, id session.GrantID) (session.Grant, error) {
+	grant, err := readGrant(ctx, tx, id)
+	if err != nil {
+		return session.Grant{}, err
+	}
+	if grant.RevokedAt != nil {
+		return grant, nil
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE grants SET revoked_at=? WHERE id=?", now(), id); err != nil {
+		return session.Grant{}, err
+	}
+	// Revocation also invalidates derived authority. Already dispatched effects
+	// retain their original outcome; only ready operations are denied here.
+	for {
+		operation, err := scanOperation(tx.QueryRowContext(ctx, `WITH RECURSIVE delegated(id) AS (
  SELECT ? UNION ALL SELECT g.id FROM grants g JOIN delegated d ON g.issuer_id=d.id
  ) `+operationSelect+" WHERE o.grant_id IN (SELECT id FROM delegated) AND o.state='ready' ORDER BY o.id LIMIT 1", id))
-			if errors.Is(err, ErrNotFound) {
-				break
-			}
-			if err != nil {
-				return err
-			}
-			if _, err := settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationDenied, Failure: new("grant revoked before dispatch")}); err != nil {
-				return err
-			}
+		if errors.Is(err, ErrNotFound) {
+			break
 		}
-		result, err = readGrant(ctx, tx, id)
-		return err
-	})
-	return
+		if err != nil {
+			return session.Grant{}, err
+		}
+		if _, err := settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationDenied, Failure: new("grant revoked before dispatch")}); err != nil {
+			return session.Grant{}, err
+		}
+	}
+	return readGrant(ctx, tx, id)
 }
 
 func recoverOperations(ctx context.Context, tx *sql.Tx) error {

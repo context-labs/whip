@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/netip"
-	"net/url"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -142,16 +140,8 @@ func compileProgramStep(c helperprogram.Call) (programStep, error) {
 			return step, e
 		}
 		if c.Name == "goto" {
-			u, e := url.Parse(step.text[0])
-			if e != nil || u.User != nil || (step.text[0] != "about:blank" && ((u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "")) {
-				return step, errors.New("navigation requires HTTP, HTTPS or about:blank without credentials")
-			}
-			host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
-			if alwaysBlockedHosts[host] {
-				return step, errors.New("cloud metadata navigation is unavailable")
-			}
-			if ip, err := netip.ParseAddr(host); err == nil && ipBlocked(ip.Unmap()) {
-				return step, errors.New("cloud metadata navigation is unavailable")
+			if e := ValidateNavigationURL(step.text[0]); e != nil {
+				return step, e
 			}
 		}
 		if c.Name == "press" {

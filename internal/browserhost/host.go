@@ -459,3 +459,40 @@ func (h *Host) openCapacityLocked(v *provider) bool {
 	}
 	return count < 32
 }
+
+// Owners is a bounded snapshot used to retire deleted SQL owners. Include root
+// offers without attachments, since those connections also have finite lifetime.
+func (h *Host) Owners() []Identity {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	seen := map[Identity]bool{}
+	for _, v := range h.providersLocked() {
+		seen[Identity{RootID: v.offer.RootID, AgentID: v.offer.RootID}] = true
+		for _, a := range v.attachments {
+			if a.ctx.Err() == nil {
+				seen[a.value.Owner] = true
+			}
+		}
+	}
+	out := make([]Identity, 0, len(seen))
+	for identity := range seen {
+		out = append(out, identity)
+	}
+	slices.SortFunc(out, func(a, b Identity) int {
+		if a.RootID != b.RootID {
+			return stringsCompare(a.RootID, b.RootID)
+		}
+		return stringsCompare(a.AgentID, b.AgentID)
+	})
+	return out
+}
+
+func (h *Host) RevokeRoot(root string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, v := range h.providersLocked() {
+		if v.offer.RootID == root {
+			h.retireProviderLocked(v, "root_deleted", true)
+		}
+	}
+}

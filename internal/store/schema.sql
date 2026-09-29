@@ -426,8 +426,8 @@ CREATE TABLE operations (
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
  CHECK((state IN ('dispatched','succeeded','failed','uncertain')) = (dispatched_at IS NOT NULL)),
  CHECK(state <> 'waiting' OR (grant_id IS NULL AND permission_revision IS NULL)),
- CHECK(permission_revision IS NULL OR (grant_id IS NULL AND capability NOT IN ('user.ask','mcp.catalog','permissions.inspect','mcp.call','mcp.connect','computer.run','computer.applescript'))),
- CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL OR permission_revision IS NOT NULL OR capability IN ('user.ask','mcp.catalog','permissions.inspect'))
+ CHECK(permission_revision IS NULL OR (grant_id IS NULL AND capability NOT IN ('user.ask','mcp.catalog','permissions.inspect','browser.catalog','mcp.call','mcp.connect','computer.run','computer.applescript'))),
+ CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL OR permission_revision IS NOT NULL OR capability IN ('user.ask','mcp.catalog','permissions.inspect','browser.catalog'))
 ) STRICT;
 CREATE INDEX operations_by_cell ON operations(cell_id,id);
 CREATE INDEX operations_by_grant ON operations(grant_id,id) WHERE state='ready';

@@ -513,7 +513,8 @@
                 "shell",
                 "files",
                 "tools",
-                "computer"
+                "computer",
+                "browser"
               ]
             },
             "name": {

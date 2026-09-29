@@ -12,7 +12,8 @@
               "shell",
               "files",
               "tools",
-              "computer"
+              "computer",
+              "browser"
             ]
           },
           "name": {
@@ -32,7 +33,7 @@
         ],
         "additionalProperties": false
       },
-      "maxItems": 136
+      "maxItems": 142
     }
   },
   "$id": "https://whip.dev/protocol/v4/HostToolSchemasResult",

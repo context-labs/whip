@@ -10,7 +10,7 @@ import (
 )
 
 func TestExecutionAndClientImportBoundaries(t *testing.T) {
-	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/trace", "./internal/hostview", "./internal/theme", "./internal/computer", "./internal/computerconfig", "./internal/helperprogram", "./internal/browser", "./internal/terminal", "./internal/mcp", "./internal/mcpconfig", "./internal/jsonc", "./internal/secretref", "./internal/brandicon", "./internal/bashrun", "./internal/shell", "./internal/executor", "./internal/gateway", "./internal/hostmodule", "./internal/engine/process", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/providerhost", "./internal/capability", "./internal/lsp", "./internal/lspconfig", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client")
+	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/trace", "./internal/hostview", "./internal/theme", "./internal/computer", "./internal/computerconfig", "./internal/helperprogram", "./internal/browser", "./internal/browserhost", "./internal/terminal", "./internal/mcp", "./internal/mcpconfig", "./internal/jsonc", "./internal/secretref", "./internal/brandicon", "./internal/bashrun", "./internal/shell", "./internal/executor", "./internal/gateway", "./internal/hostmodule", "./internal/engine/process", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/providerhost", "./internal/capability", "./internal/lsp", "./internal/lspconfig", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client")
 	command.Dir = "../.."
 	raw, err := command.Output()
 	if err != nil {
@@ -20,7 +20,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 	const prefix = "github.com/context-labs/whip/internal/"
 	allowed := map[string]map[string]bool{
 		"computer":       {"browser": true, "computerconfig": true, "helperprogram": true, "capability": true, "buildinfo": true},
-		"computerconfig": {}, "helperprogram": {}, "browser": {"buildinfo": true, "capability": true, "browser/extrelay": true},
+		"computerconfig": {}, "helperprogram": {}, "browser": {"buildinfo": true, "capability": true, "browser/extrelay": true, "helperprogram": true}, "browserhost": {"session": true},
 		"hostview": {"capability": true, "session": true}, "theme": {}, "trace": {"session": true},
 		"terminal":       {"capability": true},
 		"mcp":            {"buildinfo": true, "capability": true, "jsonc": true, "mcpconfig": true, "secretref": true},
@@ -48,7 +48,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"skills":           {"buildinfo": true},
 		"workspace":        {"session": true, "capability": true},
 		"executor":         {"session": true},
-		"runtime":          {"trace": true, "hostview": true, "theme": true, "computer": true, "computerconfig": true, "mcp": true, "mcpconfig": true, "brandicon": true, "bashrun": true, "shell": true, "executor": true, "lsp": true, "capability": true, "model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true, "instruction": true, "workspace": true},
+		"runtime":          {"browser": true, "browserhost": true, "trace": true, "hostview": true, "theme": true, "computer": true, "computerconfig": true, "mcp": true, "mcpconfig": true, "brandicon": true, "bashrun": true, "shell": true, "executor": true, "lsp": true, "capability": true, "model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true, "instruction": true, "workspace": true},
 		"rpc":              {"hostview": true, "theme": true, "computerconfig": true, "terminal": true, "bashrun": true, "mcp": true, "mcpconfig": true, "shell": true, "executor": true, "lsp": true, "providerhost": true, "account": true, "inferenceaccount": true, "config": true, "session": true, "store": true, "protocol": true, "runtime": true},
 		"client":           {"protocol": true},
 	}

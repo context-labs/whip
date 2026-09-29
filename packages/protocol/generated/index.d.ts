@@ -118,7 +118,7 @@ export interface Admission {
           page_title?: string;
         };
         host_operation: {
-          module: "shell" | "files" | "tools" | "computer";
+          module: "shell" | "files" | "tools" | "computer" | "browser";
           name: string;
           arguments_base64: string;
         };
@@ -261,7 +261,7 @@ export interface CallHostToolParams {
   };
   session_id: string;
   operation: {
-    module: "shell" | "files" | "tools" | "computer";
+    module: "shell" | "files" | "tools" | "computer" | "browser";
     name: string;
     arguments_base64: string;
   };
@@ -2026,7 +2026,7 @@ export interface GoalAdmission {
             page_title?: string;
           };
           host_operation: {
-            module: "shell" | "files" | "tools" | "computer";
+            module: "shell" | "files" | "tools" | "computer" | "browser";
             name: string;
             arguments_base64: string;
           };
@@ -3040,10 +3040,10 @@ export interface HostThemesResult {
 }
 export interface HostToolSchemasResult {
   /**
-   * @maxItems 136
+   * @maxItems 142
    */
   items: {
-    module: "shell" | "files" | "tools" | "computer";
+    module: "shell" | "files" | "tools" | "computer" | "browser";
     name: string;
     description: string;
     input_schema: unknown;
@@ -3337,7 +3337,7 @@ export type Input =
         page_title?: string;
       };
       host_operation: {
-        module: "shell" | "files" | "tools" | "computer";
+        module: "shell" | "files" | "tools" | "computer" | "browser";
         name: string;
         arguments_base64: string;
       };
@@ -8337,7 +8337,7 @@ export interface SpawnSessionResult {
             page_title?: string;
           };
           host_operation: {
-            module: "shell" | "files" | "tools" | "computer";
+            module: "shell" | "files" | "tools" | "computer" | "browser";
             name: string;
             arguments_base64: string;
           };

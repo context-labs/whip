@@ -142,6 +142,11 @@ func (r *Runtime) SetLifecycle(ctx context.Context, id session.SessionID, state 
 func (r *Runtime) applyLifecycleChange(change store.LifecycleChange) {
 	if change.Session.Lifecycle != session.Active {
 		r.shells.Retire(string(change.Session.ID))
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if identity, err := r.browserIdentity(cleanup, change.Session); err == nil {
+			r.browser.RevokeOwner(identity)
+		}
+		cancel()
 		r.languageServers.RetireAll()
 	}
 	if change.CancelTurnID != nil {
@@ -177,6 +182,9 @@ func (r *Runtime) cleanupDeletedKernels(ctx context.Context) error {
 		} else if err != nil {
 			return err
 		}
+	}
+	if err := r.cleanupBrowserOwners(cleanup); err != nil {
+		return err
 	}
 	return r.cleanupDeletedMCP(cleanup)
 }
