@@ -1,224 +1,343 @@
-import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {expect, it, vi} from 'vitest';
-import {UIProvider} from '@whip/ui';
-import type {Session} from '@whip/legacy-sdk';
-import type {RootSnapshot} from '@whip/legacy-protocol';
-import {PendingRequests} from '../src/requests';
-import {RuntimeContext} from '../src/context';
-import type {AppRuntime} from '../src/runtime';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import {
+  DeliveryError,
+  type Operations,
+  type Permission,
+  type Question,
+} from '@whip/sdk';
+import {
+  PendingRequests,
+  PermissionRequest,
+  QuestionRequest,
+} from '../src/requests';
+import { providerFixture } from './provider-fixture';
+import { at, operation, parameters } from './native-conversation-fixture';
 
-it.each(['browser.open', 'browser.attach', 'browser.allow_preview_port'])('keeps %s resource consent Once-only and distinct from tab lifetime', async operation => {
-  const queue = permissionQueue();
-  const permission = queue.root.permissions![0]!;
-  permission.operation = operation;
-  permission.command = 'Agent control: tab preview-tab\nSSH preview network: host saved-host, runtime verified-runtime, 127.0.0.1 ports [3000]';
-  permission.rule = 'browser:*'; // A stale/unsupported rule must not expose broad approval.
-  render(queue.ui());
-  expect(screen.getByLabelText('Requested operation').textContent).toBe(permission.command);
-  expect(screen.queryByRole('combobox', {name: 'Permission scope'})).toBeNull();
-  expect(screen.queryByRole('button', {name: 'Allow and remember'})).toBeNull();
-  expect(screen.getByText(/cannot be remembered for other tabs or hosts/)).toBeTruthy();
-  expect(screen.getByText(operation === 'browser.allow_preview_port'
-    ? /also authorizes the requested preview port/
-    : /also authorizes that network scope/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', {name: 'Allow once'}));
-  await waitFor(() => expect(queue.decide).toHaveBeenCalledWith({root_id: 'root', permission_id: 'first', allow: true}));
-});
-
-function permissionQueue() {
-  const root = {
-    agents: [{id: 'root:explorer', name: 'Explore repository'}, {id: 'root:reviewer', name: 'Review changes'}],
-    permissions: [
-      {id: 'first', agent_id: 'root:explorer', status: 'pending', operation: 'bash', command: 'git status --short', rule: 'bash:git *'},
-      {id: 'second', agent_id: 'root:reviewer', status: 'pending', operation: 'read', canonical_path: '/project/README.md', rule: 'read:/project/*'},
+beforeEach(() =>
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  })),
+);
+afterEach(() => vi.unstubAllGlobals());
+const question = (
+  batch = false,
+  multiple = false,
+): Extract<Question, { state: 'pending' }> => ({
+  operation_id: 'question-op',
+  session_id: 'root',
+  turn_id: 'turn',
+  cell_id: 'cell',
+  request: {
+    batch,
+    questions: [
+      {
+        question: 'Choose a direction',
+        multiple,
+        options: [
+          {
+            label: 'North',
+            description: 'Follow the river',
+            recommended: true,
+          },
+          { label: 'South', description: 'Take the road', recommended: false },
+        ],
+      },
+      ...(batch
+        ? [
+            {
+              question: 'Choose a color',
+              multiple: false,
+              options: [
+                { label: 'Blue', description: 'Sea', recommended: false },
+                { label: 'Green', description: 'Forest', recommended: true },
+              ] satisfies Question['request']['questions'][number]['options'],
+            },
+          ]
+        : []),
     ],
-  } as RootSnapshot;
-  const decide = vi.fn(async (_decision: unknown) => {});
-  const refresh = vi.fn(async () => {});
-  const session = {rootId: 'root', client: {permissions: {decide}}} as unknown as Session;
-  const runtime = {report: vi.fn()} as unknown as AppRuntime;
-  const ui = (snapshot = root, disabled = false) => <RuntimeContext.Provider value={runtime}><UIProvider>
-    <PendingRequests root={snapshot} session={session} disabled={disabled} refresh={refresh}/>
-  </UIProvider></RuntimeContext.Provider>;
-  return {root, decide, refresh, ui};
+  },
+  state: 'pending',
+  answers: [],
+  close_reason: null,
+  created_at: at,
+  deadline: '2026-09-28T12:05:00Z',
+  closed_at: null,
+});
+const permission: Permission = {
+  operation_id: 'operation',
+  state: 'pending',
+  created_at: at,
+  resolved_at: null,
+};
+async function questionFixture(batch = false, multiple = false) {
+  const f = await providerFixture(),
+    session = f.client.session('root'),
+    refresh = vi.fn(async () => {}),
+    q = question(batch, multiple);
+  f.data.handlers['questions.answer'] = (request) => ({
+    ...q,
+    state: 'answered',
+    answers: parameters('AnswerQuestionParams', request.params).answers,
+    closed_at: at,
+  });
+  f.data.handlers['questions.get'] = () => q;
+  return {
+    ...f,
+    q,
+    session,
+    refresh,
+    app: (disabled = false) => (
+      <>
+        <QuestionRequest
+          question={q}
+          session={session}
+          disabled={disabled}
+          refresh={refresh}
+        />
+        <textarea
+          data-whip-composer
+          aria-label="Draft"
+          defaultValue="Keep draft"
+        />
+      </>
+    ),
+  };
 }
-
-it('shows one approval with the agent name and advances only when the snapshot resolves it', async () => {
-  const f = permissionQueue();
-  const {rerender} = render(f.ui());
-  expect(screen.getAllByRole('region', {name: 'Your approval is needed'})).toHaveLength(1);
-  expect(screen.getByText('Explore repository')).toBeTruthy();
-  expect(screen.queryByText('root:explorer')).toBeNull();
-  expect(screen.queryByText('/project/README.md')).toBeNull();
-  expect(screen.getByRole('status').textContent).toBe('1 more waiting');
-  fireEvent.click(screen.getByRole('button', {name: 'Allow once'}));
-  await waitFor(() => expect(f.refresh).toHaveBeenCalledOnce());
-  expect(f.decide).toHaveBeenCalledExactlyOnceWith({root_id: 'root', permission_id: 'first', allow: true});
-  expect(screen.getByText('git status --short')).toBeTruthy();
-  rerender(f.ui({...f.root, permissions: [{...f.root.permissions![0], status: 'allowed'}, f.root.permissions![1]]}));
-  expect(screen.queryByText('git status --short')).toBeNull();
-  expect(screen.getByText('Review changes')).toBeTruthy();
-  expect(screen.getByText('/project/README.md')).toBeTruthy();
-  expect(screen.queryByRole('status')).toBeNull();
-  fireEvent.click(screen.getByRole('button', {name: 'Deny'}));
-  await waitFor(() => expect(f.decide).toHaveBeenLastCalledWith({root_id: 'root', permission_id: 'second', allow: false}));
-});
-
-it('resets the permission scope when another client resolves the displayed request', async () => {
-  const f = permissionQueue();
-  const user = userEvent.setup();
-  const {rerender} = render(f.ui());
-  await user.click(screen.getByRole('combobox', {name: 'Permission scope'}));
-  await user.click(await screen.findByRole('option', {name: 'Remember on this host'}));
-  expect(screen.getByRole('button', {name: 'Allow and remember'})).toBeTruthy();
-  rerender(f.ui({...f.root, permissions: f.root.permissions!.slice(1)}));
-  expect(screen.getByRole('combobox', {name: 'Permission scope'}).textContent).toContain('This request only');
-  fireEvent.click(screen.getByRole('button', {name: 'Allow once'}));
-  await waitFor(() => expect(f.decide).toHaveBeenCalledExactlyOnceWith({root_id: 'root', permission_id: 'second', allow: true}));
-});
-
-it('holds an uncertain decision on its original request until an explicit state refresh', async () => {
-  const f = permissionQueue();
-  let reject!: (error: Error) => void;
-  f.decide.mockImplementationOnce(() => new Promise((_, fail) => {reject = fail;}));
-  render(f.ui());
-  fireEvent.click(screen.getByRole('button', {name: 'Allow once'}));
-  expect(screen.getByRole('combobox', {name: 'Permission scope'})).toHaveProperty('disabled', true);
-  expect(screen.getByRole('button', {name: 'Deny'})).toHaveProperty('disabled', true);
-  await act(async () => reject(new Error('Connection lost')));
-  expect(screen.getByText('Explore repository')).toBeTruthy();
-  expect(screen.queryByRole('button', {name: 'Allow once'})).toBeNull();
-  fireEvent.click(screen.getByRole('button', {name: 'Refresh permission state before retrying'}));
-  await screen.findByRole('button', {name: 'Allow once'});
-  expect(f.refresh).toHaveBeenCalledOnce();
-  expect(f.decide).toHaveBeenCalledOnce();
-});
-
-it('uses readable missing-name fallbacks and qualifies an incomplete permission queue', () => {
-  const f = permissionQueue();
-  const root = {...f.root, agents: [], permissions: [f.root.permissions![0]], omitted: {permissions: true}};
-  const {rerender} = render(f.ui(root, true));
-  expect(screen.getByText('Unnamed agent')).toBeTruthy();
-  expect(screen.queryByText('root:explorer')).toBeNull();
-  expect(screen.getByRole('status').textContent).toBe('More approvals pending');
-  expect(screen.getByRole('button', {name: 'Allow once'})).toHaveProperty('disabled', true);
-  rerender(f.ui({...root, permissions: [{...root.permissions[0], agent_id: 'root'}]}));
-  expect(screen.getByText('Root agent')).toBeTruthy();
-});
-
-function fixture(multiple: boolean) {
-  const question = {question_id: 'question', question: 'Choose an approach', multiple, options: [{label: 'Inspect', description: 'Read the current state.'}, {label: 'Implement', description: 'Apply the agreed changes.'}]};
-  const answerQuestion = vi.fn(() => ({}));
-  const session = {rootId: 'root', answerQuestion} as unknown as Session;
-  const runtime = {run: vi.fn(async () => {}), report: vi.fn()} as unknown as AppRuntime;
-  render(<RuntimeContext.Provider value={runtime}><UIProvider><PendingRequests root={{questions: [question]} as RootSnapshot} session={session} disabled={false} refresh={async () => {}}/></UIProvider></RuntimeContext.Provider>);
-  return {answerQuestion};
-}
-it('single-choice questions use named radios, retain descriptions and submit only one choice', async () => {
-  const {answerQuestion} = fixture(false);
-  expect(screen.queryByRole('checkbox')).toBeNull();
-  expect(screen.getByRole('radiogroup', {name: 'Choose an approach'})).toBeTruthy();
-  const inspect = screen.getByRole('radio', {name: /Inspect/});
-  const implement = screen.getByRole('radio', {name: /Implement/});
-  expect(document.getElementById(inspect.getAttribute('aria-describedby')!)?.textContent).toBe('Read the current state.');
-  fireEvent.click(inspect);
-  fireEvent.click(implement);
-  expect(inspect.getAttribute('aria-checked')).toBe('false');
-  expect(implement.getAttribute('aria-checked')).toBe('true');
-  fireEvent.click(screen.getByRole('button', {name: 'Send'}));
-  await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith('question', ['Implement'], false));
-});
-it('multiple-choice questions retain independently selectable checkboxes', async () => {
-  const {answerQuestion} = fixture(true);
-  expect(screen.queryByRole('radio')).toBeNull();
-  fireEvent.click(screen.getByRole('checkbox', {name: /Inspect/}));
-  fireEvent.click(screen.getByRole('checkbox', {name: /Implement/}));
-  fireEvent.click(screen.getByRole('button', {name: 'Send'}));
-  await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith('question', ['Inspect', 'Implement'], false));
-});
-
-for (const kind of ['permission', 'question'] as const) {
-  for (const next of ['composer', 'resolved card', 'another control', 'another recipient', 'failed answer'] as const) {
-    it(`${kind} resolution respects focus when the next destination is ${next}`, async () => {
-      let resolve!: () => void;
-      let reject!: (error: Error) => void;
-      const completion = new Promise<void>((done, fail) => {resolve = done; reject = fail;});
-      const decide = vi.fn(() => completion);
-      const session = {rootId: 'root', client: {permissions: {decide}}, answerQuestion: vi.fn(() => ({}))} as unknown as Session;
-      const runtime = {run: vi.fn(() => completion), report: vi.fn()} as unknown as AppRuntime;
-      const root = (kind === 'permission'
-        ? {permissions: [{id: 'permission', status: 'pending', operation: 'write', rule: 'write:*', canonical_path: '/tmp/example.txt'}]}
-        : {questions: [{question_id: 'question', question: 'Continue?'}]}) as RootSnapshot;
-      const ui = (recipient: number, pending = true) => <RuntimeContext.Provider value={runtime}><UIProvider>
-        <PendingRequests root={pending ? root : {} as RootSnapshot} session={session} disabled={false} refresh={async () => {}}/>
-        <textarea key={recipient} aria-label="Composer" data-whip-composer/>
-        <input aria-label="Another control"/>
-      </UIProvider></RuntimeContext.Provider>;
-      const {rerender} = render(ui(0));
-      if (kind === 'permission') expect(screen.getByRole('combobox', {name: 'Permission scope'}).textContent).toContain('This request only');
-      const button = screen.getByRole('button', {name: kind === 'permission' ? 'Deny' : 'Dismiss question', exact: true});
-      button.focus();
-      fireEvent.click(button);
-      if (next === 'resolved card') {
-        rerender(ui(0, false));
-        expect(document.activeElement).toBe(document.body);
-      }
-      if (next === 'another control') screen.getByLabelText('Another control').focus();
-      if (next === 'another recipient') rerender(ui(1));
-      await act(async () => {
-        if (next === 'failed answer') reject(new Error('Request was not accepted'));
-        else resolve();
-      });
-      if (next === 'failed answer') {
-        expect(runtime.report).not.toHaveBeenCalled();
-        expect(screen.getByRole(kind === 'permission' ? 'status' : 'alert').closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');
-      }
-      const composer = screen.getByLabelText('Composer');
-      if (next === 'composer' || next === 'resolved card') expect(document.activeElement).toBe(composer);
-      else expect(document.activeElement).not.toBe(composer);
-      if (next === 'another control') expect(document.activeElement).toBe(screen.getByLabelText('Another control'));
+it.each(['browser.attach', 'shell.run', 'files.read'])(
+  'shows exact %s resource and arguments with operation-only approval',
+  async (capability) => {
+    const f = await providerFixture(),
+      session = f.client.session('child'),
+      op = {
+        ...operation('operation', 'waiting', capability),
+        session_id: 'child',
+        arguments: {
+          command: 'literal request',
+          profile: 'recorded profile',
+          ports: [3000],
+        },
+      };
+    f.data.handlers['operations.get'] = () => op;
+    f.data.handlers['permissions.resolve'] = () => ({
+      ...permission,
+      state: 'approved',
+      resolved_at: at,
     });
-  }
-}
-
-it('single-choice text and option answers replace each other', async () => {
-  const {answerQuestion} = fixture(false);
-  fireEvent.click(screen.getByRole('radio', {name: /Inspect/}));
-  fireEvent.change(screen.getByLabelText('Write your own response'), {target: {value: 'My approach'}});
-  expect(screen.getByRole('radio', {name: /Inspect/}).getAttribute('aria-checked')).toBe('false');
-  fireEvent.click(screen.getByRole('radio', {name: /Implement/}));
-  expect((screen.getByLabelText('Write your own response') as HTMLInputElement).value).toBe('');
-  fireEvent.click(screen.getByRole('button', {name: 'Send', exact: true}));
-  await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith('question', ['Implement'], false));
+    const refresh = vi.fn(async () => {});
+    f.mount(
+      <PermissionRequest
+        permission={permission}
+        operation={op}
+        waiting="9007199254740993"
+        session={session}
+        disabled={false}
+        refresh={refresh}
+      />,
+    );
+    expect(screen.getByLabelText('Requested resource').textContent).toBe(
+      op.resource,
+    );
+    expect(screen.getByLabelText('Requested operation').textContent).toContain(
+      'literal request',
+    );
+    expect(screen.getByRole('status').textContent).toContain(
+      '9007199254740993',
+    );
+    expect(screen.queryByRole('combobox')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    expect(
+      f.calls.find((call) => call.method === 'permissions.resolve')?.params,
+    ).toEqual({ operation_id: 'operation', approved: true });
+    expect(f.count('grants.create')).toBe(0);
+  },
+);
+it('keeps an uncertain approval pinned and checks without switching or replaying the decision', async () => {
+  const f = await providerFixture(),
+    session = f.client.session('root'),
+    op = operation('operation', 'waiting');
+  f.data.handlers['operations.get'] = () => op;
+  f.data.handlers['permissions.resolve'] = () => {
+    throw new DeliveryError('Lost acknowledgement');
+  };
+  const refresh = vi.fn(async () => {});
+  f.mount(
+    <PermissionRequest
+      permission={permission}
+      operation={op}
+      waiting="0"
+      session={session}
+      disabled={false}
+      refresh={refresh}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Deny' }));
+  await screen.findByRole('button', { name: 'Retry same denial' });
+  expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Check approval state' }));
+  await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  expect(f.count('permissions.resolve')).toBe(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry same denial' }));
+  await waitFor(() => expect(f.count('permissions.resolve')).toBe(2));
+  expect(
+    f.calls
+      .filter((call) => call.method === 'permissions.resolve')
+      .map((call) => call.params),
+  ).toEqual([
+    { operation_id: 'operation', approved: false },
+    { operation_id: 'operation', approved: false },
+  ]);
 });
-
-it('batched questions preserve earlier answers and submit a skipped last page exactly once', async () => {
-  const answerQuestions = vi.fn(() => ({}));
-  const session = {rootId: 'root', answerQuestions} as unknown as Session;
-  const runtime = {run: vi.fn(async () => {}), report: vi.fn()} as unknown as AppRuntime;
-  const root = {questions: [{question_id: 'batch', questions: [
-    {question: 'Approach?', options: [{label: 'Inspect', recommended: true}, {label: 'Implement'}]},
-    {question: 'Storage?', options: [{label: 'SQLite'}, {label: 'Postgres'}]},
-  ]}]} as RootSnapshot;
-  render(<RuntimeContext.Provider value={runtime}><UIProvider><PendingRequests root={root} session={session} disabled={false} refresh={async () => {}}/></UIProvider></RuntimeContext.Provider>);
-  expect(screen.getByRole('radio', {name: /Inspect/}).getAttribute('aria-checked')).toBe('false');
-  fireEvent.click(screen.getByRole('radio', {name: /Inspect/}));
-  fireEvent.click(screen.getByRole('button', {name: 'Next', exact: true}));
-  fireEvent.click(screen.getByRole('radio', {name: /SQLite/}));
-  fireEvent.click(screen.getByRole('button', {name: 'Back', exact: true}));
-  expect(screen.getByRole('radio', {name: /Inspect/}).getAttribute('aria-checked')).toBe('true');
-  fireEvent.click(screen.getByRole('button', {name: 'Next', exact: true}));
-  fireEvent.click(screen.getByRole('button', {name: 'Skip', exact: true}));
-  await waitFor(() => expect(answerQuestions).toHaveBeenCalledExactlyOnceWith('batch', [{answer: ['Inspect']}, null]));
+it('uses native pending-only metadata and fetches only the selected operation, with root questions distinct from child approval', async () => {
+  const f = await providerFixture(),
+    session = f.client.session('child');
+  f.data.handlers['permissions.list'] = () => ({ items: [permission] });
+  f.data.handlers['operations.get'] = () => ({
+    ...operation('operation', 'waiting'),
+    session_id: 'child',
+  });
+  f.data.handlers['questions.list'] = () => ({ items: [question()] });
+  f.mount(
+    <PendingRequests
+      session={session}
+      rootId="root"
+      disabled={false}
+      pendingCount="2"
+      refresh={async () => {}}
+    />,
+  );
+  await screen.findByRole('button', { name: 'Allow once' });
+  await screen.findByText('Choose a direction');
+  expect(
+    f.calls.find((call) => call.method === 'permissions.list')?.params,
+  ).toEqual({ session_id: 'child', limit: 1, pending_only: true });
+  expect(
+    f.calls.find((call) => call.method === 'questions.list')?.params,
+  ).toEqual({ session_id: 'root', limit: 4, pending_only: true });
+  expect(f.count('operations.get')).toBe(1);
+  expect(f.count('sessions.history_page')).toBe(0);
 });
-
-it('a one-item batch retains the batched answer contract', async () => {
-  const answerQuestions = vi.fn(() => ({}));
-  const session = { rootId: 'root', answerQuestions } as unknown as Session;
-  const runtime = { run: vi.fn(async () => {}), report: vi.fn() } as unknown as AppRuntime;
-  render(<RuntimeContext.Provider value={runtime}><UIProvider><PendingRequests root={{ questions: [{ question_id: 'batch', questions: [{ question: 'Continue?', options: [{ label: 'Yes' }] }] }] } as RootSnapshot} session={session} disabled={false} refresh={async () => {}} /></UIProvider></RuntimeContext.Provider>);
-  fireEvent.click(screen.getByRole('radio', { name: /Yes/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Send', exact: true }));
-  await waitFor(() => expect(answerQuestions).toHaveBeenCalledWith('batch', [{ answer: ['Yes'] }]));
+it('rejects foreign pending question evidence before exposing an answer control', async () => {
+  const f = await providerFixture();
+  f.data.handlers['permissions.list'] = () => ({ items: [] });
+  f.data.handlers['questions.list'] = () => ({
+    items: [{ ...question(), session_id: 'foreign' }],
+  });
+  f.mount(
+    <PendingRequests
+      session={f.client.session('root')}
+      rootId="root"
+      disabled={false}
+      refresh={async () => {}}
+    />,
+  );
+  await screen.findByText(
+    'Question list belongs to another session or is no longer pending',
+  );
+  expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+});
+it('preserves recommended options, descriptions and custom free text without modifying the composer', async () => {
+  const f = await questionFixture();
+  f.mount(f.app());
+  expect(screen.getByText('Recommended')).toBeTruthy();
+  expect(screen.getByText('Follow the river')).toBeTruthy();
+  fireEvent.click(screen.getByRole('radio', { name: /North/ }));
+  fireEvent.change(screen.getByLabelText('Write your own response'), {
+    target: { value: 'Take a detour' },
+  });
+  expect(
+    screen.getByRole('radio', { name: /North/ }).getAttribute('aria-checked'),
+  ).toBe('false');
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(f.refresh).toHaveBeenCalledOnce());
+  expect(
+    f.calls.find((call) => call.method === 'questions.answer')?.params,
+  ).toEqual({
+    session_id: 'root',
+    operation_id: 'question-op',
+    answers: [{ answer: ['Take a detour'], dismissed: false }],
+  });
+  expect(screen.getByLabelText('Draft')).toHaveProperty('value', 'Keep draft');
+});
+it('retains multi-selection and batch drafts across Back, with explicit per-question dismissal', async () => {
+  const f = await questionFixture(true, true);
+  f.mount(f.app());
+  fireEvent.click(screen.getByRole('checkbox', { name: /North/ }));
+  fireEvent.click(screen.getByRole('checkbox', { name: /South/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  expect(
+    screen
+      .getByRole('checkbox', { name: /North/ })
+      .getAttribute('aria-checked'),
+  ).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+  await waitFor(() => expect(f.count('questions.answer')).toBe(1));
+  expect(
+    parameters(
+      'AnswerQuestionParams',
+      f.calls.find((call) => call.method === 'questions.answer')?.params,
+    ).answers,
+  ).toEqual([
+    { answer: ['North', 'South'], dismissed: false },
+    { answer: [], dismissed: true },
+  ]);
+});
+it('dismisses the entire batch using one exact ordinary operation result', async () => {
+  const f = await questionFixture(true);
+  f.mount(f.app());
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss question' }));
+  await waitFor(() => expect(f.count('questions.answer')).toBe(1));
+  expect(
+    parameters(
+      'AnswerQuestionParams',
+      f.calls.find((call) => call.method === 'questions.answer')?.params,
+    ).answers,
+  ).toEqual([
+    { answer: [], dismissed: true },
+    { answer: [], dismissed: true },
+  ]);
+});
+it('freezes an uncertain response, performs read-only checking, then retries only the exact answers', async () => {
+  const f = await questionFixture();
+  f.data.handlers['questions.answer'] = () => {
+    throw new DeliveryError('Lost acknowledgement');
+  };
+  f.mount(f.app());
+  fireEvent.change(screen.getByLabelText('Write your own response'), {
+    target: { value: 'Original response' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByRole('button', { name: 'Retry same response' });
+  expect(screen.getByLabelText('Write your own response')).toHaveProperty(
+    'disabled',
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check answer state' }));
+  await waitFor(() => expect(f.refresh).toHaveBeenCalledOnce());
+  expect(f.count('questions.answer')).toBe(1);
+  expect(f.count('questions.get')).toBe(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry same response' }));
+  await waitFor(() => expect(f.count('questions.answer')).toBe(2));
+  const requests = f.calls.filter((call) => call.method === 'questions.answer');
+  expect(requests[1]?.params).toEqual(requests[0]?.params);
+});
+it('supports keyboard free-text submission and disables all effects while disconnected', async () => {
+  const f = await questionFixture();
+  const view = f.mount(f.app(true));
+  for (const button of screen.getAllByRole('button'))
+    expect(button).toHaveProperty('disabled', true);
+  expect(f.count('questions.answer')).toBe(0);
+  view.rerender(f.wrap(f.app()));
+  const user = userEvent.setup();
+  await user.type(
+    screen.getByLabelText('Write your own response'),
+    'Keyboard response{Enter}',
+  );
+  await waitFor(() => expect(f.count('questions.answer')).toBe(1));
 });

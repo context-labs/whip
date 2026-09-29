@@ -38,6 +38,7 @@ import { useRuntime } from './context';
 import { layout } from './styles';
 import { ReadingList, type ReadingListActions } from './reading-list';
 import { HistoryGapControl } from './history-gap';
+import { spawnedSession } from './chat-activity-rows';
 import { ActivityHeader, ActivityStep, ActivityDetail, InlineAgent, type TranscriptAgent } from './transcript-activity';
 import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type Arrival } from './transcript-motion';
 import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } from './streaming-markdown';
@@ -648,7 +649,7 @@ export function Timeline({
       if (row.historyGap) continue;
       const items = isActivityGroup(row) ? activityItems(row) : [];
       let stagger = 0;
-      for (const id of [...(row.seq === undefined ? [row.id] : []), ...items.filter(item => (item.row?.seq ?? item.cell?.seq) === undefined).map(item => item.id)]) {
+      for (const id of [...(row.seq === undefined ? [row.id] : []), ...items.filter(item => (item.row?.seq ?? item.cell?.call?.message.sequence) === undefined).map(item => item.id)]) {
         if (!seen.current.has(id) && !arrivals.current.has(id)) arrivals.current.set(id, { time: performance.now(), delay: items.length && id !== row.id ? (seen.current.has(row.id) ? 0 : transcriptMotion.first) + stagger++ * transcriptMotion.stagger : 0 });
       }
     }
@@ -723,8 +724,8 @@ export function Timeline({
         const reasoningLive = original.kind === 'reasoning' && index === items.length - 1 && !!row.autoOpen && active && !!original.row?.live;
         const item = original.kind === 'reasoning' && original.row ? { ...original, row: { ...original.row, live: reasoningLive } } : original;
         const detail = choices.get(item.id) ?? (item.kind === 'mailbox' ? false : item.kind === 'reasoning' ? reasoningLive : density === 'detailed');
-        displayRows.push({ id: item.id, seq: item.row?.seq ?? item.cell?.seq, source: row, group: row, item, open: detail, last: index === items.length - 1 && !detail });
-        if (detail) displayRows.push({ id: `${item.id}:detail`, seq: item.row?.seq ?? item.cell?.seq, source: row, group: row, item, detail: true });
+        displayRows.push({ id: item.id, seq: item.row?.seq ?? item.cell?.call?.message.sequence, source: row, group: row, item, open: detail, last: index === items.length - 1 && !detail });
+        if (detail) displayRows.push({ id: `${item.id}:detail`, seq: item.row?.seq ?? item.cell?.call?.message.sequence, source: row, group: row, item, detail: true });
       });
     } else displayRows.push({ id: row.id, seq: row.seq, memberIds: row.memberIds, source: row });
     const owner = isMarkdownRow(row) ? row.ownerId : row.id;
@@ -742,10 +743,10 @@ export function Timeline({
           <RowMotion arrival={row.group || isAgentActivity(source) ? arrivals.current.get(row.id) : undefined} closing={!!row.item && closing.has(row.group!.id)}>
             {source.historyGap ? <HistoryGapControl gap={source.historyGap} connected={connected} load={() => loadGap ? loadGap(source.historyGap!.messageID) : Promise.resolve(readBody(source))} />
             : row.group ? row.item ? row.detail
-              ? <ActivityDetail item={row.item} groupId={row.group.id} readBody={readBody} onOpenRepl={onOpenRepl} />
+              ? <ActivityDetail session={messageScope?.client.session(messageScope.agentId)} connected={connected} item={row.item} groupId={row.group.id} readBody={readBody} onOpenRepl={onOpenRepl} />
               : <ActivityStep item={row.item} groupId={row.group.id} open={!!row.open} toggle={() => toggle(row.item!.id, !!row.open)} connected={connected} last={!!row.last} />
               : <ActivityHeader group={row.group} open={!!row.open} toggle={() => toggle(row.group!.id, !!row.open)} connected={connected} density={density} />
-            : isAgentActivity(source) ? <InlineAgent row={source} agent={agents.find(agent => agent.id === source.agentHost.display?.child_id)} connected={connected} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} />
+            : isAgentActivity(source) ? <InlineAgent row={source} agent={agents.find(agent => agent.id === spawnedSession(source.agentHost))} connected={connected} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} />
             : isMarkdownRow(source) ? <article data-message-role="assistant" data-message-id={source.ownerId} {...stylex.props(messageMarker, styles.article)}><MarkdownBlock row={source} components={markdownComponents} arrival={arrivals.current.get(row.id)} /></article>
             : <MessageRow row={source} readBody={readBody} historyAction={historyAction}
                 attachments={messageScope && (!!source.references?.length || !!source.inputAttachments?.length) && <>

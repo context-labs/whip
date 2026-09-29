@@ -79,7 +79,7 @@ export function timelineRows(history: DeepReadonly<HistoryView> | undefined, pre
           copied = true;
         } else if (part.type === 'tool_call') {
           const row: TimelineRow = { ...base, id: `${id}:call:${part.call.id}`, role: 'tool', text: '',
-            callId: part.call.id, toolName: part.call.name, label: part.call.name === 'rlm_exec' ? 'Execution' : part.call.name,
+            callId: part.call.id, toolName: part.call.name, label: part.call.name === 'execute' ? 'Execution' : part.call.name,
             args: JSON.stringify(part.call.arguments) };
           rows.push(row); calls.set(JSON.stringify([message.group_id, part.call.id]), row);
         } else rows.push({ ...base, id: partID, role: 'assistant', text: '', references: [part.reference_id] });

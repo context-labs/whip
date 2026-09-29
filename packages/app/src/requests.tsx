@@ -1,188 +1,279 @@
 import { typography } from '@whip/ui/tokens.stylex';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ErrorNotice } from './error-feedback';
-import type { Session } from '@whip/legacy-sdk';
-import type { DeepReadonly } from '@whip/legacy-sdk/state';
-import type { LifecycleEvent, RootSnapshot } from '@whip/legacy-protocol';
-import { Button, IconButton, Input, Select } from '@whip/ui';
+import type {
+  HostOperation,
+  Operations,
+  Permission,
+  Question,
+  Session,
+} from '@whip/sdk';
+import type { DeepReadonly } from '@whip/sdk/state';
+import { useQuery } from '@tanstack/react-query';
+import { Button, IconButton, Input } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { CircleHelp, PenLine, ShieldAlert, X } from 'lucide-react';
 import { colors, surface, scale } from '@whip/ui/tokens.stylex';
-import { useRuntime } from './context';
 import { layout } from './styles';
-import { describeRule } from './permission-scope';
 
 function captureAnswerFocus() {
   const previous = document.activeElement;
-  const composer = document.querySelector<HTMLTextAreaElement>('[data-whip-composer]');
+  const composer = document.querySelector<HTMLTextAreaElement>(
+    '[data-whip-composer]',
+  );
   return () => {
-    if (composer?.isConnected && (document.activeElement === previous || document.activeElement === document.body)) composer.focus();
+    if (
+      composer?.isConnected &&
+      (document.activeElement === previous ||
+        document.activeElement === document.body)
+    )
+      composer.focus();
   };
 }
 
+/** Only the visible session's approval and the root's intrinsic questions are read.
+ * Counts come from session activity; list pages and operation bodies stay bounded. */
 export function PendingRequests({
-  root,
   session,
+  rootId,
   disabled,
   refresh,
+  pendingCount = '0',
 }: {
-  root: DeepReadonly<RootSnapshot>;
   session: Session;
+  rootId: string;
   disabled: boolean;
   refresh(): Promise<void>;
+  pendingCount?: string;
 }) {
-  const permissions =
-    root.permissions?.filter((item) => item.status === 'pending') ?? [];
-  const permission = permissions[0];
+  const root = useMemo(
+    () => session.client.session(rootId),
+    [session.client, rootId],
+  );
+  const query = useQuery({
+    queryKey: [
+      'pending-requests',
+      session.client.runtimeID,
+      session.client.processEpoch,
+      rootId,
+      session.id,
+    ],
+    queryFn: async ({ signal }) => {
+      const [permissions, questions] = await Promise.all([
+        session.permissions.list({ pending_only: true, limit: 1 }, { signal }),
+        root.questions.list({ pending_only: true, limit: 4 }, { signal }),
+      ]);
+      if (
+        questions.items.some(
+          (question) =>
+            question.session_id !== root.id || question.state !== 'pending',
+        )
+      )
+        throw new Error(
+          'Question list belongs to another session or is no longer pending',
+        );
+      if (
+        permissions.items?.some((permission) => permission.state !== 'pending')
+      )
+        throw new Error('Approval list contains closed requests');
+      const permission = permissions.items?.[0];
+      const operation = permission
+        ? await session.operations.get(permission.operation_id, { signal })
+        : undefined;
+      return { permission, operation, questions: questions.items };
+    },
+    enabled: !disabled,
+    gcTime: 0,
+    retry: false,
+    refetchInterval: !disabled ? 1500 : false,
+  });
+  const update = async () => {
+    const result = await query.refetch();
+    if (result.error) throw result.error;
+    await refresh();
+  };
+  const data = query.data;
+  if (!data?.permission && !data?.questions.length && !query.error) return null;
   return (
     <section
       aria-label="Needs your attention"
       {...stylex.props(layout.column, layout.requestDock)}
     >
-      {permission && (
+      <ErrorNotice
+        type="resource"
+        owner={`${session.id}:requests`}
+        error={query.error}
+        title="Pending requests unavailable"
+      />
+      {data?.permission && data.operation?.state === 'waiting' && (
         <PermissionRequest
-          key={`${session.rootId}:${permission.id}`}
-          permission={permission}
-          agentName={root.agents?.find(agent => agent.id === permission.agent_id)?.name?.trim()
-            || (permission.agent_id === session.rootId ? 'Root agent' : 'Unnamed agent')}
-          waiting={permissions.length - 1}
-          hasMore={!!root.omitted?.permissions}
+          key={`${session.client.processEpoch}:${session.id}:${data.permission.operation_id}`}
+          permission={data.permission}
+          operation={data.operation}
+          waiting={
+            BigInt(pendingCount) > 0n ? String(BigInt(pendingCount) - 1n) : '0'
+          }
           session={session}
-          disabled={disabled}
-          refresh={refresh}
+          disabled={disabled || !!query.error}
+          refresh={update}
         />
       )}
-      {root.questions
-        ?.filter((question) => question.question_id)
-        .map((question) => (
-          <QuestionRequest
-            key={question.question_id}
-            question={question}
-            session={session}
-            disabled={disabled}
-          />
-        ))}
+      {data?.questions.map((question) => (
+        <QuestionRequest
+          key={`${root.id}:${question.operation_id}`}
+          question={question}
+          session={root}
+          disabled={disabled || !!query.error}
+          refresh={update}
+        />
+      ))}
+      {data?.questions.length === 4 && (
+        <p {...stylex.props(layout.notice)}>
+          Showing up to four pending questions. Further questions appear after
+          these close.
+        </p>
+      )}
     </section>
   );
 }
-function PermissionRequest({
+
+export function PermissionRequest({
   permission,
-  agentName,
+  operation,
   waiting,
-  hasMore,
   session,
   disabled,
   refresh,
 }: {
-  permission: NonNullable<DeepReadonly<RootSnapshot['permissions']>>[number];
-  agentName: string;
-  waiting: number;
-  hasMore: boolean;
+  permission: DeepReadonly<Permission>;
+  operation: DeepReadonly<HostOperation>;
+  waiting: string;
   session: Session;
   disabled: boolean;
   refresh(): Promise<void>;
 }) {
   const titleId = useId();
-  const browserPermission = permission.operation.startsWith('browser.');
   const [pending, setPending] = useState(false);
-  const [remember, setRemember] = useState('');
-  const [uncertain, setUncertain] = useState(false);
+  const [attempt, setAttempt] = useState<boolean>();
   const [error, setError] = useState<unknown>();
   const active = useRef<Session | undefined>(session);
-  useEffect(() => { active.current = session; return () => { active.current = undefined; }; }, [session]);
+  useEffect(() => {
+    active.current = session;
+    return () => {
+      active.current = undefined;
+    };
+  }, [session]);
   async function decide(allow: boolean) {
     if (disabled || pending) return;
     const restoreFocus = captureAnswerFocus();
-    setPending(true); setError(undefined);
+    setPending(true);
+    setError(undefined);
+    setAttempt(allow);
     try {
-      await session.client.permissions.decide({
-        root_id: session.rootId,
-        permission_id: permission.id,
-        allow,
-        ...(allow && remember && !browserPermission ? { remember } : {}),
-      });
+      await session.permissions.resolve(permission.operation_id, allow);
       restoreFocus();
       await refresh();
     } catch (error) {
-      if (active.current === session) { setError(error); setUncertain(true); }
+      if (active.current === session) setError(error);
     } finally {
       if (active.current === session) setPending(false);
     }
   }
   return (
     <div {...stylex.props(requestStyles.region)}>
-      <section aria-labelledby={titleId} aria-busy={pending || undefined} {...stylex.props(permissionStyles.card)}>
+      <section
+        aria-labelledby={titleId}
+        aria-busy={pending || undefined}
+        {...stylex.props(permissionStyles.card)}
+      >
         <div {...stylex.props(permissionStyles.header)}>
           <h2 id={titleId} {...stylex.props(permissionStyles.title)}>
-            Your approval is needed
-            <ShieldAlert size={14} aria-hidden {...stylex.props(permissionStyles.icon)} />
+            Your approval is needed{' '}
+            <ShieldAlert
+              size={14}
+              aria-hidden
+              {...stylex.props(permissionStyles.icon)}
+            />
           </h2>
-          {(waiting > 0 || hasMore) && <span role="status" {...stylex.props(permissionStyles.waiting)}>
-            {waiting > 0 ? `${hasMore ? 'At least ' : ''}${waiting} more waiting` : 'More approvals pending'}
-          </span>}
+          {waiting !== '0' && (
+            <span role="status" {...stylex.props(permissionStyles.waiting)}>
+              {waiting} more waiting
+            </span>
+          )}
         </div>
         <div {...stylex.props(permissionStyles.identity)}>
-          <span title={agentName} {...stylex.props(permissionStyles.agent)}>{agentName}</span>
+          <span {...stylex.props(permissionStyles.agent)}>{session.id}</span>
           <span aria-hidden>·</span>
-          <span {...stylex.props(permissionStyles.operation)}>{permission.operation}</span>
+          <span {...stylex.props(permissionStyles.operation)}>
+            {operation.capability}
+          </span>
         </div>
-        <pre aria-label="Requested operation" tabIndex={0} {...stylex.props(layout.pre, permissionStyles.command)}>
-          {permission.command || permission.canonical_path || permission.operation}
+        <pre
+          aria-label="Requested resource"
+          tabIndex={0}
+          {...stylex.props(layout.pre, permissionStyles.command)}
+        >
+          {operation.resource}
         </pre>
-        {!browserPermission && permission.rule && remember && <p {...stylex.props(permissionStyles.rule)}>Rule: {describeRule(permission.operation, permission.rule).summary}</p>}
-        {browserPermission && <p {...stylex.props(permissionStyles.rule)}>
-          This approval is specific to the Browser resource shown above. It cannot be remembered for other tabs or hosts.
-          {permission.operation === 'browser.allow_preview_port'
-            ? ' This also authorizes the requested preview port; that network access stays with the tab’s preview environment after agent control ends.'
-            : ' Agent control lasts until the attachment is detached, revoked, or its connection ends; releasing control does not close your tab. If SSH preview access is described above, this approval also authorizes that network scope, which remains with the tab after detach.'}
-        </p>}
-        {error !== undefined && <ErrorNotice type="action" owner={`permission:${permission.id}`} error={error} title="Approval status needs checking" tone="warning" />}
-        {uncertain ? (
-          <Button
-            xstyle={[permissionStyles.control, permissionStyles.recovery]}
-            disabled={disabled || pending}
-            loading={pending}
-            onClick={() => {
-              setPending(true);
-              void refresh()
-                .then(() => { if (active.current === session) { setUncertain(false); setError(undefined); } })
-                .catch(error => { if (active.current === session) setError(error); })
-                .finally(() => { if (active.current === session) setPending(false); });
-            }}
+        <details>
+          <summary>Exact operation arguments</summary>
+          <pre
+            aria-label="Requested operation"
+            tabIndex={0}
+            {...stylex.props(layout.pre, permissionStyles.command)}
           >
-            Refresh permission state before retrying
-          </Button>
+            {JSON.stringify(operation.arguments, null, 2)}
+          </pre>
+        </details>
+        <p {...stylex.props(permissionStyles.rule)}>
+          This decision applies to this operation. Manage standing resource
+          grants in Session details → Permissions.
+        </p>
+        {error !== undefined && (
+          <ErrorNotice
+            type="action"
+            owner={`permission:${permission.operation_id}`}
+            error={error}
+            title="Approval status needs checking"
+            tone="warning"
+          />
+        )}
+        {attempt !== undefined ? (
+          <div {...stylex.props(permissionStyles.footer)}>
+            <Button
+              disabled={disabled || pending}
+              onClick={() => {
+                setPending(true);
+                void refresh()
+                  .catch(setError)
+                  .finally(() => setPending(false));
+              }}
+            >
+              Check approval state
+            </Button>
+            <Button
+              disabled={disabled || pending}
+              onClick={() => void decide(attempt)}
+            >
+              Retry same {attempt ? 'approval' : 'denial'}
+            </Button>
+          </div>
         ) : (
           <div {...stylex.props(permissionStyles.footer)}>
-            <div {...stylex.props(layout.row, layout.wrap)}>
-              <Button
-                xstyle={permissionStyles.control}
-                disabled={disabled || pending}
-                onClick={() => void decide(true)}
-              >
-                {remember && !browserPermission ? 'Allow and remember' : 'Allow once'}
-              </Button>
-              <Button
-                xstyle={permissionStyles.control}
-                disabled={disabled || pending}
-                onClick={() => void decide(false)}
-              >
-                Deny
-              </Button>
-            </div>
-            {!browserPermission && permission.rule && <Select
-              label="Permission scope"
-              placeholder="This request only"
-              value={remember}
-              onValueChange={setRemember}
+            <Button
+              xstyle={permissionStyles.control}
               disabled={disabled || pending}
-              xstyle={[permissionStyles.control, permissionStyles.scope]}
-              options={[
-                { value: '', label: 'This request only' },
-                { value: 'tree', label: 'Remember for this session and children' },
-                { value: 'global', label: 'Remember on this host' },
-              ]}
-            />}
+              onClick={() => void decide(true)}
+            >
+              Allow once
+            </Button>
+            <Button
+              xstyle={permissionStyles.control}
+              disabled={disabled || pending}
+              onClick={() => void decide(false)}
+            >
+              Deny
+            </Button>
           </div>
         )}
       </section>
@@ -213,28 +304,75 @@ const permissionStyles = stylex.create({
     fontSize: typography.size13,
     lineHeight: 1.5,
   },
-  header: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: scale.space2 },
+  header: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: scale.space2,
+  },
   title: {
-    display: 'flex', alignItems: 'center', gap: scale.space2,
-    margin: 0, fontSize: typography.size13, fontWeight: 550,
+    display: 'flex',
+    alignItems: 'center',
+    gap: scale.space2,
+    margin: 0,
+    fontSize: typography.size13,
+    fontWeight: 550,
     color: `color-mix(in srgb, ${colors.warning} 70%, ${colors.foreground})`,
   },
   icon: { flexShrink: 0 },
-  waiting: { marginInlineStart: 'auto', color: surface.secondaryText, fontSize: typography.size12 },
-  identity: { display: 'flex', alignItems: 'baseline', gap: scale.space2, color: surface.secondaryText, fontSize: typography.size12, minWidth: 0, overflowWrap: 'anywhere' },
-  agent: { fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  waiting: {
+    marginInlineStart: 'auto',
+    color: surface.secondaryText,
+    fontSize: typography.size12,
+  },
+  identity: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: scale.space2,
+    color: surface.secondaryText,
+    fontSize: typography.size12,
+    minWidth: 0,
+    overflowWrap: 'anywhere',
+  },
+  agent: {
+    fontWeight: 500,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
   operation: { flexShrink: 0, maxWidth: '50%' },
   command: { maxHeight: 'min(24dvh, 200px)', paddingBlock: scale.space1 },
-  rule: { margin: 0, overflowWrap: 'anywhere', fontSize: typography.size12, color: surface.secondaryText },
-  footer: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: scale.space2, paddingTop: scale.space1 },
+  rule: {
+    margin: 0,
+    overflowWrap: 'anywhere',
+    fontSize: typography.size12,
+    color: surface.secondaryText,
+  },
+  footer: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: scale.space2,
+    paddingTop: scale.space1,
+  },
   control: {
-    maxWidth: '100%', whiteSpace: 'normal', textAlign: 'start',
+    maxWidth: '100%',
+    whiteSpace: 'normal',
+    textAlign: 'start',
     borderColor: `color-mix(in srgb, ${colors.warning} 30%, ${colors.background})`,
-    backgroundColor: { default: 'transparent', ':hover': `color-mix(in srgb, ${colors.foreground} 5%, transparent)` },
+    backgroundColor: {
+      default: 'transparent',
+      ':hover': `color-mix(in srgb, ${colors.foreground} 5%, transparent)`,
+    },
   },
   scope: {
-    flexShrink: 1, minWidth: 0, fontSize: typography.size12, fontWeight: 400,
-    color: surface.secondaryText, borderColor: 'transparent',
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: typography.size12,
+    fontWeight: 400,
+    color: surface.secondaryText,
+    borderColor: 'transparent',
   },
   recovery: { alignSelf: 'flex-start' },
 });
@@ -257,7 +395,11 @@ const questionStyles = stylex.create({
     color: surface.secondaryText,
   },
   headerLabel: { fontSize: typography.size13, fontWeight: 500 },
-  question: { fontSize: `calc(${typography.size13} * 13.5 / 13)`, fontWeight: 600, lineHeight: 1.4 },
+  question: {
+    fontSize: `calc(${typography.size13} * 13.5 / 13)`,
+    fontWeight: 600,
+    lineHeight: 1.4,
+  },
   options: {
     display: 'flex',
     flexDirection: 'column',
@@ -354,27 +496,34 @@ type QuestionDraft = { selected: string[]; text: string; skipped: boolean };
 
 type QuestionItem = {
   question: string;
-  options?: DeepReadonly<{ label: string; description?: string; recommended?: boolean }[]> | null;
+  options?: DeepReadonly<
+    { label: string; description?: string; recommended?: boolean }[]
+  > | null;
   multiple?: boolean;
 };
 
-function QuestionRequest({
+export function QuestionRequest({
   question,
   session,
   disabled,
+  refresh,
 }: {
-  question: DeepReadonly<LifecycleEvent>;
+  question: DeepReadonly<Question>;
   session: Session;
   disabled: boolean;
+  refresh(): Promise<void>;
 }) {
-  const runtime = useRuntime();
-  const questions: readonly QuestionItem[] =
-    question.questions?.length
-      ? question.questions
-      : [{ question: question.question ?? '', options: question.options, multiple: question.multiple }];
+  const questions: readonly QuestionItem[] = question.request.questions;
+  const [attempt, setAttempt] =
+    useState<Operations['questions.answer']['params']['answers']>();
   const [error, setError] = useState<unknown>();
   const active = useRef<Session | undefined>(session);
-  useEffect(() => { active.current = session; return () => { active.current = undefined; }; }, [session]);
+  useEffect(() => {
+    active.current = session;
+    return () => {
+      active.current = undefined;
+    };
+  }, [session]);
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
     questions.map(() => ({ selected: [], text: '', skipped: false })),
@@ -403,72 +552,97 @@ function QuestionRequest({
   function draftAnswer(item: QuestionDraft): string[] {
     return [...item.selected, ...(item.text.trim() ? [item.text.trim()] : [])];
   }
-  async function submit(nextDrafts = drafts) {
-    if (!question.question_id) return;
+  async function send(
+    answers: Operations['questions.answer']['params']['answers'],
+  ) {
+    if (disabled || pending) return;
     const restoreFocus = captureAnswerFocus();
-    setPending(true); setError(undefined);
+    setPending(true);
+    setError(undefined);
+    setAttempt(answers);
     try {
-      await runtime.run(
-        question.questions?.length
-          ? session.answerQuestions(
-              question.question_id,
-              nextDrafts.map((item) =>
-                item.skipped ? null : { answer: draftAnswer(item) },
-              ),
-            )
-          : session.answerQuestion(question.question_id, draftAnswer(nextDrafts[0]), nextDrafts[0].skipped),
-        'Answer question',
-      );
+      await session.questions.answer(question.operation_id, answers);
       restoreFocus();
+      await refresh();
     } catch (error) {
       if (active.current === session) setError(error);
     } finally {
       if (active.current === session) setPending(false);
     }
   }
+  async function submit(nextDrafts = drafts) {
+    const answers = nextDrafts.map((item) => ({
+      answer: item.skipped ? [] : draftAnswer(item),
+      dismissed: item.skipped,
+    }));
+    const first = answers[0];
+    if (first) await send([first, ...answers.slice(1)]);
+  }
   async function dismissAll() {
-    if (!question.question_id) return;
-    const restoreFocus = captureAnswerFocus();
-    setPending(true); setError(undefined);
-    try {
-      await runtime.run(
-        question.questions?.length
-          ? session.answerQuestions(
-              question.question_id,
-              questions.map(() => ({ answer: [], dismissed: true })),
-            )
-          : session.answerQuestion(question.question_id, [], true),
-        'Dismiss question',
-      );
-      restoreFocus();
-    } catch (error) {
-      if (active.current === session) setError(error);
-    } finally {
-      if (active.current === session) setPending(false);
-    }
+    await send([
+      { answer: [], dismissed: true },
+      ...questions.slice(1).map(() => ({ answer: [], dismissed: true })),
+    ]);
   }
 
   const hasInput = !!draft.selected.length || !!draft.text.trim();
-  const canAdvance = !disabled && !pending && (hasInput || draft.skipped);
+  const canAdvance =
+    !disabled && !pending && !attempt && (hasInput || draft.skipped);
   return (
     <div {...stylex.props(requestStyles.region)}>
       <div {...stylex.props(questionStyles.card)}>
         <div {...stylex.props(questionStyles.header)}>
           <CircleHelp size={14} />
           <span {...stylex.props(questionStyles.headerLabel)}>
-            {questions.length > 1 ? `Question ${index + 1} of ${questions.length}` : 'Question'}
+            {questions.length > 1
+              ? `Question ${index + 1} of ${questions.length}`
+              : 'Question'}
           </span>
           <span {...stylex.props(layout.grow)} />
           <IconButton
             label="Dismiss question"
             variant="ghost"
-            disabled={disabled || pending}
+            disabled={disabled || pending || !!attempt}
             onClick={() => void dismissAll()}
           >
             <X size={14} />
           </IconButton>
         </div>
-        {error !== undefined && <ErrorNotice type="action" owner={`question:${question.question_id}`} error={error} title="Could not submit response" />}
+        {error !== undefined && (
+          <ErrorNotice
+            type="action"
+            owner={`question:${question.operation_id}`}
+            error={error}
+            title="Could not submit response"
+          />
+        )}
+        {attempt && (
+          <div {...stylex.props(layout.row, layout.wrap)}>
+            <Button
+              disabled={disabled || pending}
+              onClick={() => {
+                setPending(true);
+                void session.questions
+                  .get(question.operation_id)
+                  .then(refresh)
+                  .catch(setError)
+                  .finally(() => setPending(false));
+              }}
+            >
+              Check answer state
+            </Button>
+            <Button
+              disabled={disabled || pending}
+              onClick={() => void send(attempt)}
+            >
+              Retry same response
+            </Button>
+            <p>
+              The exact response is retained until its delivery is resolved.
+              Checking does not send it again.
+            </p>
+          </div>
+        )}
         <div {...stylex.props(questionStyles.question)}>{current.question}</div>
         {!!current.options?.length && (
           <div
@@ -478,7 +652,9 @@ function QuestionRequest({
           >
             {current.options.map((option, optionIndex) => {
               const active = draft.selected.includes(option.label);
-              const descriptionId = option.description ? `${question.question_id}-option-${optionIndex}-description` : undefined;
+              const descriptionId = option.description
+                ? `${question.operation_id}-option-${optionIndex}-description`
+                : undefined;
               return (
                 <button
                   key={option.label}
@@ -486,7 +662,7 @@ function QuestionRequest({
                   role={current.multiple ? 'checkbox' : 'radio'}
                   aria-checked={active}
                   aria-describedby={descriptionId}
-                  disabled={disabled || pending}
+                  disabled={disabled || pending || !!attempt}
                   {...stylex.props(questionStyles.option)}
                   onClick={() => toggle(option.label)}
                 >
@@ -502,11 +678,16 @@ function QuestionRequest({
                     <span {...stylex.props(questionStyles.optionLabel)}>
                       {option.label}
                       {option.recommended && (
-                        <span {...stylex.props(questionStyles.recommended)}>Recommended</span>
+                        <span {...stylex.props(questionStyles.recommended)}>
+                          Recommended
+                        </span>
                       )}
                     </span>
                     {option.description && (
-                      <span id={descriptionId} {...stylex.props(questionStyles.optionDescription)}>
+                      <span
+                        id={descriptionId}
+                        {...stylex.props(questionStyles.optionDescription)}
+                      >
                         {option.description}
                       </span>
                     )}
@@ -521,7 +702,7 @@ function QuestionRequest({
             <Button
               variant="ghost"
               xstyle={questionStyles.action}
-              disabled={disabled || pending}
+              disabled={disabled || pending || !!attempt}
               onClick={() => setIndex(index - 1)}
             >
               Back
@@ -534,10 +715,17 @@ function QuestionRequest({
             <Input
               aria-label="Write your own response"
               xstyle={questionStyles.customInput}
+              maxLength={8192}
               value={draft.text}
-              onChange={(event) => patchDraft({ text: event.target.value, selected: current.multiple ? draft.selected : [], skipped: false })}
+              onChange={(event) =>
+                patchDraft({
+                  text: event.target.value,
+                  selected: current.multiple ? draft.selected : [],
+                  skipped: false,
+                })
+              }
               placeholder="Or write your own response"
-              disabled={disabled || pending}
+              disabled={disabled || pending || !!attempt}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && canAdvance) {
                   event.preventDefault();
@@ -550,13 +738,16 @@ function QuestionRequest({
           <Button
             variant="ghost"
             xstyle={questionStyles.action}
-            disabled={disabled || pending}
+            disabled={disabled || pending || !!attempt}
             onClick={() => {
               if (questions.length === 1) void dismissAll();
               else {
                 const skipped = { selected: [], text: '', skipped: true };
                 patchDraft(skipped);
-                if (last) void submit(drafts.map((item, i) => i === index ? skipped : item));
+                if (last)
+                  void submit(
+                    drafts.map((item, i) => (i === index ? skipped : item)),
+                  );
                 else setIndex(index + 1);
               }
             }}

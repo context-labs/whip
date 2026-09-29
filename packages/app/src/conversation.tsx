@@ -1,8 +1,22 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import type { WhipClient } from '@whip/legacy-sdk';
-import { useSessionView, useWhipConnection } from '@whip/legacy-sdk/react';
-import { executionRows, inboxItems, type SessionView } from '@whip/legacy-sdk/state';
+import type { Client, DurableCommand, Session } from '@whip/sdk';
+import { useSessionView, useExecutionView } from '@whip/sdk/react';
+import {
+  cellExecutionRows,
+  type ExecutionView,
+  type SessionView,
+  type TraceView as TraceObservation,
+} from '@whip/sdk/state';
+import { useQuery } from '@tanstack/react-query';
+import { historyBoundary, readLargeMessage } from './conversation-history';
 import {
   Badge,
   Button,
@@ -19,13 +33,7 @@ import { useAppState, useRuntime, useSessionTabs } from './context';
 import { useSessionActions } from './session-actions';
 import { layout } from './styles';
 import type { ReadingListActions } from './reading-list';
-import {
-  Timeline,
-  conversationRows,
-  messagePresentation,
-  ImageAttachment,
-  type TimelineRow,
-} from './timeline';
+import { Timeline, conversationRows, type TimelineRow } from './timeline';
 import { ErrorNotice } from './error-feedback';
 import { Composer } from './composer';
 import { ComposerQueue } from './composer-queue';
@@ -33,19 +41,38 @@ import { ChatDropSurface } from './chat-file-drop';
 import { ReplView } from './repl-view';
 import { TraceView } from './trace-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
-import { activityStatus, CurrentActivity, TranscriptWorking } from './chat-activity';
+import {
+  activityStatus,
+  CurrentActivity,
+  TranscriptWorking,
+} from './chat-activity';
 import { AgentDock } from './agent-dock';
 import { ScheduledWakeNotice } from './scheduled-wake-notice';
-import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
+import {
+  conversationActivityRows,
+  isActivityGroup,
+  type ActivityGroup,
+} from './chat-activity-rows';
 import { SessionTopBar } from './session-top-bar';
 import { openChildChat, openSessionView } from './session-tab-routing';
 import { PickerSkeletons, SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
-import { admittedText, isAcceptedInputNotice, queuedInputRows } from './input-presentation';
+import {
+  admittedText,
+  isAcceptedInputNotice,
+  queuedInputRows,
+} from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
-import { isSessionTab, selectedSessionTab, sessionViewPane, sessionSearch, type ChildChatCompanion, type SessionTab, type SessionViewKind } from './session-tabs';
+import {
+  isSessionTab,
+  selectedSessionTab,
+  sessionViewPane,
+  sessionSearch,
+  type ChildChatCompanion,
+  type SessionViewKind,
+} from './session-tabs';
 
 const loadingStyles = stylex.create({
   overlay: {
@@ -77,120 +104,370 @@ const loadingStyles = stylex.create({
 });
 
 export function SessionLoading() {
-  return <div role="status" aria-label="Opening session" {...stylex.props(loadingStyles.overlay)}>
-    <span {...stylex.props(loadingStyles.indicator)}>
-      <Spinner size={18} label="Opening session" />
-    </span>
-  </div>;
+  return (
+    <div
+      role="status"
+      aria-label="Opening session"
+      {...stylex.props(loadingStyles.overlay)}
+    >
+      <span {...stylex.props(loadingStyles.indicator)}>
+        <Spinner size={18} label="Opening session" />
+      </span>
+    </div>
+  );
 }
 
 /** Route admission/status only. Workspace reconciliation is the sole root lease owner. */
-export function ConversationRoute({ rootId, runtimeId }: { rootId: string; runtimeId: string }) {
+export function ConversationRoute({
+  rootId,
+  runtimeId,
+}: {
+  rootId: string;
+  runtimeId: string;
+}) {
   const runtime = useRuntime();
   useSessionTabs();
   const { hosts } = useAppState();
-  const client = hosts.find(host => host.runtimeId === runtimeId)?.client;
+  const client = hosts.find((host) => host.runtimeId === runtimeId)?.client;
   // The tab strip renders open tabs; this body paints only when no tab holds the session (it is also mounted for a frame while a route commit leaves the tab).
-  if (runtime.tabs.workspace().tabs.some(tab => isSessionTab(tab) && tab.runtimeId === runtimeId && tab.rootId === rootId)) return null;
-  if (!runtime.tabs.canOpen(runtimeId, rootId)) return <div {...stylex.props(layout.empty)}><h1 {...stylex.props(layout.emptyTitle)}>Your session tabs are full</h1><p>Close an open tab to view this session. Its work stays on the host.</p></div>;
-  if (!client) return <div {...stylex.props(layout.empty)}>Connect to the session’s execution host.</div>;
+  if (
+    runtime.tabs
+      .workspace()
+      .tabs.some(
+        (tab) =>
+          isSessionTab(tab) &&
+          tab.runtimeId === runtimeId &&
+          tab.rootId === rootId,
+      )
+  )
+    return null;
+  if (!runtime.tabs.canOpen(runtimeId, rootId))
+    return (
+      <div {...stylex.props(layout.empty)}>
+        <h1 {...stylex.props(layout.emptyTitle)}>Your session tabs are full</h1>
+        <p>
+          Close an open tab to view this session. Its work stays on the host.
+        </p>
+      </div>
+    );
+  if (!client)
+    return (
+      <div {...stylex.props(layout.empty)}>
+        Connect to the session’s execution host.
+      </div>
+    );
   return <ConversationHostStatus client={client} runtimeId={runtimeId} />;
 }
-function ConversationHostStatus({ client, runtimeId }: { client: WhipClient; runtimeId: string }) {
-  const connection = useWhipConnection(client);
-  if (connection.info && connection.info.runtime_id !== runtimeId) return (
-    <div {...stylex.props(layout.empty)}>
-      <h1 {...stylex.props(layout.emptyTitle)}>This session belongs to another host</h1>
-      <p {...stylex.props(layout.emptyText)}>Reconnect to its original runtime to continue. No session requests were sent to this host.</p>
-      <Link to="/">Choose a session</Link>
-    </div>
-  );
+function ConversationHostStatus({
+  client,
+  runtimeId,
+}: {
+  client: Client;
+  runtimeId: string;
+}) {
+  if (client.runtimeID !== runtimeId)
+    return (
+      <div {...stylex.props(layout.empty)}>
+        <h1 {...stylex.props(layout.emptyTitle)}>
+          This session belongs to another host
+        </h1>
+        <p>
+          Reconnect to its original runtime to continue. No session requests
+          were sent to this host.
+        </p>
+        <Link to="/">Choose a session</Link>
+      </div>
+    );
   return <div {...stylex.props(layout.empty)}>Opening session…</div>;
 }
 
-/** Shared session state, controls and inspectors for chat and REPL renderers. */
+type HistoryConfirmation =
+  | { action: 'fork'; command: DurableCommand<'sessions.fork'> }
+  | { action: 'rewind' | 'clear'; command: DurableCommand<'sessions.rewind'> };
+
+/** Shared native observers are leased by the workspace. This component owns only
+ * presentation, bounded control reads, drafts and explicit action confirmations. */
 export function SessionContent({
+  client,
+  session,
+  rootId,
   kind,
   view,
+  execution,
+  trace,
   expectedRuntimeId,
   agentId,
   panel,
   viewId,
   summaryCwd,
 }: {
+  client: Client;
+  session: Session;
+  rootId: string;
   kind: SessionViewKind;
   view: SessionView;
+  execution: ExecutionView;
+  trace?: TraceObservation;
   expectedRuntimeId: string;
   agentId: string;
   panel?: InspectorSection;
   viewId?: string;
-  /** Directory from the tab summary; stands in for the root's cwd while the session opens. */
   summaryCwd?: string;
 }) {
   const runtime = useRuntime();
   useSessionTabs();
-  const state = useSessionView(view);
+  const state = useSessionView(view),
+    evidence = useExecutionView(execution);
   const { commands, preferences, hosts } = useAppState();
-  const submitted = useSyncExternalStore(runtime.submittedInputs.subscribe, runtime.submittedInputs.getSnapshot);
-  const session = view.session;
-  const connection = useWhipConnection(session.client);
-  const root = state.root;
+  const host = hosts.find((host) => host.runtimeId === expectedRuntimeId);
+  const identityValid =
+    client.runtimeID === expectedRuntimeId &&
+    session.client === client &&
+    session.id === agentId &&
+    state.runtimeID === expectedRuntimeId &&
+    state.sessionID === session.id &&
+    evidence.runtimeID === expectedRuntimeId &&
+    evidence.sessionID === session.id;
+  const hostConnected =
+    identityValid &&
+    host?.client === client &&
+    host.state === 'connected' &&
+    runtime.connections.isAttached(client);
+  const rootSession = useMemo(() => client.session(rootId), [client, rootId]);
+  const selectedQuery = useSelectedAgent(session, hostConnected),
+    rootQuery = useSelectedAgent(rootSession, hostConnected);
+  const selected = selectedQuery.data,
+    root = rootQuery.data;
+  const scopeValid =
+    !!selected &&
+    !!root &&
+    root.parent_id === null &&
+    root.tree_id === selected.tree_id;
+  const treeQuery = useQuery({
+    queryKey: [
+      'conversation-tree',
+      client.runtimeID,
+      client.processEpoch,
+      rootId,
+      root?.tree_id,
+    ],
+    queryFn: async ({ signal }) => {
+      if (!root) throw new Error('Root metadata unavailable');
+      return client.trees.get(root.tree_id, { signal });
+    },
+    enabled: hostConnected && scopeValid,
+    retry: false,
+    gcTime: 0,
+    refetchInterval: hostConnected && scopeValid ? 3000 : false,
+  });
+  const tree = treeQuery.data;
+  const connected =
+    hostConnected &&
+    scopeValid &&
+    !!tree &&
+    tree.id === root?.tree_id &&
+    !selectedQuery.error &&
+    !rootQuery.error &&
+    !treeQuery.error;
+  const opening =
+    hostConnected &&
+    (!selected || !root || !tree) &&
+    !selectedQuery.error &&
+    !rootQuery.error &&
+    !treeQuery.error;
   useEffect(() => {
-    if (root?.meta.title) runtime.tabs.titles(expectedRuntimeId, new Map([[session.rootId, root.meta.title]]));
-  }, [runtime, expectedRuntimeId, session.rootId, root?.meta.title]);
-  const actions = useSessionActions();
-  const [confirm, setConfirm] = useState<'clear'>();
+    if (tree?.metadata.title)
+      runtime.tabs.titles(
+        expectedRuntimeId,
+        new Map([[rootId, tree.metadata.title]]),
+      );
+  }, [runtime, expectedRuntimeId, rootId, tree?.metadata.title]);
+  const [queueCursor, setQueueCursor] = useState<string>();
+  const queue = useQuery({
+    queryKey: [
+      'conversation-queue',
+      client.runtimeID,
+      client.processEpoch,
+      session.id,
+      queueCursor,
+    ],
+    queryFn: ({ signal }) =>
+      session.inputs.page(
+        { state: 'queued', after: queueCursor, limit: 100 },
+        { signal },
+      ),
+    enabled: connected,
+    gcTime: 0,
+    retry: false,
+    refetchInterval: connected ? 1500 : false,
+  });
+  useEffect(() => setQueueCursor(undefined), [client, session.id]);
+  const submitted = useSyncExternalStore(
+    runtime.submittedInputs.subscribe,
+    runtime.submittedInputs.getSnapshot,
+  );
+  const localInputs = useMemo(
+    () =>
+      submitted.filter(
+        (item) =>
+          item.runtimeId === expectedRuntimeId &&
+          item.rootId === rootId &&
+          item.agentId === session.id,
+      ),
+    [submitted, expectedRuntimeId, rootId, session.id],
+  );
+  const deliveries = useMemo(
+    () =>
+      new Map(
+        commands
+          .filter(
+            (item) => item.runtimeId === expectedRuntimeId && item.delivery,
+          )
+          .map((item) => [
+            item.commandId,
+            item.delivery === 'absent'
+              ? 'Not received · explicit retry available'
+              : 'Checking delivery…',
+          ]),
+      ),
+    [commands, expectedRuntimeId],
+  );
+  const inbox = queue.data?.items ?? [];
+  const queueRows = useMemo(
+    () =>
+      queuedInputRows(
+        inbox.map((item) => ({ item, stale: !connected || !!queue.error })),
+        localInputs,
+        deliveries,
+      ),
+    [inbox, connected, queue.error, localInputs, deliveries],
+  );
+  const rows = useMemo(
+    () =>
+      kind === 'chat'
+        ? conversationRows(
+            state.history,
+            state.preview ?? undefined,
+            inbox,
+            localInputs,
+            deliveries,
+          )
+        : [],
+    [kind, state.history, state.preview, inbox, localInputs, deliveries],
+  );
+  const cells = useMemo(
+    () => cellExecutionRows(evidence, state.history.messages),
+    [evidence, state.history.messages],
+  );
+  const active = state.activity?.active_turn ?? undefined,
+    activeTurn = active?.id;
+  const lastTurn = active ?? evidence.turns[0];
+  const previousGroups = useRef<readonly ActivityGroup[]>([]);
+  const groupRevision = `${client.processEpoch}:${session.id}:${state.history.snapshot?.revision ?? ''}`;
+  const priorRevision = useRef(groupRevision);
+  const activityRows = useMemo(
+    () =>
+      conversationActivityRows(
+        rows,
+        cells,
+        priorRevision.current === groupRevision ? previousGroups.current : [],
+        activeTurn,
+        evidence.operations,
+      ),
+    [rows, cells, activeTurn, evidence.operations, groupRevision],
+  );
+  useLayoutEffect(() => {
+    priorRevision.current = groupRevision;
+    previousGroups.current = activityRows.filter(isActivityGroup).slice(-128);
+  }, [activityRows, groupRevision]);
+  useEffect(() => {
+    const accepted = new Set([
+      ...state.history.messages.flatMap((message) =>
+        message.input_id ? [message.input_id] : [],
+      ),
+      ...inbox.map((item) => item.id),
+    ]);
+    runtime.submittedInputs.confirm(
+      localInputs
+        .filter((input) => input.inputId && accepted.has(input.inputId))
+        .map((input) => input.id),
+      expectedRuntimeId,
+    );
+  }, [runtime, localInputs, state.history.messages, inbox, expectedRuntimeId]);
+  const admitted = inbox.filter(isAcceptedInputNotice);
+  const delivery = rows
+    .filter((row) => row.role === 'user' && row.delivery)
+    .at(-1)?.delivery;
+  const status = activityStatus(state, cells, connected, lastTurn, delivery);
+  const actions = useSessionActions(),
+    navigate = useNavigate();
   const [actionError, setActionError] = useState<unknown>();
-  const clearRevision = useRef<string | undefined>(undefined);
-  const [historyAction, setHistoryAction] = useState<{
-    action: 'fork' | 'rewind';
-    cut: number;
-    revision: string;
-  }>();
+  const [confirmation, setConfirmation] = useState<HistoryConfirmation>();
+  const [historyPending, setHistoryPending] = useState(false),
+    [historyStarted, setHistoryStarted] = useState(false);
+  const historyLock = useRef(false);
+  const confirmationID = useRef<string | undefined>(undefined);
   const [stored, setStored] = useState<{
     title: string;
     text?: string;
     error?: string;
     body?: TimelineRow['body'];
-    agentId: string;
+    gap?: { id: string; sequence: string };
   }>();
-  useEffect(() => setActionError(undefined), [agentId, panel, session, kind, confirm, historyAction]);
   const bodyRequest = useRef<AbortController | null>(null);
-  const dropTarget = useRef<HTMLDivElement>(null);
-  const readingActions = useRef<ReadingListActions>(null);
+  const dropTarget = useRef<HTMLDivElement>(null),
+    readingActions = useRef<ReadingListActions>(null);
   const childCompanion = useRef<ChildChatCompanion | undefined>(undefined);
   const [childViewId, setChildViewId] = useState<string>();
-  const [childOpenError, setChildOpenError] = useState<{ agentId: string; message: string }>();
+  const [childOpenError, setChildOpenError] = useState<{
+    agentId: string;
+    message: string;
+  }>();
+  const owner = useRef({});
   useLayoutEffect(() => {
+    owner.current = {};
+    historyLock.current = false;
+    confirmationID.current = undefined;
+    setHistoryPending(false);
     childCompanion.current = undefined;
     setChildViewId(undefined);
     setChildOpenError(undefined);
-  }, [viewId, agentId, session]);
+    setActionError(undefined);
+    setConfirmation(undefined);
+    setHistoryStarted(false);
+    setStored(undefined);
+    bodyRequest.current?.abort();
+    return () => {
+      owner.current = {};
+      bodyRequest.current?.abort();
+    };
+  }, [client, session, rootId, viewId]);
   useEffect(() => {
     setStored(undefined);
-    return () => bodyRequest.current?.abort();
-  }, [agentId, kind]);
-  const navigate = useNavigate();
-  const mounted = useRef(false);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const canCreateTab = () => {
-    if (runtime.tabs.workspace().tabs.length < 32) return true;
-    setActionError(new Error('There are 32 open session tabs. Close a tab before creating another.'));
-    return false;
-  };
-  const navigationRevision = useRef(0);
-  useLayoutEffect(() => { navigationRevision.current++; }, [agentId, panel, session, kind, confirm, historyAction]);
-  const stillHere = (revision: number) => mounted.current && navigationRevision.current === revision && runtime.connections.isAttached(session.client);
+    bodyRequest.current?.abort();
+  }, [kind]);
+  useEffect(() => {
+    if (!connected) bodyRequest.current?.abort();
+  }, [connected]);
+  const stillHere = (token: object) =>
+    token === owner.current && runtime.connections.isAttached(client);
   const workspace = runtime.tabs.workspace();
   const focused = !viewId || selectedSessionTab(workspace)?.id === viewId;
-  const openedChild = workspace.tabs.find(tab => tab.id === childViewId && isSessionTab(tab)
-    && tab.kind === 'chat' && tab.runtimeId === expectedRuntimeId && tab.rootId === session.rootId
-    && sessionViewPane(workspace, tab.id)?.selected === tab.id);
+  const openedChild = workspace.tabs.find(
+    (tab) =>
+      tab.id === childViewId &&
+      isSessionTab(tab) &&
+      tab.kind === 'chat' &&
+      tab.runtimeId === expectedRuntimeId &&
+      tab.rootId === rootId &&
+      sessionViewPane(workspace, tab.id)?.selected === tab.id,
+  );
   const openAgent = (next: string, openInTab = false) => {
     setChildOpenError(undefined);
-    const result = openChildChat(runtime, navigate, viewId ?? session.rootId, next, {
-      companion: childCompanion.current, openInTab,
-      onUnavailable: message => setChildOpenError({ agentId: next, message }),
+    const result = openChildChat(runtime, navigate, viewId ?? rootId, next, {
+      companion: childCompanion.current,
+      openInTab,
+      onUnavailable: (message) => setChildOpenError({ agentId: next, message }),
     });
     if (result) {
       childCompanion.current = result.companion;
@@ -198,241 +475,578 @@ export function SessionContent({
     }
   };
   const setPanel = (next?: InspectorSection) => {
-    const search = sessionSearch({ kind, location: { ...(agentId !== session.rootId ? { agent: agentId } : {}), panel: next } });
-    void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
+    const search = sessionSearch({
+      kind,
+      location: {
+        ...(session.id !== rootId ? { agent: session.id } : {}),
+        panel: next,
+      },
+    });
+    void navigate({
+      to: '/h/$runtimeId/s/$rootId',
+      params: { runtimeId: expectedRuntimeId, rootId },
+      search,
+      state: { whipViewId: viewId },
+      replace: true,
+    }).catch((error) => runtime.reportWorkspace(error));
   };
-  const openCreated = async (rootId: string) => {
-    const workspace = runtime.tabs.workspace();
-    const pane = viewId ? sessionViewPane(workspace, viewId) : undefined;
+  const openCreated = async (id: string) => {
+    const workspace = runtime.tabs.workspace(),
+      pane = viewId ? sessionViewPane(workspace, viewId) : undefined;
     const active = !viewId || selectedSessionTab(workspace)?.id === viewId;
-    const id = runtime.tabs.open(expectedRuntimeId, rootId, '', pane?.id);
-    if (active) await navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId }, search: {}, state: { whipViewId: id } });
-    else runtime.tabs.activate(id, false);
+    const tab = runtime.tabs.open(expectedRuntimeId, id, '', pane?.id);
+    if (active)
+      await navigate({
+        to: '/h/$runtimeId/s/$rootId',
+        params: { runtimeId: expectedRuntimeId, rootId: id },
+        search: {},
+        state: { whipViewId: tab },
+      });
+    else runtime.tabs.activate(tab, false);
   };
-  const currentRuntime = connection.info?.runtime_id;
-  const wrongRuntime = !!currentRuntime && currentRuntime !== expectedRuntimeId;
-  const connected =
-    connection.state === 'connected' &&
-    !wrongRuntime &&
-    state.status === 'live';
-  // Opening: connected, no snapshot yet, no failure. Placeholders stay neutral until the host answers.
-  const opening = connection.state === 'connected' && !root && !state.error && (state.status === 'idle' || state.status === 'loading');
-  const history = state.history[agentId];
-  const presentation =
-    agentId === session.rootId
-      ? root?.presentation
-      : root?.agent_presentations[agentId];
-  const queueEnabled = session.client.supports('runtime', 'inbox.steer') && session.client.supports('runtime', 'inbox.remove');
-  const inbox = useMemo(() => inboxItems(state, agentId), [state.root, state.collections.inbox, state.unverifiedInbox, agentId]);
-  const localInputs = useMemo(() => submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId), [submitted, expectedRuntimeId, session.rootId, agentId]);
-  const deliveries = useMemo(() => new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])), [commands, expectedRuntimeId]);
-  const queueRows = useMemo(() => queueEnabled ? queuedInputRows(inbox.rows, localInputs, deliveries) : [], [queueEnabled, inbox, localInputs, deliveries]);
-  const rows = useMemo(() => kind === 'chat' ? conversationRows(
-    history, presentation, inbox.rows.filter(row => !row.stale).map(row => row.item), localInputs, deliveries, true, queueEnabled,
-  ) : [], [kind, history, presentation, inbox, localInputs, deliveries, queueEnabled]);
-  const executions = useMemo(() => executionRows(state, agentId), [state, agentId]);
-  const activeTurn = root?.active_turns[agentId];
-  const previousGroups = useRef<readonly ActivityGroup[]>([]);
-  const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current, activeTurn), [rows, executions, activeTurn]);
-  useLayoutEffect(() => { previousGroups.current = activityRows.filter(isActivityGroup).slice(-128); }, [activityRows]);
-  const admitted = root?.inbox?.filter(item => item.agent_id === agentId && isAcceptedInputNotice(item)) ?? [];
-  const pendingInputs = submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.accepted && !item.confirmed);
-  const pendingInputIds = pendingInputs.map(item => item.id).join(',');
-  useEffect(() => {
-    // Seeing the exact inbox identity is sufficient, including after recovery.
-    runtime.submittedInputs.confirm(submitted.filter(input => input.runtimeId === expectedRuntimeId && input.rootId === session.rootId && root?.inbox?.some(item => item.agent_id === input.agentId && item.seq === input.inboxSeq)).map(input => input.id), expectedRuntimeId);
-  }, [runtime, submitted, expectedRuntimeId, session.rootId, root?.inbox]);
-  useEffect(() => {
-    if (!pendingInputIds || connection.state !== 'connected' || wrongRuntime) return;
-    let current = true;
-    // Let the SDK's coalesced lifecycle refresh populate the inbox first.
-    // Only very fast turns (never observed in the inbox) need this fallback.
-    const timer = setTimeout(() => {
-      void (async () => {
-        // A refresh can join an older snapshot. The second follows acceptance.
-        await view.refresh();
-        if (!current) return;
-        await view.refresh();
-        if (current && view.getSnapshot().status === 'live' && !view.getSnapshot().root?.omitted?.inbox) runtime.submittedInputs.confirm(pendingInputIds.split(','), expectedRuntimeId);
-      })().catch(() => {});
-    }, 250);
-    return () => { current = false; clearTimeout(timer); };
-  }, [runtime, view, pendingInputIds, connection.state, wrongRuntime]);
-  const agent = useSelectedAgent(view, state, agentId, connected);
-  const delivery = rows.filter(row => row.role === 'user' && row.delivery).at(-1)?.delivery;
-  const status = activityStatus(state, agentId, executions, connected, agent, delivery);
-  useEffect(() => {
-    if (agentId === session.rootId || wrongRuntime) return;
-    // The recipient history exposes failures without leaking into another tab.
-    return runtime.acquireAgent(view, agentId);
-  }, [view, agentId, session.rootId, runtime, wrongRuntime]);
+  const refresh = async () => {
+    await Promise.all([view.refresh(), execution.refresh()]);
+  };
+  async function prepareHistory(
+    action: 'fork' | 'rewind' | 'clear',
+    row?: TimelineRow,
+  ) {
+    if (
+      !connected ||
+      !selected ||
+      !state.history.snapshot ||
+      state.status !== 'live' ||
+      historyLock.current
+    )
+      return;
+    historyLock.current = true;
+    setHistoryPending(true);
+    setActionError(undefined);
+    const token = owner.current,
+      snapshot = state.history.snapshot;
+    try {
+      const keep =
+        action === 'clear'
+          ? '0'
+          : await historyBoundary(
+              session,
+              state.history,
+              row!.seq!,
+              runtime.connections.signal(client),
+            );
+      if (!stillHere(token)) return;
+      const id = crypto.randomUUID();
+      confirmationID.current = id;
+      setConfirmation(
+        action === 'fork'
+          ? {
+              action,
+              command: runtime.command(client, 'sessions.fork', {
+                fork_id: id,
+                session_id: session.id,
+                expected_history_revision: snapshot.revision,
+                expected_config_revision: selected.config_revision,
+                observed_through: snapshot.through_sequence,
+                keep_through: keep,
+                title: null,
+              }),
+            }
+          : {
+              action,
+              command: runtime.command(client, 'sessions.rewind', {
+                edit_id: id,
+                session_id: session.id,
+                expected_revision: snapshot.revision,
+                observed_through: snapshot.through_sequence,
+                keep_through: keep,
+              }),
+            },
+      );
+      setHistoryStarted(false);
+    } catch (error) {
+      if (stillHere(token)) setActionError(error);
+    } finally {
+      historyLock.current = false;
+      if (stillHere(token)) setHistoryPending(false);
+    }
+  }
+  async function applyHistory() {
+    if (!confirmation || !connected || historyStarted || historyLock.current)
+      return;
+    if (confirmation.action === 'fork' && !runtime.tabs.canOpen()) {
+      setActionError(
+        new Error('Close an open tab before creating another session.'),
+      );
+      return;
+    }
+    historyLock.current = true;
+    setHistoryPending(true);
+    setHistoryStarted(true);
+    setActionError(undefined);
+    const token = owner.current,
+      commandID = confirmation.command.id;
+    const current = () =>
+      stillHere(token) && confirmationID.current === commandID;
+    try {
+      if (confirmation.action === 'fork') {
+        const result = await runtime.run(confirmation.command, 'Fork history');
+        if (current() && result.root && result.tree)
+          await openCreated(result.fork.root_id);
+      } else {
+        await runtime.run(
+          confirmation.command,
+          confirmation.action === 'clear' ? 'Clear history' : 'Rewind history',
+        );
+        if (current()) await refresh();
+      }
+      if (current()) setConfirmation(undefined);
+    } catch (error) {
+      if (current()) setActionError(error);
+    } finally {
+      if (current()) {
+        historyLock.current = false;
+        setHistoryPending(false);
+      }
+    }
+  }
   async function readBody(row: TimelineRow) {
     if (!row.body) return;
     bodyRequest.current?.abort();
-    bodyRequest.current = new AbortController();
-    const signal = bodyRequest.current.signal;
-    setStored({ title: 'Stored message', body: row.body, agentId });
+    const abort = new AbortController();
+    bodyRequest.current = abort;
+    const current = { title: 'Stored message', body: row.body };
+    setStored(current);
     try {
-      const text = await session.client
-        .content(row.body, { rootId: session.rootId, agentId })
-        .readText({ maxBytes: 1 << 20, signal });
-      if (!signal.aborted)
-        setStored({ title: 'Stored message', text, body: row.body, agentId });
-    } catch (error) {
-      if (!signal.aborted)
+      const bytes = await session.content.readBytes(row.body, {
+        maxBytes: 1 << 20,
+        signal: abort.signal,
+      });
+      if (!abort.signal.aborted)
         setStored({
-          title: 'Stored message',
-          body: row.body,
-          agentId,
+          ...current,
+          text: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+        });
+    } catch (error) {
+      if (!abort.signal.aborted)
+        setStored({
+          ...current,
           error: error instanceof Error ? error.message : String(error),
         });
     }
   }
-  if (wrongRuntime)
+  async function loadGap(id: string) {
+    const gap = state.history.gaps.find((item) => item.messageID === id);
+    if (!gap) throw new Error('Message gap is no longer in this window');
+    bodyRequest.current?.abort();
+    const abort = new AbortController();
+    bodyRequest.current = abort;
+    const current = {
+      title: 'Large message',
+      gap: { id, sequence: gap.sequence },
+    };
+    setStored(current);
+    try {
+      const bytes = await readLargeMessage(
+        session,
+        id,
+        gap.sequence,
+        1 << 20,
+        abort.signal,
+      );
+      if (!abort.signal.aborted)
+        setStored({
+          ...current,
+          text: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+        });
+    } catch (error) {
+      if (!abort.signal.aborted)
+        setStored({
+          ...current,
+          error: error instanceof Error ? error.message : String(error),
+        });
+    }
+  }
+  if (!identityValid || (selected && root && !scopeValid))
     return (
       <div {...stylex.props(layout.empty)}>
-        <h1 {...stylex.props(layout.emptyTitle)}>
-          This session belongs to another host
-        </h1>
-        <p {...stylex.props(layout.emptyText)}>
-          Reconnect to its original runtime to continue. No work has been sent
-          to this host.
-        </p>
+        <h1 {...stylex.props(layout.emptyTitle)}>Session identity changed</h1>
+        <p>Reconnect the original host and reopen this session.</p>
         <Link to="/">Choose a session</Link>
       </div>
     );
+  const resourceError =
+    selectedQuery.error ||
+    rootQuery.error ||
+    treeQuery.error ||
+    state.error?.message;
+  const history = state.history;
   return (
     <ChatDropSurface ref={dropTarget}>
-
-      <SessionTopBar kind={kind} host={hosts.find(host => host.runtimeId === expectedRuntimeId)?.name ?? 'Unavailable host'}
-        cwd={agentId === session.rootId ? (root ? root.meta.cwd : summaryCwd) : agent?.cwd} pending={opening}
-        agentName={agentId === session.rootId ? 'Root' : agent?.name || agentId}
+      <SessionTopBar
+        kind={kind}
+        host={host?.name ?? 'Unavailable host'}
+        cwd={selected?.working_directory ?? summaryCwd}
+        pending={opening}
+        agentName={
+          session.id === rootId ? 'Root' : selected?.definition.id || session.id
+        }
         onAgents={() => setPanel('agents')}
-        onRoot={agentId !== session.rootId ? () => {
-          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId },
-            search: sessionSearch({ kind, location: {} }), state: { whipViewId: viewId } }).catch(error => runtime.reportWorkspace(error));
-        } : undefined}
-        onChat={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'chat', true); }}
-        onRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl', true); }}
-        onTrace={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'trace', true); }}
-        detailsOpen={!!panel && focused} onDetails={() => setPanel(panel ? undefined : 'agents')} onPrepare={actions.prepare}
-        actions={root ? actions.items({ runtimeId: expectedRuntimeId, rootId: session.rootId, title: root.meta.title ?? '', archived: root.meta.archived }) : []}
-        activity={<CurrentActivity status={{ ...status, text: status.text || (root ? 'Idle' : 'Session unavailable') }}
-          connected={connected} onDetails={() => setPanel('agents')} />} />
-      {connection.state === 'connected' && (state.error || history?.error) && <ErrorNotice type="session"
-        owner={`${expectedRuntimeId}:${session.rootId}:${agentId}`} error={state.error || history?.error}
-        action={<Button variant="ghost" onClick={() => void view.refresh().catch(() => {})}>Refresh</Button>} />}
-      {kind === 'trace' ? <TraceView key={`trace:${expectedRuntimeId}:${session.rootId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} />
-      : kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length || activeTurn || history?.hasMore || history?.latestMissing ? (
+        onRoot={
+          session.id !== rootId
+            ? () => {
+                void navigate({
+                  to: '/h/$runtimeId/s/$rootId',
+                  params: { runtimeId: expectedRuntimeId, rootId },
+                  search: sessionSearch({ kind, location: {} }),
+                  state: { whipViewId: viewId },
+                }).catch((error) => runtime.reportWorkspace(error));
+              }
+            : undefined
+        }
+        onChat={() => {
+          void openSessionView(
+            runtime,
+            navigate,
+            viewId ?? rootId,
+            'chat',
+            true,
+          );
+        }}
+        onRepl={() => {
+          void openSessionView(
+            runtime,
+            navigate,
+            viewId ?? rootId,
+            'repl',
+            true,
+          );
+        }}
+        onTrace={() => {
+          void openSessionView(
+            runtime,
+            navigate,
+            viewId ?? rootId,
+            'trace',
+            true,
+          );
+        }}
+        detailsOpen={!!panel && focused}
+        onDetails={() => setPanel(panel ? undefined : 'agents')}
+        onPrepare={actions.prepare}
+        actions={
+          tree
+            ? actions.items({
+                runtimeId: expectedRuntimeId,
+                rootId,
+                title: tree.metadata.title ?? '',
+                archived: tree.metadata.archived,
+              })
+            : []
+        }
+        activity={
+          <CurrentActivity
+            status={status}
+            connected={connected}
+            onDetails={() => setPanel('agents')}
+          />
+        }
+      />
+      {resourceError && (
+        <ErrorNotice
+          type="session"
+          owner={`${expectedRuntimeId}:${rootId}:${session.id}`}
+          error={resourceError}
+          action={
+            <Button
+              variant="ghost"
+              disabled={!hostConnected}
+              onClick={() =>
+                void Promise.all([
+                  refresh(),
+                  selectedQuery.refetch(),
+                  rootQuery.refetch(),
+                  treeQuery.refetch(),
+                ]).catch(setActionError)
+              }
+            >
+              Refresh
+            </Button>
+          }
+        />
+      )}
+      {!!actionError && !confirmation && (
+        <ErrorNotice
+          type="action"
+          owner={`${session.id}:history`}
+          error={actionError}
+          onDismiss={() => setActionError(undefined)}
+        />
+      )}
+      {kind === 'trace' ? (
+        trace ? (
+          <TraceView
+            key={`trace:${expectedRuntimeId}:${rootId}:${viewId}`}
+            view={trace}
+            client={client}
+            viewId={viewId ?? rootId}
+            connected={connected}
+          />
+        ) : (
+          <SessionLoading />
+        )
+      ) : kind === 'repl' ? (
+        <>
+          <ReplView
+            session={session}
+            view={view}
+            execution={execution}
+            engine={tree?.engine ?? 'starlark'}
+            runtimeId={expectedRuntimeId}
+            viewId={viewId ?? rootId}
+            connected={connected}
+            loadGap={loadGap}
+          />
+          <AgentTurnNotice
+            session={session}
+            selected={selected}
+            turn={lastTurn}
+            activeTurn={activeTurn}
+          />
+        </>
+      ) : activityRows.length ||
+        activeTurn ||
+        history.olderCursor ||
+        history.latestMissing ? (
         <Timeline
           readingActionsRef={readingActions}
           active={!!activeTurn}
           activeTurnId={activeTurn}
-          key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
+          key={`timeline:${expectedRuntimeId}:${rootId}:${session.id}`}
           rows={activityRows}
-          agents={root?.agents ?? []}
           onAgent={openAgent}
-          footer={<><TranscriptWorking key={activeTurn ?? 'pending'} status={status} turnId={activeTurn}
-            startedAt={agent?.last_turn?.turn_id === activeTurn ? agent?.last_turn?.started_at : undefined} />
-            {state.executions?.truncated && <p {...stylex.props(layout.notice)}>Some activity could not be retained. Showing available operations; counts may be partial.</p>}<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></>}
+          footer={
+            <>
+              <TranscriptWorking
+                key={activeTurn ?? 'pending'}
+                status={status}
+                turnId={activeTurn}
+                startedAt={active?.started_at}
+              />
+              {evidence.truncated && (
+                <p {...stylex.props(layout.notice)}>
+                  Some execution details are outside this bounded window. Open
+                  REPL to inspect older work.
+                </p>
+              )}
+              <AgentTurnNotice
+                session={session}
+                selected={selected}
+                turn={lastTurn}
+                activeTurn={activeTurn}
+              />
+            </>
+          }
           connected={connected}
           density={preferences.toolDensity}
-          onOpenRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); }}
-          bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
-          historyRevision={history?.revision}
-          historyCursor={history?.nextSeq}
-          historyReady={!!history && !history.loading}
+          onOpenRepl={() => {
+            void openSessionView(runtime, navigate, viewId ?? rootId, 'repl');
+          }}
+          bookmarkKey={`${expectedRuntimeId}:${viewId ?? rootId}:${session.id}`}
+          historyRevision={history.snapshot?.revision}
+          historyCursor={history.olderCursor ?? undefined}
+          historyReady={!!history.snapshot}
           canLoadOlder={connected}
-          loadingHistory={history?.loading}
-          hasMore={history?.hasMore ?? false}
-          loadOlder={() => view.loadOlder(agentId)}
-          loadGap={toSeq => view.loadHistoryGap(agentId, toSeq)}
-          loadLatest={() => view.loadLatest(agentId)}
-          latestMissing={history?.latestMissing}
+          loadingHistory={state.status === 'loading'}
+          hasMore={history.olderCursor !== null}
+          loadOlder={() => view.loadOlder()}
+          loadGap={loadGap}
+          loadLatest={() => view.latest()}
+          latestMissing={history.latestMissing}
           readBody={(row) => void readBody(row)}
-          messageScope={{ client: session.client, rootId: session.rootId, agentId }}
+          messageScope={{ client, rootId, agentId: session.id }}
           historyAction={
-            agentId === session.rootId && connected && root
+            connected && state.status === 'live' && !historyPending
               ? (row, action) => {
-                  if (row.seq !== undefined)
-                    setHistoryAction({
-                      action,
-                      cut: row.seq,
-                      revision: root.history_revision,
-                    });
+                  if (row.seq) void prepareHistory(action, row);
                 }
               : undefined
           }
         />
-      ) : state.status === 'loading' ? (
+      ) : opening || state.status === 'loading' ? (
         <SessionLoading />
       ) : (
         <div {...stylex.props(layout.empty)}>
-          {!root && state.error ? <p {...stylex.props(layout.emptyText)}>Session content is unavailable. Use Refresh above.</p>
-            : !activeTurn && agent?.last_turn && ['failed', 'cancelled', 'interrupted'].includes(agent.last_turn.status)
-            ? <AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />
-            : <><h2 {...stylex.props(layout.emptyTitle)}>What do you want to work on?</h2>
-          <p {...stylex.props(layout.emptyText)}>
-            Give WHIP a goal, then follow the work and guide it as needed.
-          </p></>}
+          {state.error ? (
+            <p {...stylex.props(layout.emptyText)}>
+              Session content is unavailable. Use Refresh above.
+            </p>
+          ) : (
+            <>
+              <h2 {...stylex.props(layout.emptyTitle)}>
+                What do you want to work on?
+              </h2>
+              <p {...stylex.props(layout.emptyText)}>
+                Give WHIP a goal, then follow the work and guide it as needed.
+              </p>
+              <AgentTurnNotice
+                session={session}
+                selected={selected}
+                turn={lastTurn}
+                activeTurn={activeTurn}
+              />
+            </>
+          )}
         </div>
       )}
       {!!admitted.length && (
         <details {...stylex.props(layout.notice)}>
           <summary>
-            {admitted.length} accepted{' '}
-            {admitted.length === 1 ? 'input' : 'inputs'} · queued or running
+            {admitted.length} accepted inputs in this queue page
           </summary>
           {admitted.map((item) => (
-            <div key={`${item.agent_id}:${item.seq}`}>
-              <Badge>{item.status}</Badge>
-              <pre {...stylex.props(layout.pre)}>
-                {admittedText(item.kind, item.payload)}
-              </pre>
+            <div key={item.id}>
+              <Badge>{item.state}</Badge>
+              <pre {...stylex.props(layout.pre)}>{admittedText(item)}</pre>
             </div>
           ))}
         </details>
       )}
-
-      {kind === 'chat' && childOpenError && <ErrorNotice type="action" owner={`${viewId ?? session.rootId}:open-child`}
-        title="Could not open agent chat" error={childOpenError.message} tone="neutral" onDismiss={() => setChildOpenError(undefined)}
-        action={runtime.tabs.canOpen() && <Button variant="ghost" onClick={() => openAgent(childOpenError.agentId, true)}>Open in tab</Button>} />}
-      {root && (
-        <PendingRequests
-          root={root}
-          session={session}
-          disabled={!connected}
-          refresh={() => view.refresh()}
+      {kind === 'chat' && childOpenError && (
+        <ErrorNotice
+          type="action"
+          owner={`${viewId ?? rootId}:open-child`}
+          title="Could not open agent chat"
+          error={childOpenError.message}
+          tone="neutral"
+          onDismiss={() => setChildOpenError(undefined)}
+          action={
+            runtime.tabs.canOpen() && (
+              <Button
+                variant="ghost"
+                onClick={() => openAgent(childOpenError.agentId, true)}
+              >
+                Open in tab
+              </Button>
+            )
+          }
         />
       )}
-      {kind === 'chat' && <Composer
-        onAccepted={() => readingActions.current?.jumpToLatest()}
-        dropTarget={dropTarget}
-        key={`composer:${expectedRuntimeId}:${session.rootId}:${agentId}`}
-        session={session}
-        notice={<ScheduledWakeNotice state={state} agentId={agentId} connected={connected} onSchedules={() => setPanel('goals')} />}
-        agents={<AgentDock key={`agents:${expectedRuntimeId}:${session.rootId}:${agentId}`}
-          state={state} agentId={agentId} connected={connected} onAgent={openAgent} onAllAgents={() => setPanel('agents')}
-          openAgentId={openedChild && isSessionTab(openedChild) ? openedChild.location.agent : undefined} />}
-        queueEnabled={queueEnabled}
-        queue={queueEnabled ? <ComposerQueue key={`${expectedRuntimeId}:${session.rootId}:${agentId}`} rows={queueRows} view={view} runtimeId={expectedRuntimeId} agentId={agentId} activeTurn={activeTurn} connected={connected} hasMore={inbox.hasMore} /> : undefined}
-        agentId={agentId}
-        connected={connection.state === 'connected' && !wrongRuntime && !!root}
-        unavailableReason={connection.state === 'connected' && !root ? 'Session content is unavailable.' : undefined}
-        pending={opening}
-        activeTurn={activeTurn}
-        lastTurn={agent?.last_turn ?? undefined}
-        runtimeId={expectedRuntimeId}
-        viewId={viewId}
-        active={focused && !panel}
-        modelControl={root ? <>
-          <PermissionModePicker view={view} root={root} connected={connected} agentId={agentId} />
-          <SessionModelPicker view={view} root={root} connected={connected} agentId={agentId} />
-        </> : opening && <PickerSkeletons />}
-      />}
+      {scopeValid && (
+        <PendingRequests
+          session={session}
+          rootId={rootId}
+          disabled={!connected}
+          refresh={refresh}
+          pendingCount={state.activity?.pending_permission_count}
+        />
+      )}
+      {kind === 'chat' && (
+        <Composer
+          key={`composer:${expectedRuntimeId}:${rootId}:${session.id}`}
+          session={session}
+          rootId={rootId}
+          onAccepted={() => readingActions.current?.jumpToLatest()}
+          dropTarget={dropTarget}
+          notice={
+            <ScheduledWakeNotice
+              session={session}
+              connected={connected}
+              onSchedules={() => setPanel('goals')}
+            />
+          }
+          agents={
+            tree && (
+              <AgentDock
+                session={session}
+                treeId={tree.id}
+                connected={connected}
+                onAgent={openAgent}
+                onAllAgents={() => setPanel('agents')}
+                openAgentId={
+                  openedChild && isSessionTab(openedChild)
+                    ? openedChild.location.agent
+                    : undefined
+                }
+              />
+            )
+          }
+          queueEnabled
+          queue={
+            <>
+              <ErrorNotice
+                type="resource"
+                owner={`${session.id}:queue`}
+                error={queue.error}
+                title="Queue updates unavailable"
+              />
+              {queueCursor && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setQueueCursor(undefined)}
+                >
+                  Return to first queued messages
+                </Button>
+              )}
+              <ComposerQueue
+                rows={queueRows}
+                session={session}
+                rootId={rootId}
+                runtimeId={expectedRuntimeId}
+                activeTurn={activeTurn}
+                connected={connected && !queue.error}
+                hasMore={!!queue.data?.next_cursor}
+                refresh={async () => {
+                  const result = await queue.refetch();
+                  if (result.error) throw result.error;
+                }}
+                loadMore={async () => {
+                  if (queue.data?.next_cursor)
+                    setQueueCursor(queue.data.next_cursor);
+                }}
+              />
+            </>
+          }
+          connected={connected}
+          unavailableReason={
+            !connected && !opening
+              ? 'Session content or host connection is unavailable.'
+              : undefined
+          }
+          pending={opening}
+          activeTurn={activeTurn}
+          lastTurn={lastTurn}
+          runtimeId={expectedRuntimeId}
+          viewId={viewId}
+          active={focused && !panel}
+          modelControl={
+            selected && tree ? (
+              <>
+                <PermissionModePicker
+                  session={session}
+                  rootId={rootId}
+                  selected={selected}
+                  connected={connected}
+                />
+                <SessionModelPicker
+                  client={client}
+                  session={session}
+                  selected={selected}
+                  view={view}
+                  connected={connected}
+                />
+              </>
+            ) : (
+              opening && <PickerSkeletons />
+            )
+          }
+        />
+      )}
       <Sheet
         open={!!panel && focused}
-        onOpenChange={open => { if (focused) setPanel(open ? panel || 'agents' : undefined); }}
+        onOpenChange={(open) => {
+          if (focused) setPanel(open ? panel || 'agents' : undefined);
+        }}
         title="Session details"
         description="Inspect recursive work and control the session."
       >
@@ -444,120 +1058,104 @@ export function SessionContent({
           }
           onOpenChange={actions.prepare}
           items={[
-            ...actions.items({ runtimeId: expectedRuntimeId, rootId: session.rootId, title: root?.meta.title ?? '', archived: root?.meta.archived }),
+            ...actions.items({
+              runtimeId: expectedRuntimeId,
+              rootId,
+              title: tree?.metadata.title ?? '',
+              archived: tree?.metadata.archived,
+            }),
             {
               id: 'Compact history',
               label: 'Compact history',
+              disabled: !connected,
               onSelect: () => {
-                const location = navigationRevision.current;
+                const token = owner.current;
                 setActionError(undefined);
                 void runtime
-                  .run(session.history.compact(), 'Compact history')
-                  .catch(error => { if (stillHere(location)) setActionError(error); });
+                  .run(
+                    runtime.command(client, 'sessions.compact', {
+                      session_id: session.id,
+                      identity: {
+                        client_id: client.clientID,
+                        request_id: crypto.randomUUID(),
+                      },
+                    }),
+                    'Compact history',
+                  )
+                  .catch((error) => {
+                    if (stillHere(token)) setActionError(error);
+                  });
               },
-              disabled: !connected,
             },
             {
               id: 'Clear history…',
               label: 'Clear history…',
-              onSelect: () => {
-                clearRevision.current = root?.history_revision;
-                setConfirm('clear');
-              },
-              disabled: !connected,
+              disabled: !connected || !history.snapshot || historyPending,
+              onSelect: () => void prepareHistory('clear'),
             },
           ]}
         />
-        {!!actionError && !confirm && !historyAction && <ErrorNotice type="action" owner={`${session.rootId}:history`} error={actionError} />}
-        {root && (
+        {selected && tree && (
           <SessionInspector
+            client={client}
+            session={session}
+            rootId={rootId}
+            tree={tree}
+            selected={selected}
+            view={view}
+            execution={execution}
+            connected={connected}
             kind={kind}
             viewId={viewId}
             section={panel || 'agents'}
             onSectionChange={setPanel}
-            view={view}
-            root={root}
-            connected={connected}
-            agentId={agentId}
           />
         )}
       </Sheet>
       <Dialog
-        open={!!confirm}
+        open={!!confirmation}
         onOpenChange={(open) => {
-          if (!open) setConfirm(undefined);
-        }}
-        title="Clear conversation history?"
-        description="This removes the session’s conversation history. Fork it first if you want to keep a copy."
-        footer={
-          <Button
-            variant="danger"
-            disabled={!connected}
-            onClick={async () => {
-              const location = navigationRevision.current;
-              setActionError(undefined);
-              try {
-                await runtime.run(session.history.clear(clearRevision.current), 'Clear history');
-                if (stillHere(location)) setConfirm(undefined);
-              } catch (error) { if (stillHere(location)) setActionError(error); }
-            }}
-          >
-            Confirm {confirm}
-          </Button>
-        }
-      ><ErrorNotice type="action" owner={`${session.rootId}:history`} error={actionError} /></Dialog>
-      <Dialog
-        open={!!historyAction}
-        onOpenChange={(open) => {
-          if (!open) setHistoryAction(undefined);
+          if (!open) {
+            confirmationID.current = undefined;
+            historyLock.current = false;
+            setHistoryPending(false);
+            setConfirmation(undefined);
+            setActionError(undefined);
+          }
         }}
         title={
-          historyAction?.action === 'rewind'
-            ? 'Rewind before this message?'
-            : 'Fork before this message?'
+          confirmation?.action === 'clear'
+            ? 'Clear conversation history?'
+            : `${confirmation?.action === 'fork' ? 'Fork' : 'Rewind'} before this exchange?`
         }
         description={
-          historyAction?.action === 'rewind'
-            ? 'Later conversation will be removed and tracked file changes may be restored. The daemon rejects this action if history has changed since you selected it.'
-            : 'Create a separate session with the earlier conversation. The current session continues independently.'
+          confirmation?.action === 'fork'
+            ? 'Create a separate session with the earlier complete exchanges. The current session continues independently.'
+            : 'Later conversation and its REPL checkpoint will be retired. Files are not restored. The host rejects a changed history revision or tail.'
         }
         footer={
           <Button
-            variant={historyAction?.action === 'rewind' ? 'danger' : 'primary'}
-            disabled={!connected || !historyAction}
-            onClick={async () => {
-              if (!historyAction) return;
-              if (historyAction.action === 'fork' && !canCreateTab()) return;
-              const location = navigationRevision.current;
-              setActionError(undefined);
-              try {
-                if (historyAction.action === 'rewind')
-                  await runtime.run(
-                    session.history.rewind(
-                      historyAction.cut,
-                      historyAction.revision,
-                    ),
-                    'Rewind history',
-                  );
-                else {
-                  const outcome = await runtime.run(
-                    session.fork({
-                      cut: historyAction.cut,
-                      expected_revision: historyAction.revision,
-                    }),
-                    'Fork history',
-                  );
-                  if (outcome.result && stillHere(location))
-                    await openCreated(outcome.result.root_id);
-                }
-                if (stillHere(location)) setHistoryAction(undefined);
-              } catch (error) { if (stillHere(location)) setActionError(error); }
-            }}
+            variant={confirmation?.action === 'fork' ? 'primary' : 'danger'}
+            disabled={!connected || historyPending || historyStarted}
+            loading={historyPending}
+            onClick={() => void applyHistory()}
           >
-            Confirm {historyAction?.action}
+            Confirm {confirmation?.action}
           </Button>
         }
-      ><ErrorNotice type="action" owner={`${session.rootId}:history`} error={actionError} /></Dialog>
+      >
+        <ErrorNotice
+          type="action"
+          owner={`${session.id}:history`}
+          error={actionError}
+        />
+        {historyStarted && !!actionError && (
+          <p>
+            The original request is retained in Recovery settings. Check it
+            there before retrying; a new confirmation creates a new request.
+          </p>
+        )}
+      </Dialog>
       <Dialog
         open={!!stored}
         onOpenChange={(open) => {
@@ -569,30 +1167,60 @@ export function SessionContent({
         title={stored?.title || 'Stored message'}
       >
         {stored?.error ? (
-          <ErrorNotice type="resource" owner={`${session.rootId}:${stored.agentId}:message`} error={stored.error} />
+          <ErrorNotice
+            type="resource"
+            owner={`${session.id}:message`}
+            error={stored.error}
+          />
         ) : stored?.text !== undefined ? (
-          <StoredMessage text={stored.text} />
+          <CodeBlock
+            code={stored.text}
+            label={stored.title}
+            maxBytes={128 << 10}
+          />
         ) : (
           <p role="status">Loading…</p>
         )}
-        {stored?.body && (
+        {(stored?.body || stored?.gap) && (
           <Button
             variant="ghost"
+            disabled={!connected}
             onClick={async () => {
               const current = stored;
+              const token = owner.current;
               try {
-                await runtime.platform.download(
-                  await session.client
-                    .content(current.body!, {
-                      rootId: session.rootId,
-                      agentId: current.agentId,
+                const signal = runtime.connections.signal(client);
+                const bytes = current.body
+                  ? await session.content.readBytes(current.body, {
+                      maxBytes: 4 << 20,
+                      signal,
                     })
-                    .readBytes({ maxBytes: 64 << 20 }),
-                  'whip-message.json',
-                  current.body!.media_type,
-                );
+                  : await readLargeMessage(
+                      session,
+                      current.gap!.id,
+                      current.gap!.sequence,
+                      4 << 20,
+                      signal,
+                    );
+                if (stillHere(token))
+                  await runtime.platform.download(
+                    bytes,
+                    'whip-message.json',
+                    current.body?.media_type ?? 'application/json',
+                  );
               } catch (error) {
-                setStored(previous => previous === current ? { ...previous, error: error instanceof Error ? error.message : String(error) } : previous);
+                if (stillHere(token))
+                  setStored((previous) =>
+                    previous === current
+                      ? {
+                          ...previous,
+                          error:
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
+                        }
+                      : previous,
+                  );
               }
             }}
           >
@@ -601,29 +1229,5 @@ export function SessionContent({
         )}
       </Dialog>
     </ChatDropSurface>
-  );
-}
-
-function StoredMessage({ text }: { text: string }) {
-  let content: unknown = text;
-  try {
-    const value: unknown = JSON.parse(text);
-    if (value && typeof value === 'object' && 'content' in value)
-      content = value.content;
-  } catch {
-    /* Some references contain naturally textual output. */
-  }
-  const parts = messagePresentation(content);
-  return (
-    <div {...stylex.props(layout.column)}>
-      <CodeBlock
-        code={parts.text}
-        label="Stored message"
-        maxBytes={128 << 10}
-      />
-      {parts.images.map((image, index) => (
-        <ImageAttachment key={index} image={image} />
-      ))}
-    </div>
   );
 }

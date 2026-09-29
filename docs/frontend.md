@@ -3654,3 +3654,37 @@ exact decimal counter. Trace export includes available captured instructions und
 `captured_instructions_only` scope, with the existing 1 MiB body and 4 MiB export limits, and
 includes committed compaction output as canonical text parts. It does not manufacture missing
 prompts, notices, summaries, or private request state.
+
+
+### Native conversation controls and activity
+
+The conversation consumes the workspace's paired `SessionView` and `ExecutionView`
+and its pane's optional `TraceView`. The selected session and tree root are explicit,
+separate identities; a tree ID is never substituted for either. The renderer does not
+create another transcript observer or reduce legacy stream events. Activity joins
+canonical calls, cells and operations by exact message, turn and call IDs. Provisional
+model text stays provisional; missing execution evidence is shown as unavailable.
+Completed durations use recorded endpoints, while running elapsed labels are display
+estimates that pause while detached or hidden.
+
+Control reads remain bounded and separate from transcript history: one queue page of
+100 metadata rows, at most 16 child agents, 16 upcoming schedules, one pending permission
+with its exact operation, and four root-owned questions. The SDK's authoritative activity
+counts never come from counting retained transcript rows. Queue pages replace one another;
+older page selection and returning to the first page are explicit. Local delivery previews
+close only when the exact admitted input is observed. Approval and question retries retain
+the original decision; uncertain responses offer an explicit read/check and exact retry.
+
+Fork and rewind confirmations capture the selected session, immutable request ID, history
+revision, observed tail and actual preceding exchange boundary before dispatch. A bounded
+backward lookup can find an exchange opening outside the visible window without sequence
+arithmetic. Changing history causes the host to reject the captured request; the UI never
+silently refreshes it into a different edit. Large omitted messages are inspected separately
+with owner, sequence, size and cursor checks, a 1 MiB preview and 4 MiB download ceiling;
+reading them does not enlarge the SDK transcript window. App-owned drafts, companion panes,
+keyboard focus and reading anchors survive observer refreshes and mode switches.
+
+Remaining retained parity obligations are explicit: captured host-settings reload, remembered
+permission rules and tool denial editing, Rod/ChromeDP driver selection, per-turn model-call
+and compaction counts, and live REPL stdout. Native canonical substitutions do not waive
+these workflows; current UI does not manufacture their missing evidence.
