@@ -3309,3 +3309,12 @@ defaults. The v4 route contract has no disabled-provider flag; the UI does not
 present removal as a reversible disable operation. Account logout reports local
 revocation and remote cleanup separately. Configuring an account leaves model
 defaults unchanged, and choosing a default never submits an existing chat draft.
+
+
+V4 attachment reads use `session.content.read/readBytes` with the exact selected
+session and reference ID. The SDK verifies returned ownership, immutable metadata,
+canonical base64, byte length and SHA-256 within a caller limit of at most 4 MiB.
+Known oversized or foreign references fail before transport. App preview queries
+include runtime, selected owner, reference and digest, retain no inactive byte
+cache, and revoke image object URLs on unmount. Design context is the recorded
+`SubmitParams.design_context` descriptor; filenames never establish provenance.
