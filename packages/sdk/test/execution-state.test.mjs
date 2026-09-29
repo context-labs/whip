@@ -86,11 +86,12 @@ test('cell rows join only exact local owner, turn, message and call identities',
   assert.equal(row.call.value.id, 'call_fixture'); assert.equal(row.call.message.sequence, '9007199254740993');
   assert.equal(row.result.value.output, '1'); assert.deepEqual(row.operations.map(value => value.id), ['a']);
   const evidence = source.getSnapshot().history.messages;
-  assert.equal(cellExecutionRows(view.getSnapshot(), evidence.map(value => ({ ...value, turn_id: null })))[0].call, null);
-  assert.equal(cellExecutionRows(view.getSnapshot(), evidence.map(value => ({ ...value, session_id: 'foreign' })))[0].result, null);
-  assert.equal(cellExecutionRows(view.getSnapshot(), evidence.map(value => ({ ...value, turn_id: 'another_turn' })))[0].call, null);
-  assert.equal(cellExecutionRows(view.getSnapshot(), evidence.map(value => ({ ...value, retired_by: 'rewind', retired_revision: '2' })))[0].result, null);
-  assert.equal(cellExecutionRows(view.getSnapshot(), evidence.map(value => ({ ...value, parts: [{ type: 'tool_call', call: { id: 'same_name_not_same_call', name: 'execute', arguments: {} } }] })))[0].call, null);
+  const metadataOnly = { ...view.getSnapshot(), messages: [] };
+  assert.equal(cellExecutionRows(metadataOnly, evidence.map(value => ({ ...value, turn_id: null })))[0].call, null);
+  assert.equal(cellExecutionRows(metadataOnly, evidence.map(value => ({ ...value, session_id: 'foreign' })))[0].result, null);
+  assert.equal(cellExecutionRows(metadataOnly, evidence.map(value => ({ ...value, turn_id: 'another_turn' })))[0].call, null);
+  assert.equal(cellExecutionRows(metadataOnly, evidence.map(value => ({ ...value, retired_by: 'rewind', retired_revision: '2' })))[0].result, null);
+  assert.equal(cellExecutionRows(metadataOnly, evidence.map(value => ({ ...value, parts: [{ type: 'tool_call', call: { id: 'same_name_not_same_call', name: 'execute', arguments: {} } }] })))[0].call, null);
   assert.equal(row.call.message, evidence[0]); // The pure projection references its bounded source; no copied transcript owner.
 });
 
@@ -286,4 +287,19 @@ test('late exact body reads cannot publish after the observation lease is releas
   state.intercept = async request => { if (request.method === 'context.read') { entered(); await held; } };
   const pending = view.start(); await started; const stopped = view.suspend(); release(); await Promise.all([pending, stopped]);
   assert.equal(view.getSnapshot().status, 'suspended'); assert.deepEqual(view.getSnapshot().messages, []);
+});
+
+test('independent transcript eviction cannot remove retained execution bodies before the next refresh', async t => {
+  const { state, client } = await backend(); state.messages = messages(); state.cells = [cell('cell')];
+  const { view, source } = await views(t, client); await view.start();
+  const snapshot = view.getSnapshot(), original = source.getSnapshot().history.messages;
+  assert.equal(snapshot.messages.length, 2); assert.equal(snapshot.messages[0], original[0]);
+  assert.equal(state.calls.filter(c => c.method === 'context.read').length, 0);
+  state.messages = [{ ...original[0], id: 'later_text', sequence: '9007199254740995', parts: [{ type: 'text', text: 'Later body-only history window' }] }];
+  await source.latest();
+  const retained = cellExecutionRows(view.getSnapshot(), source.getSnapshot().history.messages)[0];
+  assert.equal(retained.call.value.arguments.code, 'print(1)'); assert.equal(retained.result.value.output, '1');
+  assert.equal(retained.call.message, original[0]); assert.equal(view.getSnapshot(), snapshot);
+  assert.ok(snapshot.retainedBytes <= 4 << 20);
+  await view.refresh(); assert.equal(state.calls.filter(c => c.method === 'context.read').length, 0);
 });

@@ -224,8 +224,9 @@ export class ExecutionView {
         after = page.items.at(-1)!.id;
       }
     }
-    // Reuse immutable bodies already owned by SessionView or this retained
-    // execution window. No global cache and no second transcript crawl.
+    // Retain shared immutable bodies as part of this execution window too, so
+    // independent transcript paging cannot briefly erase code or output. They
+    // count toward this budget; no global cache or second transcript crawl.
     const loaded = new Map(source.history.messages.map(message => [message.id, message]));
     const retainedBodies = new Map((this.current.messages ?? []).map(message => [message.id, message]));
     const wanted = new Map<string, { turnID: string; role: 'assistant' | 'tool' }>();
@@ -235,12 +236,12 @@ export class ExecutionView {
     }
     for (const [id, expected] of wanted) {
       const existing = loaded.get(id);
-      if (existing && existing.turn_id === expected.turnID && existing.group_id === expected.turnID && existing.role === expected.role && existing.retired_by === null && existing.retired_revision === null) continue;
+      const shared = existing && existing.turn_id === expected.turnID && existing.group_id === expected.turnID && existing.role === expected.role && existing.retired_by === null && existing.retired_revision === null ? existing : undefined;
       const cached = retainedBodies.get(id);
       const remaining = this.maxBytes - 2048 - retained;
       if (remaining < 1024) { take(value.unavailableMessageIDs!, id); value.truncated = true; continue; }
       try {
-        const message = cached ?? await this.session.history.message(id, { ...options, turnID: expected.turnID, groupID: expected.turnID, role: expected.role, maxBytes: Math.min(1 << 20, remaining) });
+        const message = shared ?? cached ?? await this.session.history.message(id, { ...options, turnID: expected.turnID, groupID: expected.turnID, role: expected.role, maxBytes: Math.min(1 << 20, remaining) });
         if (!this.valid(generation)) return;
         if (!take(value.messages!, message as Message)) take(value.unavailableMessageIDs!, id);
       } catch (error) {
