@@ -3688,3 +3688,15 @@ the full fake-only relay race suite passes ten repetitions (3.958s), vet and
 pinned lint pass. Test-local reads/dials now fail after five seconds instead of
 hanging indefinitely. No production timeout, assertion or test is weakened.
 The prior failed hosted run remains recorded as failed; fresh validation follows.
+
+### Hosted runtime aggregate race partition — 2026-09-28
+
+Draft #259 at `2f56f9f58` passes both platform builds, store race groups, other
+race packages, clients and analysis in run `36525000977`. The Linux runtime
+package alone reached its ten-minute aggregate deadline, with the current
+automatic-title deletion case running for one second; macOS runtime passed.
+This remains a failed run, not a passing checkpoint. Runtime race tests now use
+complementary `^Test[A-M]` and `-skip ^Test[A-M]` jobs, preserving every test and
+example, race instrumentation, shuffle, count and each ten-minute deadline.
+The aggregate runtime task executes both jobs. No test assertion or individual
+operation timeout changes. Hosted validation of the partition is pending.
