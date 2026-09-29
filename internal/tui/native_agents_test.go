@@ -25,6 +25,12 @@ func nativeAgentChild(t *testing.T, m *nativeModel, parent protocol.ID, key stri
 func TestNativeAgentTreeNavigationKeepsOwnerDraftsAndPendingWork(t *testing.T) {
 	m, provider := nativeUIFixture(t)
 	root := m.owner
+	accepted := nativeUISubmit(t, m, "hold")
+	select {
+	case <-provider.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("root input not running")
+	}
 	child := nativeAgentChild(t, m, root.ID, "child")
 	grandchild := nativeAgentChild(t, m, child.ID, "grandchild")
 	m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
@@ -39,12 +45,6 @@ func TestNativeAgentTreeNavigationKeepsOwnerDraftsAndPendingWork(t *testing.T) {
 	}
 	if depths[root.ID] != 0 || depths[child.ID] != 1 || depths[grandchild.ID] != 2 {
 		t.Fatal(depths)
-	}
-	accepted := nativeUISubmit(t, m, "hold")
-	select {
-	case <-provider.entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("root input not running")
 	}
 	m.input.SetValue("unsent root draft")
 	m.agentSelection = child.ID

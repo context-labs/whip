@@ -59,6 +59,12 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // nativeModel is the native chat composition. Commands and menus are added
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
+	execution                       *nativeExecution
+	replBefore, replFocus           *protocol.ID
+	replGeneration                  uint64
+	replFocused                     bool
+	replVP                          transcriptView
+	replDisplay                     []string
 	agents                          *nativeAgentTree
 	agentSelection                  protocol.ID
 	agentsFocus, dock               bool
@@ -114,19 +120,21 @@ type nativeModel struct {
 type (
 	nativePoll struct{}
 	nativeRead struct {
-		agents        *nativeAgentTree
-		generation    uint64
-		owner         *protocol.Session
-		activity      protocol.SessionActivity
-		page          *protocol.HistoryPageResult
-		observation   *client.Observation
-		observer      *client.Observer
-		output        protocol.CellOutput
-		usage         *protocol.Usage
-		context       *protocol.ContextUsage
-		err           error
-		evidenceError error
-		decisions     *nativeDecisionPage
+		execution           *nativeExecution
+		executionGeneration uint64
+		agents              *nativeAgentTree
+		generation          uint64
+		owner               *protocol.Session
+		activity            protocol.SessionActivity
+		page                *protocol.HistoryPageResult
+		observation         *client.Observation
+		observer            *client.Observer
+		output              protocol.CellOutput
+		usage               *protocol.Usage
+		context             *protocol.ContextUsage
+		err                 error
+		evidenceError       error
+		decisions           *nativeDecisionPage
 	}
 )
 
@@ -175,6 +183,7 @@ func (m *nativeModel) read() tea.Cmd {
 	observer, handle, generation, owner := m.observer, m.handle, m.generation, m.owner
 	evidence := m.polls%5 == 0
 	agentsVisible, selectedAgent := m.agentsVisible(), m.agentSelection
+	replVisible, replBefore, replFocus, replGeneration := m.replVisible(), m.replBefore, m.replFocus, m.replGeneration
 	m.polls++
 	return func() tea.Msg {
 		defer readStop()
@@ -245,6 +254,21 @@ func (m *nativeModel) read() tea.Cmd {
 			}
 			if agentsVisible {
 				result.agents, err = readNativeAgents(ctx, m.connection, owner, selectedAgent)
+				result.evidenceError = errors.Join(result.evidenceError, err)
+			}
+			if replVisible {
+				snapshot := result.observation
+				revision := owner.HistoryRevision
+				if result.page != nil {
+					revision = result.page.Snapshot.Revision
+				} else if snapshot != nil {
+					revision = snapshot.Snapshot.Revision
+				}
+				result.executionGeneration = replGeneration
+				result.execution, err = readNativeExecution(ctx, m.connection, owner.ID, revision, result.output.Epoch, replBefore, replFocus)
+				if err != nil {
+					result.execution = &nativeExecution{owner: owner.ID, revision: revision, epoch: result.output.Epoch, err: err}
+				}
 				result.evidenceError = errors.Join(result.evidenceError, err)
 			}
 			value, err := handle.ContextUsage(ctx)
@@ -321,6 +345,13 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if value.evidenceError != nil {
 			m.status = "Some live evidence is unavailable: " + value.evidenceError.Error()
+		}
+		if m.execution != nil && (m.execution.revision != m.history.snapshot.Revision || m.execution.epoch != m.history.epoch) {
+			m.execution = nil
+		}
+		if value.execution != nil && value.executionGeneration == m.replGeneration {
+			m.execution = value.execution
+			renderChanged = true
 		}
 		if value.agents != nil && value.agents.tree == m.owner.TreeID {
 			m.agents = value.agents
@@ -493,6 +524,8 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, command
 		}
 		switch value.String() {
+		case "ctrl+r":
+			return m, m.replCommand("")
 		case "ctrl+c":
 			if m.quitArmed {
 				return m, tea.Quit
@@ -507,6 +540,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, m.submit()
 		case "pgup", "pgdown":
+			if m.replFocused && m.replVisible() {
+				m.replVP, _ = m.replVP.Update(value)
+				return m, nil
+			}
 			if value.String() == "pgup" && m.vp.YOffset() == 0 {
 				return m, m.browseHistory("backward")
 			}
@@ -523,6 +560,11 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(value)
 		return m, cmd
 	case tea.MouseWheelMsg:
+		if m.replVisible() && value.X >= m.width-m.replWidth() {
+			m.replVP, _ = m.replVP.Update(value)
+			m.replFocused = true
+			return m, nil
+		}
 		if m.decision == nil {
 			m.vp, _ = m.vp.Update(value)
 			m.follow = m.browse == nil && m.vp.AtBottom()
@@ -735,6 +777,16 @@ func (m *nativeModel) refresh() {
 	m.vp.setTotal(len(m.rows))
 	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
+	}
+	if m.replVisible() {
+		m.replDisplay = m.replRows(max(m.replWidth()-5, 1))
+		m.replVP.rows = func(y int) string { return m.replDisplay[y] }
+		m.replVP.SetWidth(max(m.replWidth()-5, 1))
+		m.replVP.SetHeight(max(m.height-4, 1))
+		m.replVP.setTotal(len(m.replDisplay))
+		if !m.replFocused {
+			m.replVP.GotoBottom()
+		}
 	}
 }
 

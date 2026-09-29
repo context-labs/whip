@@ -138,6 +138,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return m.standing(args)
 	case "/memory":
 		return m.memory(args)
+	case "/repl":
+		return m.replCommand(args)
 	case "/agents":
 		return m.agentsCommand(args)
 	case "/dock", "/sidebar":

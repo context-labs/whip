@@ -14,14 +14,33 @@ import (
 )
 
 func (m *nativeModel) sidebarVisible() bool {
-	return m.width >= 120 && nativePreferenceLabel(m.preferences.Sidebar, true) == "on"
+	return m.width >= 120 && nativePreferenceLabel(m.preferences.Sidebar, true) == "on" && (!m.replVisible() || m.width >= 150)
+}
+
+func (m *nativeModel) replVisible() bool {
+	return m.width >= 120 && nativePreferenceLabel(m.preferences.Repl, false) == "on"
+}
+
+func (m *nativeModel) replWidth() int {
+	if !m.replVisible() {
+		return 0
+	}
+	width := m.width
+	if m.sidebarVisible() {
+		width -= 44
+	}
+	return width / 2
 }
 
 func (m *nativeModel) transcriptWidth() int {
+	width := m.width
 	if m.sidebarVisible() {
-		return m.width - 44
+		width -= 44
 	}
-	return m.width
+	if m.replVisible() {
+		width -= m.replWidth() + 1
+	}
+	return max(width, 1)
 }
 
 func (m *nativeModel) dockHeight() int {
@@ -54,6 +73,10 @@ func (m *nativeModel) agentRows(width, height int) string {
 }
 
 func (m *nativeModel) layoutFrame(main string) string {
+	if m.replVisible() {
+		panel := ui.Panel{Title: "REPL", Key: "ctrl+r", Width: m.replWidth(), Height: m.height, Focused: m.replFocused}
+		main = lipgloss.JoinHorizontal(lipgloss.Top, main, " ", panel.Render(currentTheme(), m.replVP.View()))
+	}
 	if m.sidebarVisible() {
 		agentsHeight := max(m.height-6, 5)
 		panel := ui.Panel{Title: "Agents", Key: "ctrl+t", Width: 42, Height: agentsHeight, Focused: m.agentsFocus, Band: true}
@@ -80,10 +103,7 @@ func (m *nativeModel) layoutCommand(name string) tea.Cmd {
 		m.refresh()
 		return nil
 	}
-	enabled := !m.sidebarVisible()
-	if m.width < 120 {
-		enabled = nativePreferenceLabel(m.preferences.Sidebar, true) != "on"
-	}
+	enabled := nativePreferenceLabel(m.preferences.Sidebar, true) != "on"
 	value, err := updateNativePreferences(m.preferencesDirectory, func(p *nativePreferences) { p.Sidebar = new(enabled) })
 	if err != nil {
 		m.status = "Sidebar preference: " + err.Error()
