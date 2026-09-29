@@ -1,105 +1,117 @@
 # The agent loop
 
-`internal/agent` contains one provider loop. Runtime ownership chooses its
-single model-facing tool (`rlm_exec`), while `AgentSession` binds that tool to
-the session’s kernel and host identity.
+[`internal/runner`](../internal/runner/runner.go) implements the shared native
+provider/code loop through injected provider, transcript and host-operation
+boundaries. The runtime owns scheduling and live resources; the store owns
+transactional facts. Roots and children run this same path.
+
+The model sees one `execute` tool. Its Starlark or JavaScript code calls captured
+host modules and custom tools. A declaration describes available syntax; a
+separate authorization check admits each effect.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Focus: transform large input/history into handles
-    Focus --> Compact: context budget exceeded
-    Focus --> Model: request with rlm_exec
-    Compact --> Model
-    Model --> Kernel: rlm_exec call
-    Kernel --> Host: Starlark module calls
-    Host --> Model: bounded result/handle
-    Model --> Kernel: another cell
-    Model --> Commit: ordinary response
-    Commit --> [*]
+    [*] --> Claim: durable input or due mail
+    Claim --> Prepare: capture configuration and history
+    Prepare --> Compact: bounded context needs a fold
+    Compact --> Prepare: recorded forward coverage
+    Prepare --> Model: accounted provider attempt
+    Model --> Cell: committed execute call
+    Cell --> Host: authorized operations
+    Host --> Cell: bounded result or scoped reference
+    Cell --> Prepare: result and checkpoint settle
+    Model --> Settle: committed final response
+    Settle --> [*]
 ```
 
-The ordinary assistant response completes only the current agent’s turn. It
-is persisted in that agent’s transcript, but it is not injected into the
-parent. Cross-agent communication is an explicit durable message.
+Admission, running work and terminal outcome are different facts. Disconnecting
+an observer does not cancel the turn. An ordinary assistant response completes
+only that session's turn. A child's captured report policy can publish bounded
+completion mail to its parent; the child's entire transcript is never inserted
+into the parent's context.
 
-## Context focusing
+## Context and compaction
 
-At activation, the model receives a bounded recent history plus handles for
-the complete history or oversized input. `context.inspect/search/read` lets a
-cell retrieve only relevant spans. This keeps large corpora out of every model
-request without making them inaccessible.
+Raw history is retained independently from the selected model context. The
+runner assembles bounded messages using recorded summaries and exact source
+boundaries. Guest context inspection/search/read accesses scoped history without
+making every byte part of every model request. Instruction capture occurs once
+per turn; later filesystem or configuration edits affect a subsequent turn.
 
-Proactive compaction runs when estimated context crosses the configured
-fraction of the model window. A provider context-limit error may trigger one
-reactive compaction and retry. Compaction summaries and raw-history cutoffs
-are committed with the root turn.
+Compaction preserves assistant/tool exchanges and the exact opening input of a
+partially covered prompt turn. It must make forward coverage progress and produce
+a shorter replacement. An indivisible input, exchange or summary that cannot fit
+fails explicitly. Proactive compaction uses a declared window and current-turn
+usage or bounded estimates; unknown windows disable that proactive check.
+An estimate alone is not proof of a provider context rejection.
 
-A single provider call failing does not fail the turn. A stream that sends
-nothing for the stall timeout (120 s on OpenAI-compatible chat streams, 300 s
-on the OpenAI Responses and ChatGPT subscription streams, which can stay silent
-while a reasoning model thinks) is cancelled and retried, as is an attempt that
-hits the ten-minute per-attempt ceiling; only the caller's own deadline or
-cancel ends a call outright. Transport errors, 429 and 5xx responses (with
-`Retry-After` honoured up to a minute), and provider error chunks whose wording
-reads as transient are retried with backoff, up to `maxRetries` attempts before
-the first delta. After the first delta the partial answer cannot be resumed:
-within a budget of two regenerations the client discards it, tells clients
-through `stream.discard` and a notice, and requests the whole message again.
-Permanent failures (authentication, quota, invalid request, context limit) are
-never repeated. When every attempt fails, the last partial is kept in the
-transcript as `[response interrupted]` and the turn fails. Each attempt is
-admitted and settled separately in model accounting.
+A complete recognized structured HTTP context rejection permits one bounded
+replan after the rejected attempt settles. Compaction must advance coverage before
+a new ordinary model round. Generic errors, partial streams, transport uncertainty
+and failed settlement do not authorize replay. Completed cells are not repeated.
+Manual compaction and summary selection use explicit revisioned controls.
+See [raw history and selected context](backend-domain.md#raw-history-and-selected-model-context)
+for limits, helper routing and the intra-turn opening-input rule.
 
-A fold keeps the system prompt, one running summary, and a token-budgeted
-tail of recent whole turns. When the newest turn alone exceeds the tail
-budget, as a long tool-heavy turn does, the tail boundary moves inside that
-turn onto an assistant/tool-pair boundary and the turn's opening user message
-is kept verbatim between the summary and the tail, so the model keeps acting
-on its exact instructions. Before this rule existed the newest turn was always
-kept whole, so a single turn of dozens of tool exchanges could never be
-folded; each round re-summarized only the prior summary, and one agent spent
-40 minutes and 52 model calls making six tool calls of progress
-(`.ai-docs/plans/compaction-loop`). Two guards now stop that loop: a fold with
-nothing left to fold makes no model call, and a fold that cannot get back
-under the threshold stalls further proactive folds for the rest of the turn.
-The window itself is left to the provider: a rejection with nothing left to
-fold fails the turn with `ErrCompactionExhausted`, which reaches the parent
-through the usual failure notice. While a turn runs, `last_turn` on the agent
-record carries `model_calls`, `compactions`, and `last_activity_at`, so a
-parent polling `agents.list` or a client rendering the agent row can tell
-steady work from a stalled loop. On reload the pinned message is re-derived
-from the raw log, so a resumed agent sees the same view the live one had.
+## Cells and checkpoints
 
-## Child activation
+Completed assistant calls are committed before admitting their cells. The runner
+bounds logical model calls and dispatched cells per turn. Each cell records its
+turn, assistant message and provider call identity; atomic begin admits one
+execution. One serialized kernel belongs to the session, and its process slot
+stays pinned through settlement before the next provider request.
 
-`agents.spawn` performs these steps:
+Checkpoint bytes are staged first. The result, cell outcome and checkpoint
+reference commit together, so a failed candidate cannot become restorable.
+A language error can retain changed globals and a valid checkpoint. Transport
+loss or cancellation instead leaves uncertain execution. A completed result
+without a usable checkpoint remains readable, but further code fails rather than
+silently loading an older image.
 
-1. validate requested capabilities, budgets, and ancestry;
-2. build an identical `AgentSession` and reserve a kernel worker;
-3. commit the retained child and delegated grants atomically;
-4. launch its first turn asynchronously.
+Restore checks digest, size, engine build/ABI/profile and fidelity. Starlark
+records skipped globals in a partial checkpoint; QuickJS preserves its whole
+image within its resource contract. Neither restores by evaluating old cells.
+History rewind invalidates the REPL boundary even if every message is retained.
+See [checkpoint ownership](backend-domain.md#code-execution-and-checkpoint-boundary).
 
-Later message or agent-change notifications can activate the retained child
-again. Notifications are coalesced metadata; the child inspects durable state
-to decide what to do. On restart, the daemon reconstructs retained sessions,
-their focused transcripts, authority, model route, and kernels.
+## Recursive work and coordination
 
-The default recursion limit is two edges: root → child → grandchild.
+Spawn atomically records child identity, captured configuration, delegated grants,
+scoped input references and ordinary input admission. Children wait for execution
+capacity without becoming a second orchestration type. A delegated standing grant
+must match its direct parent's scope and retain a valid issuer chain.
 
-## Model fan-out
+`agents.wait_after_cell` records descendant input targets and returns immediately.
+The cell finishes, commits its result/checkpoint and releases its kernel and
+execution permit before waiting. Resumption reacquires permission. This permits
+recursive progress with one worker and one kernel slot and replaces same-cell
+blocking joins. Failed child outcomes resolve as data; they do not automatically
+retry the child or fail the parent.
 
-`models.batch` runs independent completion calls concurrently and returns
-results in input order. These calls share the caller’s durable token, cost,
-elapsed, and active-operation budgets but do not create agent identities.
+Mail, shared/private state and history have separate authorities. Inspection is
+not delivery acknowledgement. A bounded publisher transfers a child's exact
+completion evidence into parent-owned mail/content; capacity failure leaves that
+evidence pending without rerunning the child. `models.batch` fans out stateless
+accounted calls in input order without creating child identities. See
+[child admission and waits](backend-domain.md#child-admission-delegation-and-waits),
+[completion reports](backend-domain.md#child-completion-reports) and
+[mail](backend-domain.md#mail-and-presentation).
 
-## Failure behavior
+## Failure and recovery
 
-- A failed cell returns an error to the tool loop; committed host state is not
-  rolled back speculatively.
-- A worker crash loses Starlark globals only. The next execution starts a new
-  worker against durable host state.
-- A child turn may fail and remain retained/idle for a later activation.
-- Stopping or deleting a child terminalizes its whole subtree and cancels its
-  live processes and kernels.
-- Daemon recovery keeps committed outcomes and marks uncertain work
-  interrupted rather than replaying side effects.
+Every dispatched model attempt has durable accounting, including helper calls.
+Missing usage/cost stays unknown. Confirmed retryable attempts may retry within
+the active turn under the provider contract; uncertain streams and effects do
+not. Retrying a database write or terminal settlement never redispatches work.
+
+A failed cell returns recorded evidence to the loop; it cannot roll back an
+external effect speculatively. Failed or uncertain turns require explicit new
+input. Stop, cancellation and deletion have distinct scopes; stop retains queued
+input. Restart preserves unclaimed input and completed evidence and interrupts
+claimed work. It never reconstructs a suspended interpreter continuation or
+replays an entire turn.
+
+The [concurrency guide](concurrency.md) records resource lifetimes, the
+[domain guide](backend-domain.md) owns exact semantics, and the
+[development record](backend-redesign-development.md) distinguishes deterministic
+checks from live-provider, platform and final-cutover acceptance.
