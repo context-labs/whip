@@ -101,6 +101,26 @@ this backend prerequisite alone does not close A8/A9.
 
 Approval/activity slice is draft [#290](https://github.com/context-labs/whip/pull/290).
 
+## Increment 5 — completed-response controls (A10)
+
+The reference response footer again contains timestamp, copy and root response
+history actions, including tool-ending responses. Offline copy remains available;
+incomplete/oversize loaded responses say Copy visible response. Failed or missing
+tail evidence does not authorize history changes. Rewind is disabled during root
+work and rechecked if work starts while confirmation is open. Native request IDs,
+captured revision/tail and exact owner remain unchanged.
+
+Response actions resolve actual group-end messages through at most four bounded
+forward pages. Imported history and sequence gaps, including values above 2^53,
+are not numeric adjacency. Workspace restoration remains a separate native
+effect; the confirmation does not claim that rewinding restores files.
+
+Focused history/projection/activity tests pass (62); history-confirmation and
+reading/footer DOM tests pass (69), including offline copy/time and newly active
+root refusal. App TypeScript passes. Comparative browser acceptance remains open.
+Durable presentation prerequisite is draft
+[#291](https://github.com/context-labs/whip/pull/291).
+
 ## Remaining work
 
 Backend/provider/settings/terminal and durable presentation prerequisites are

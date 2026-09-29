@@ -88,6 +88,51 @@ export async function historyBoundary(
   );
 }
 
+/** Resolve a response's actual whole-group end. Never infer adjacent sequences;
+ * retired gaps and imported groups are legitimate native history. */
+export async function historyGroupEnd(
+  session: Session, history: DeepReadonly<HistoryView>, sequence: string, signal?: AbortSignal,
+): Promise<string> {
+  const snapshot = history.snapshot;
+  const selected = history.messages.find(message => message.sequence === sequence);
+  if (!snapshot || snapshot.session_id !== session.id || !selected ||
+    selected.session_id !== session.id || selected.retired_revision !== null)
+    throw new Error('Reload this response before editing history');
+  let tail = selected.sequence;
+  const later = history.messages.filter(message => BigInt(message.sequence) > BigInt(tail));
+  for (const message of later) {
+    if (history.gaps.some(gap => BigInt(gap.sequence) > BigInt(tail) && BigInt(gap.sequence) < BigInt(message.sequence))) break;
+    if (message.session_id !== session.id || message.retired_revision !== null)
+      throw new Error('Response history has a different owner or revision');
+    if (message.group_id !== selected.group_id) return tail;
+    tail = message.sequence;
+  }
+  if (tail === snapshot.through_sequence) return tail;
+  for (let pageIndex = 0; pageIndex < 4; pageIndex++) {
+    const page = await session.history.page({ direction: 'forward', cursor: tail,
+      expected_revision: snapshot.revision, limit: 100 }, { signal });
+    if (page.snapshot.session_id !== session.id || page.snapshot.revision !== snapshot.revision ||
+      page.snapshot.through_sequence !== snapshot.through_sequence)
+      throw new Error('History changed while selecting the response. Refresh and select it again.');
+    const values = page.messages ?? [];
+    if (values.some((message, index) => message.session_id !== session.id || message.retired_revision !== null ||
+      BigInt(message.sequence) <= BigInt(tail) ||
+      (index > 0 && BigInt(message.sequence) <= BigInt(values[index - 1]!.sequence))))
+      throw new Error('Response boundary page has a different owner or cursor');
+    for (const message of values) {
+      if (message.group_id !== selected.group_id) return tail;
+      tail = message.sequence;
+    }
+    if (page.next_cursor === null) {
+      if (tail !== snapshot.through_sequence) throw new Error('Response boundary page is incomplete');
+      return tail;
+    }
+    if (!values.length || page.next_cursor !== tail)
+      throw new Error('Response boundary page made no progress');
+  }
+  throw new Error('This response extends beyond the bounded lookup. Load later history before editing it.');
+}
+
 /** Explicit, bounded body inspection outside the SDK's retained transcript. */
 export async function readLargeMessage(
   session: Session,

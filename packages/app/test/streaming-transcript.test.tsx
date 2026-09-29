@@ -127,7 +127,7 @@ it('copies canonical prose once, excluding reasoning and tool output', () => {
     { type: 'tool_call', call: { id: 'call', name: 'execute', arguments: {} } }] }),
     message({ id: 'result', sequence: '2', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call', output: 'private output', is_error: false } }] }));
   const rows = timelineRows(retained, preview({ reasoning: 'private thought', text: '' }));
-  expect([...responseCopies(rows, false).values()]).toEqual([{ text: 'Hello\n\nworld', label: 'Copy response' }]);
+  expect([...responseCopies(rows, false).values()]).toEqual([{ text: 'Hello\n\nworld', label: 'Copy response', sentAt: created }]);
 });
 
 it('restores a visible operation before its enclosing group alias', () => {

@@ -27,6 +27,8 @@ export interface TimelineRow {
   groupId?: string;
   activityBoundary?: string;
   memberIds?: readonly string[];
+  memberSeqs?: readonly string[];
+  assistantSeq?: string;
   partId?: string;
   truncated?: boolean;
   copyText?: string;
@@ -68,7 +70,7 @@ export function timelineRows(history: DeepReadonly<HistoryView> | undefined, pre
       rows.push(gaps[gapIndex++]!); calls.clear();
     }
     const id = `message:${message.id}`;
-    const base = { seq: message.sequence, turnId: message.turn_id ?? undefined, groupId: message.group_id, sentAt: message.created_at, memberIds: [id] };
+    const base = { seq: message.sequence, turnId: message.turn_id ?? undefined, groupId: message.group_id, sentAt: message.created_at, memberIds: [id], assistantSeq: message.role === 'assistant' ? message.sequence : undefined };
     const presentation = messagePresentation(message.parts, message.role === 'user' ? message.design_context : undefined);
     if (message.role === 'assistant') {
       let copied = false;
@@ -90,6 +92,7 @@ export function timelineRows(history: DeepReadonly<HistoryView> | undefined, pre
       if (call) {
         call.text = result.output; call.references = presentation.references;
         call.memberIds = [...(call.memberIds ?? []), id];
+        call.memberSeqs = [...(call.memberSeqs ?? [call.seq!]), message.sequence];
       } else rows.push({ ...base, id, role: 'tool', text: result.output, callId: result.call_id, label: 'Tool output', references: presentation.references });
     } else {
       const role = message.mail ? 'mailbox' : message.role === 'user' && (message.input_id || message.source || message.opening_input) ? 'user' : 'internal';

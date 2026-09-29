@@ -8,7 +8,7 @@ import {
 import type { ComponentProps, ReactNode } from 'react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { SessionContent } from '../src/conversation';
-import { conversationFixture } from './native-conversation-fixture';
+import { conversationFixture, messageBase, turn } from './native-conversation-fixture';
 
 const navigate = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('@tanstack/react-router', async (original) => ({
@@ -25,6 +25,8 @@ vi.mock('../src/timeline', async (original) => ({
   ...(await original<typeof import('../src/timeline')>()),
   Timeline: ({
     historyAction,
+    responseHistoryAction,
+    rewindDisabled,
     rows,
   }: ComponentProps<typeof import('../src/timeline').Timeline>) => (
     <>
@@ -37,6 +39,11 @@ vi.mock('../src/timeline', async (original) => ({
           {action} exchange
         </button>
       ))}
+      {(['rewind', 'fork'] as const).map(action => <button key={`response-${action}`}
+        disabled={!responseHistoryAction || (action === 'rewind' && rewindDisabled)}
+        onClick={() => responseHistoryAction?.(rows.find(row => row.role === 'assistant')!.seq!, action)}>
+        {action} response
+      </button>)}
     </>
   ),
 }));
@@ -176,4 +183,37 @@ it('a changed host cannot submit an already-open history confirmation', async ()
     within(dialog).getByRole('button', { name: 'Confirm rewind' }),
   );
   expect(f.run).not.toHaveBeenCalled();
+});
+
+it.each(['rewind', 'fork'] as const)('keeps the complete selected response when confirming %s', async action => {
+  const f = await fixture();
+  f.observed.messages.push({ ...messageBase, id: 'answer', sequence: '9007199254741000', role: 'assistant',
+    parts: [{ type: 'text', text: 'Recorded answer' }] });
+  await act(async () => { await f.view.latest(); });
+  f.run.mockRejectedValueOnce(new Error('Lost acknowledgement'));
+  fireEvent.click(screen.getByRole('button', { name: `${action} response` }));
+  const dialog = await screen.findByRole('dialog', { name: action === 'fork' ? 'Fork from here?' : 'Rewind to here?' });
+  f.observed.revision = '9007199254741010';
+  await act(async () => { await f.view.latest(); });
+  fireEvent.click(within(dialog).getByRole('button', { name: `Confirm ${action}` }));
+  await waitFor(() => expect(f.run).toHaveBeenCalledOnce());
+  expect(f.run.mock.calls[0]![0].params).toMatchObject({ session_id: 'root',
+    keep_through: '9007199254741000', observed_through: '9007199254741000',
+    [action === 'fork' ? 'expected_history_revision' : 'expected_revision']: '9007199254740993' });
+});
+
+it('disables response rewind while root work is active and refuses a newly active confirmation', async () => {
+  const f = await fixture();
+  f.observed.messages.push({ ...messageBase, id: 'answer', sequence: '9007199254741000', role: 'assistant',
+    parts: [{ type: 'text', text: 'Recorded answer' }] });
+  await act(async () => { await f.view.latest(); });
+  fireEvent.click(screen.getByRole('button', { name: 'rewind response' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Rewind to here?' });
+  f.observed.active = turn();
+  await act(async () => { await f.view.refresh(); });
+  expect(screen.getByText('rewind response')).toHaveProperty('disabled', true);
+  expect(within(dialog).getByRole('button', { name: 'Confirm rewind' })).toHaveProperty('disabled', true);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm rewind' }));
+  expect(f.run).not.toHaveBeenCalled();
+  expect(screen.getByText('fork response')).toHaveProperty('disabled', false);
 });
