@@ -202,14 +202,33 @@ tasks:
     desc: Native production web acceptance in Chromium and Firefox
     cmds:
       - task: web-assets
-      - node --test --test-concurrency=1 apps/web/scripts/native-fixture.test.mjs apps/web/scripts/native-stream-fixture.test.mjs
+      - node --test --test-concurrency=1 apps/web/scripts/native-fixture.test.mjs apps/web/scripts/native-stream-fixture.test.mjs apps/web/scripts/native-performance-fixture.test.mjs
       - node apps/web/scripts/browser.mjs
       - node apps/web/scripts/snapshot-refresh.mjs
       - node apps/web/scripts/session-search.mjs
       - node apps/web/scripts/session-tabs.mjs
       - node apps/web/scripts/user-messages.mjs
       - node apps/web/scripts/sidebar.mjs
+      - node apps/web/scripts/workspace-layout.mjs
       - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs
+
+  check:product-examples:
+    desc: Native agent and browser/Node client examples against a disposable real host
+    cmds:
+      - task: web-assets
+      - npm run check -w @whip/agents-example
+      - npm run acceptance -w @whip/agents-example
+      - npm run check -w @whip/client-example
+      - npm run smoke -w @whip/client-example
+
+  check:product-docs:
+    desc: Native public SDK examples and static documentation
+    cmds:
+      - npm run build -w @whip/protocol
+      - npm run build -w @whip/sdk
+      - npm run check:docs
+      - npm run test:docs
+      - npm run build:docs
 
   check:product-mobile:
     desc: Mobile types, UI, real native backend lifecycle and both platform bundles
@@ -217,6 +236,8 @@ tasks:
       - npm run check:mobile
       - npm run test:mobile
       - npm run test:backend -w @whip/mobile
+      - task: web-assets
+      - node --test apps/mobile/scripts/fixture.test.mjs
       - npm run export:mobile
 
   check:product-desktop:

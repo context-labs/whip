@@ -4094,3 +4094,79 @@ The initial local manual run failed because its isolated checkout lacked the
 documented packed web asset prerequisite; no backend claim was credited to that
 run. Packing the actual renderer restored the expected discoverable web surface.
 No physical device, private-network proxy or real-provider evidence is claimed.
+
+### Native product integration and required client gates — 2026-09-29
+
+The client integration retains the released app/web, desktop, mobile, SDK,
+examples, client-notes, standing-instruction and updater checkpoints. No installed
+runtime or original development checkout is involved. Product gates are now
+required by the redesign aggregate: web, Chromium/Firefox browser, mobile,
+Apple Silicon desktop, native examples and public docs. The browser gate includes
+sidebar, layout, canonical large history, bounded provider streaming and tool
+output; mobile includes the native manual fixture and both Expo exports. Examples
+run the actual18-case agent acceptance command, not its exported helper module.
+
+Integrated evidence, with exact local logs:
+
+- Complete product web:1,330 app tests/110 suites, UI38 and support/type/build
+  checks pass (`/tmp/whip-product-web-final.log`). Native broad/snapshot/search/
+  tabs/user-message browser runs pass in Chromium and Firefox after repairing a
+  fixture's per-browser one-shot hold identities
+  (`/tmp/whip-product-browser-repaired.log`). Sidebar11 Chromium cases including
+  all66 themes and10 Firefox cases pass (`/tmp/whip-renderer-sidebar.log`).
+- Layout first failed Firefox because it advanced pagination before the first
+  page arrived. The one-line first-page wait preserves all assertions; integrated
+  Chromium14 and Firefox14 workflows pass
+  (`/tmp/whip-renderer-layout-repaired.log`).
+- Desktop types,157 product tests,116 distribution/startup checks, native fixture,
+  ad-hoc package, actual Electron Browser/onboarding/workspace/failure/terminal/
+  editor IPC checks pass (`/tmp/whip-product-desktop.log`). These are disposable
+  staged Apple Silicon artifacts, not signed installed-release evidence.
+- Mobile219 tests/34 suites, five native backend cases and iOS+Android Expo exports
+  pass (`/tmp/whip-product-mobile.log`). The integrated native/manual fixture
+  checks pass4 cases (`/tmp/whip-renderer-fixtures-integrated.log`). No physical
+  device or application-store acceptance is claimed.
+- SDK182 tests and contract/actual interchange/generation drift pass
+  (`/tmp/whip-renderer-standing-sdk.log`,
+  `/tmp/whip-renderer-standing-contract.log`). Standing instruction/protocol
+  races pass4.604s/7.836s; focused runtime/RPC8.950s/2.884s. Client/ACP races pass
+  8.974s/29.147s. TUI remains an unrouted native controller/control foundation;
+  the actual CLI TUI route and retained dialogs/rendering are still required.
+- Agent examples5 unit/type tests and18 actual host acceptance cases pass
+  (`/tmp/whip-renderer-agent-acceptance.log`). Browser/Node examples pass types,
+  recovery-storage tests and actual native transcript/content/root-child/live-cell,
+  SIGKILL/reconnect/draft, permission/question, dropped-ACK exact recovery and
+  Unix/HTTP workflows (`/tmp/whip-renderer-client-example.log`).
+- Public SDK guide retains10 standalone checked TypeScript examples; integrated
+  docs types,79 tests and static build pass, producing4 prerendered pages/65 public
+  files (`/tmp/whip-renderer-docs-final.log`). The SDK page remains draft; its
+  deliberately skipped public-route browser test is not credited as a pass.
+- Client notes exposed a real first-use concurrent lock-file ENOENT. The repaired
+  native open/create path passes25 repetitions of16 race cases (400 total),8.487s
+  (`/tmp/whip-renderer-notes-repaired.log`). Expanded analysis including native
+  update, notes and CLI passes with zero new lint findings against the unchanged
+  frozen baseline and no reachable vulnerabilities
+  (`/tmp/whip-renderer-analysis.log`). Two dependency advisories reported as
+  unreachable are not represented as an advisory-free dependency graph.
+- Canonical history fixture verifies10,000 root messages,100 children×100 messages,
+  128 operations and1.4MiB owner-scoped content. One explicitly synthetic canonical
+  selected compaction covers9,996 messages, retaining all raw UI history and a
+  bounded active model context; an actual subsequent provider stream verifies it.
+  Integrated check passes19.869s (`/tmp/whip-renderer-native-history-context.log`).
+  Sixteen actual concurrent provider streams plus exact queued/cancelled probes
+  pass (`/tmp/whip-renderer-performance-fixture.log`).
+
+The native web performance harness is integrated with truthful measurements:
+root/child switches, anchors, near-limit32 drafts,16 actual providers and40 real
+queued admissions, without event injection or a fabricated SQL commit clock.
+The measured root anchor restoration median is about5.1 seconds despite content
+appearing in about100ms; this remains an unresolved performance target, not a
+successful old latency claim. Desktop performance and remaining specialized
+production browser harnesses are in progress. Final TUI adoption, full retired-core
+removal, all-target gates, exact hosted success, signed/fresh-install/remote-platform
+and live-provider acceptance remain open. Phases5–7 are not marked complete.
+
+The canonical frontend guide now describes current native state/recovery owners
+and actual app retention limits, removing repeated appendices and stale legacy
+APIs. Relative links and unique headings were checked against source; feature
+obligations remain in the plan/audit and are not retired by this consolidation.
