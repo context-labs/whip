@@ -64,7 +64,13 @@ func (m *nativeModel) command(text string) tea.Cmd {
 	}
 	name := fields[0]
 	args := strings.TrimSpace(strings.TrimPrefix(text, name))
+	if name != "/attach" && name != "/quit" && (m.attachmentBusy || m.attachment != nil) {
+		m.status = "Resolve the pending image upload with /attach check, /attach retry, or /attach discard first."
+		return nil
+	}
 	switch name {
+	case "/attach":
+		return m.attachCommand(args)
 	case "/help":
 		m.input.Reset()
 		m.notice = nativeHelp

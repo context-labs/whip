@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -71,6 +72,11 @@ type nativeModel struct {
 	drafts                          map[protocol.ID]nativeDraft
 	pastes                          map[string]string
 	pasteSequence                   uint64
+	images                          map[string]nativeImage
+	imageSequence                   uint64
+	attachment                      *nativeImageUpload
+	attachmentBusy                  bool
+	clientDirectory                 string
 	work                            nativeWork
 	connection                      *client.Client
 	handle                          *client.Session
@@ -162,9 +168,11 @@ func newNativeModel(ctx context.Context, c *client.Client, owner protocol.Sessio
 		return nil, err
 	}
 	lifecycle, cancel := context.WithCancel(ctx)
+	localDirectory, _ := os.Getwd() // Relative attachment paths fail closed if unavailable.
 	return &nativeModel{
 		work: nativeWork{ctx: lifecycle, stop: cancel}, connection: c, handle: handle, owner: owner,
 		history: nativeTranscript{owner: owner.ID}, input: newInput(), width: 80, height: 24, follow: true,
+		clientDirectory: localDirectory,
 	}, nil
 }
 
@@ -293,6 +301,11 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeImageLoaded:
+		return m, m.imageLoaded(value)
+	case nativeImageUploaded:
+		m.imageUploaded(value)
+		return m, nil
 	case nativeNavigationResult:
 		if value.request != m.navigationRequest {
 			return m, nil
@@ -526,6 +539,8 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, command
 		}
 		switch value.String() {
+		case "ctrl+v":
+			return m, m.attachCommand("clipboard")
 		case "ctrl+r":
 			return m, m.replCommand("")
 		case "ctrl+c":
@@ -585,6 +600,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if path, ok := nativePastedPath(value.Content, m.clientDirectory); ok {
+			return m, m.loadImage(path, value.Content)
+		}
 		return m, m.pasteText(value.Content)
 	}
 	return m, nil
@@ -605,7 +623,11 @@ func (m *nativeModel) submit() tea.Cmd {
 }
 
 func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
-	text, err := m.expandPastes(text)
+	if m.attachmentBusy || m.attachment != nil {
+		m.status = "Resolve the image upload with /attach check, /attach retry, or /attach discard before sending."
+		return nil
+	}
+	parts, err := m.promptParts(text)
 	if err != nil {
 		m.status = err.Error()
 		return nil
@@ -626,7 +648,7 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 		m.status = "Choose a provider and model with /setup or /model before submitting. Your draft has been kept."
 		return nil
 	}
-	params := protocol.SubmitParams{Source: "user", Identity: protocol.RequestIdentity{ClientID: "tui", RequestID: protocol.ID(uuid.NewString())}, Parts: []protocol.Part{{Type: "text", Text: text}}}
+	params := protocol.SubmitParams{Source: "user", Identity: protocol.RequestIdentity{ClientID: "tui", RequestID: protocol.ID(uuid.NewString())}, Parts: parts}
 	if delivery != "queue" && m.activity.ActiveTurn != nil && m.activity.ActiveTurn.Kind == "prompt" {
 		params.Delivery, params.TargetTurnID = "steer", new(m.activity.ActiveTurn.ID)
 	}
@@ -659,6 +681,7 @@ func (m *nativeModel) submitPreparedInput(command *client.InputCommand) tea.Cmd 
 	}
 	m.input.Reset()
 	m.pastes = nil
+	m.images = nil
 	m.sizeInput()
 	m.notice = ""
 	m.latest()
@@ -868,15 +891,12 @@ func (m *nativeModel) restoreRejectedDraft() bool {
 		return false
 	}
 	var params protocol.SubmitParams
-	if err := json.Unmarshal(m.rejected.Record().Params, &params); err != nil || len(params.Parts) != 1 || params.Parts[0].Type != "text" {
+	if err := json.Unmarshal(m.rejected.Record().Params, &params); err != nil || params.SessionID != m.owner.ID {
 		return false
 	}
-	if len(params.Parts[0].Text) > nativeDraftLimit {
+	if !m.restoreParts(params.Parts) {
 		return false
 	}
-	m.input.Reset()
-	m.pastes = nil
-	m.pasteText(params.Parts[0].Text)
 	m.rejected = nil
 	return true
 }

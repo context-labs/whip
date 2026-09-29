@@ -24,13 +24,20 @@ import (
 )
 
 type nativeUIProvider struct {
-	entered chan struct{}
-	release chan struct{}
-	once    sync.Once
-	codes   map[string]string
+	requests chan hostmodel.Request
+	entered  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+	codes    map[string]string
 }
 
 func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Request) (hostmodel.Prepared, error) {
+	if p.requests != nil {
+		select {
+		case p.requests <- request:
+		default:
+		}
+	}
 	prepared, err := (hostmodel.Scripted{}).Prepare(ctx, request)
 	if err != nil {
 		return prepared, err

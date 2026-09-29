@@ -19,12 +19,16 @@ const nativeDraftLimit = 256 << 10
 type nativeDraft struct {
 	text   string
 	pastes map[string]string
+	images map[string]nativeImage
 }
 
 func (d nativeDraft) bytes() int {
 	n := len(d.text)
 	for chip, value := range d.pastes {
 		n += len(chip) + len(value)
+	}
+	for chip, value := range d.images {
+		n += len(chip) + len(value.reference.ID) + len(value.reference.Digest) + len(value.reference.MediaType) + 256
 	}
 	return n
 }
@@ -66,7 +70,7 @@ func (m *nativeModel) pasteText(text string) tea.Cmd {
 	// tabs/CRs or silently dropping the tail of an otherwise bounded prompt.
 	needsChip := strings.IndexFunc(text, func(r rune) bool { return unicode.IsControl(r) && r != '\n' }) >= 0 || strings.Count(m.input.Value(), "\n")+strings.Count(text, "\n") >= 10000
 	if needsChip || nativePreferenceLabel(m.preferences.CollapsePaste, false) == "on" && strings.Count(text, "\n") >= 2 {
-		if len(m.pastes) == 8 {
+		if len(m.pastes) >= 8 {
 			m.status = "Paste refused: eight text chips are already in this draft. Remove or send one first."
 			return nil
 		}
@@ -97,6 +101,7 @@ func (m *nativeModel) switchDraft(owner protocol.ID) (nativeDraft, error) {
 		current.text = ""
 	}
 	current.pastes = m.livePastes(current.text)
+	current.images = m.liveImages(current.text)
 	bytes, count := current.bytes(), 0
 	for id, draft := range m.drafts {
 		if id != m.owner.ID {
