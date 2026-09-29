@@ -805,6 +805,16 @@ export const manifest = {
       "result": "HostProfiles"
     },
     {
+      "name": "host.browser_driver",
+      "params": "EmptyParams",
+      "result": "HostBrowserDriver"
+    },
+    {
+      "name": "host.set_browser_driver",
+      "params": "SetBrowserDriverParams",
+      "result": "HostBrowserDriver"
+    },
+    {
       "name": "host.execution_defaults",
       "params": "EmptyParams",
       "result": "HostExecutionDefaults"

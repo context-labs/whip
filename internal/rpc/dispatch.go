@@ -150,6 +150,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchObservation(ctx, r, raw)
 	case "host.profiles", "host.set_profiles":
 		return dispatchHostProfiles(ctx, r, method, raw)
+	case "host.browser_driver", "host.set_browser_driver":
+		return dispatchBrowserDriver(ctx, r, method, raw)
 	case "host.execution_defaults", "host.set_execution_defaults":
 		return dispatchExecutionDefaults(ctx, r, method, raw)
 	case "permissions.set_denial", "permissions.denial_edit", "permissions.policy", "permissions.set_mode", "permissions.mode_edit", "host.permission_default", "host.set_permission_default":

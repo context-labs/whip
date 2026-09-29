@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "driver": {
+      "type": "string",
+      "enum": [
+        "rod",
+        "chromedp"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/SetBrowserDriverParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SetBrowserDriverParams",
+  "required": [
+    "expected_revision",
+    "driver"
+  ],
+  "additionalProperties": false
+}

@@ -185,6 +185,8 @@ func Operations() []Operation {
 		{"permissions.denial_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionDenialEdit]()},
 		{"permissions.mode_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"host.profiles", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostProfiles]()},
+		{"host.browser_driver", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostBrowserDriver]()},
+		{"host.set_browser_driver", reflect.TypeFor[SetBrowserDriverParams](), reflect.TypeFor[HostBrowserDriver]()},
 		{"host.execution_defaults", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostExecutionDefaults]()},
 		{"host.set_execution_defaults", reflect.TypeFor[SetExecutionDefaultsParams](), reflect.TypeFor[HostExecutionDefaults]()},
 		{"host.set_profiles", reflect.TypeFor[SetHostProfilesParams](), reflect.TypeFor[HostProfiles]()},

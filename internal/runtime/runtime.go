@@ -53,6 +53,7 @@ type execution struct {
 	executorActivity ExecutorActivity
 }
 type Runtime struct {
+	browserDriverPin string
 	controlMu        sync.Mutex
 	controlGates     map[session.TreeID]*controlGate
 	browser          *browserhost.Host
@@ -101,6 +102,10 @@ type Runtime struct {
 // Open acquires exclusive execution ownership before opening fresh host/storage.
 // It does not start workers or recover turns until Start is called explicitly.
 func Open(ctx context.Context, directory string, provider runner.Provider, options Options) (_ *Runtime, err error) {
+	browserDriverPin := os.Getenv("WHIP_BROWSER_DRIVER")
+	if _, err := config.ResolveBrowserDriver(browserDriverPin); err != nil {
+		return nil, err
+	}
 	if directory == "" {
 		return nil, fmt.Errorf("%w: runtime directory required", session.ErrInvalid)
 	}
@@ -180,7 +185,8 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		return nil, err
 	}
 	r := &Runtime{
-		browser: browserhost.New(), mcp: newMCPOwners(directory), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
+		browserDriverPin: browserDriverPin,
+		browser:          browserhost.New(), mcp: newMCPOwners(directory), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
 		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
 		store: database, content: bodies, owner: lock, directory: directory, host: host, configuration: configuration, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]*execution{},

@@ -3402,6 +3402,12 @@ export interface HostAttentionResult {
     session_id: string;
   };
 }
+export interface HostBrowserDriver {
+  revision: string;
+  configured_driver: "rod" | "chromedp";
+  driver: "rod" | "chromedp";
+  pinned: boolean;
+}
 export interface HostDirectoriesParams {
   path: string;
   after: string;
@@ -9153,6 +9159,10 @@ export interface SessionObservation {
 export interface SessionParams {
   session_id: string;
 }
+export interface SetBrowserDriverParams {
+  expected_revision: string;
+  driver: "rod" | "chromedp";
+}
 export interface SetBudgetParams {
   session_id: string;
   expected_revision: string;
@@ -10499,6 +10509,7 @@ export interface ContractTypes {
   HistorySnapshot: HistorySnapshot;
   HostAttentionParams: HostAttentionParams;
   HostAttentionResult: HostAttentionResult;
+  HostBrowserDriver: HostBrowserDriver;
   HostDirectoriesParams: HostDirectoriesParams;
   HostDirectoriesResult: HostDirectoriesResult;
   HostDirectoryPickParams: HostDirectoryPickParams;
@@ -10638,6 +10649,7 @@ export interface ContractTypes {
   SessionInputParams: SessionInputParams;
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
+  SetBrowserDriverParams: SetBrowserDriverParams;
   SetBudgetParams: SetBudgetParams;
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
   SetExecutionDefaultsParams: SetExecutionDefaultsParams;
@@ -10867,6 +10879,8 @@ export interface Operations {
   "permissions.denial_edit": { params: PermissionModeEditParams; result: PermissionDenialEdit };
   "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
   "host.profiles": { params: EmptyParams; result: HostProfiles };
+  "host.browser_driver": { params: EmptyParams; result: HostBrowserDriver };
+  "host.set_browser_driver": { params: SetBrowserDriverParams; result: HostBrowserDriver };
   "host.execution_defaults": { params: EmptyParams; result: HostExecutionDefaults };
   "host.set_execution_defaults": { params: SetExecutionDefaultsParams; result: HostExecutionDefaults };
   "host.set_profiles": { params: SetHostProfilesParams; result: HostProfiles };

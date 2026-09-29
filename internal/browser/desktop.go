@@ -39,13 +39,11 @@ func NewDesktopBackend(ctx context.Context, client rod.CDPClient, targetID strin
 
 type desktopBackend struct {
 	*Browser
-	targetID        string
-	closeTransport  func() error
-	closeOnce       sync.Once
-	closeErr        error
-	mediaMu         sync.Mutex
-	screenshots     int
-	screenshotBytes int
+	targetID       string
+	closeTransport func() error
+	closeOnce      sync.Once
+	closeErr       error
+	media          desktopMedia
 }
 
 func (b *desktopBackend) Close() error {
@@ -70,6 +68,10 @@ func (b *desktopBackend) UploadFiles(context.Context, string, []string) error {
 // Fill uses trusted text insertion, not legacy ASCII native key codes (which
 // are platform-specific and silently lose characters in macOS Electron).
 func (b *desktopBackend) Fill(ctx context.Context, selector, text string) error {
+	return fillDesktop(ctx, b, selector, text)
+}
+
+func fillDesktop(ctx context.Context, b Backend, selector, text string) error {
 	sel, err := json.Marshal(selector)
 	if err != nil {
 		return err
@@ -116,8 +118,18 @@ func (b *desktopBackend) PressKey(ctx context.Context, key string) error {
 // Screenshot enforces physical JPEG pixel bounds after capture. CSS viewport
 // sizes and page-provided devicePixelRatio are not trustworthy pixel limits.
 func (b *desktopBackend) Screenshot(ctx context.Context, maxDim int) ([]byte, error) {
-	b.mediaMu.Lock()
-	defer b.mediaMu.Unlock()
+	return b.media.capture(ctx, maxDim, b.Browser.Screenshot)
+}
+
+type desktopMedia struct {
+	mu              sync.Mutex
+	screenshots     int
+	screenshotBytes int
+}
+
+func (b *desktopMedia) capture(ctx context.Context, maxDim int, capture func(context.Context, int) ([]byte, error)) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.screenshots >= 8 || b.screenshotBytes >= 16<<20 {
 		return nil, &DesktopError{Kind: "media_limit", Message: "browser batch screenshot limit exceeded"}
 	}
@@ -125,7 +137,7 @@ func (b *desktopBackend) Screenshot(ctx context.Context, maxDim int) ([]byte, er
 	if maxDim <= 0 || maxDim > 2048 {
 		maxDim = 2048
 	}
-	data, err := b.Browser.Screenshot(ctx, maxDim)
+	data, err := capture(ctx, maxDim)
 	if err != nil {
 		return nil, err
 	}
