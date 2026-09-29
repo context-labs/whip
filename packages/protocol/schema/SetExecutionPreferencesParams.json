@@ -1,33 +1,7 @@
 {
   "type": "object",
   "properties": {
-    "engine": {
-      "type": "string",
-      "enum": [
-        "starlark",
-        "quickjs"
-      ]
-    },
-    "effort": {
-      "type": "string",
-      "pattern": "^[^\\x00]{0,64}$"
-    },
-    "compaction_percent": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 100
-    },
-    "goal_max_continuations": {
-      "type": "string",
-      "pattern": "^(0|[1-9][0-9]{0,18})$",
-      "format": "counter"
-    },
-    "max_attempts": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 9007199254740991
-    },
-    "revision": {
+    "expected_revision": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
@@ -221,16 +195,11 @@
       "additionalProperties": false
     }
   },
-  "$id": "https://whip.dev/protocol/v4/HostExecutionDefaults",
+  "$id": "https://whip.dev/protocol/v4/SetExecutionPreferencesParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "HostExecutionDefaults",
+  "title": "SetExecutionPreferencesParams",
   "required": [
-    "engine",
-    "effort",
-    "compaction_percent",
-    "goal_max_continuations",
-    "max_attempts",
-    "revision",
+    "expected_revision",
     "preferences"
   ],
   "additionalProperties": false

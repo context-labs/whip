@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "env",
+        "inference-net",
+        "openai-codex"
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "maxLength": 256
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/UseProviderCandidateParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UseProviderCandidateParams",
+  "required": [
+    "revision",
+    "provider",
+    "source",
+    "environment"
+  ],
+  "additionalProperties": false
+}

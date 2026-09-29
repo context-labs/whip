@@ -1892,6 +1892,10 @@ export interface DefinitionRef {
 export interface DeleteResult {
   deleted: boolean;
 }
+export interface DisconnectProviderParams {
+  revision: string;
+  provider: string;
+}
 export interface EmptyParams {}
 export interface ExecutorAccepted {
   accepted: true;
@@ -4117,6 +4121,36 @@ export interface HostExecutionDefaults {
   goal_max_continuations: string;
   max_attempts: number;
   revision: string;
+  preferences: {
+    engine: "starlark" | "quickjs";
+    compaction_percent: number;
+    compaction_model: {
+      selection: null | {
+        provider: string;
+        name: string;
+        effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
+      };
+      settings: null | {
+        prices: {
+          input: null | string;
+          output: null | string;
+          reasoning: null | string;
+          cached_input: null | string;
+          cached_output: null | string;
+        };
+        context_window_tokens: null | string;
+        max_output_tokens: string;
+        timeout_millis: string;
+        max_attempts: number;
+      };
+    };
+    goal_max_continuations: null | string;
+    max_attempts: number;
+    import_claude: boolean;
+    import_codex: boolean;
+  };
 }
 export type HostOperation = {
   permission_revision: null | string;
@@ -6575,6 +6609,18 @@ export interface PermissionsResult {
         resolved_at: null | string;
       }[];
 }
+export interface ProviderCandidates {
+  revision: string;
+  /**
+   * @maxItems 24
+   */
+  items: {
+    provider: string;
+    source: "env" | "inference-net" | "openai-codex";
+    environment: string;
+    credential_state: "available" | "refresh_required";
+  }[];
+}
 export interface ProviderCatalog {
   provider: string;
   state: "missing" | "scope_changed" | "cached";
@@ -6642,6 +6688,59 @@ export interface ProviderDefaultsParams {
     };
   };
 }
+export interface ProviderDisconnectResult {
+  inventory: {
+    revision: string;
+    /**
+     * @maxItems 128
+     */
+    routes: {
+      id: string;
+      disabled: boolean;
+      kind: "openai-chat" | "openai-responses" | "openai-codex";
+      base_url: string;
+      credential: {
+        source: "env" | "file" | "command" | "none" | "inference-net" | "openai-codex";
+        state: "unavailable" | "unchecked" | "not_required" | "missing" | "available" | "refresh_required";
+        environment: string;
+        file: string;
+      };
+      models: {
+        [k: string]: {
+          prices: {
+            input: null | string;
+            output: null | string;
+            reasoning: null | string;
+            cached_input: null | string;
+            cached_output: null | string;
+          };
+          context_window_tokens: null | string;
+          max_output_tokens: string;
+          timeout_millis: string;
+          max_attempts: number;
+        };
+      } | null;
+    }[];
+    defaults: null | {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    compaction_model: null | {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    permission_mode: "prompt" | "automatic";
+  };
+  credential_state: "cleared" | "preserved_shared" | "preserved_external" | "pending";
+  local_failure: null | string;
+  cleanup_failure: null | string;
+}
 export interface ProviderInventory {
   revision: string;
   /**
@@ -6649,6 +6748,7 @@ export interface ProviderInventory {
    */
   routes: {
     id: string;
+    disabled: boolean;
     kind: "openai-chat" | "openai-responses" | "openai-codex";
     base_url: string;
     credential: {
@@ -6687,6 +6787,7 @@ export interface ProviderInventory {
     temperature?: null | number;
     top_p?: null | number;
   };
+  permission_mode: "prompt" | "automatic";
 }
 export interface ProviderKeySetup {
   revision: string;
@@ -6734,6 +6835,32 @@ export interface ProviderModelsResult {
 export interface ProviderParams {
   provider: string;
 }
+export interface ProviderPreferencesParams {
+  revision: string;
+  defaults: {
+    selection: null | {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    settings: null | {
+      prices: {
+        input: null | string;
+        output: null | string;
+        reasoning: null | string;
+        cached_input: null | string;
+        cached_output: null | string;
+      };
+      context_window_tokens: null | string;
+      max_output_tokens: string;
+      timeout_millis: string;
+      max_attempts: number;
+    };
+  };
+  permission_mode: "prompt" | "automatic";
+}
 export interface ProviderPresetsResult {
   /**
    * @maxItems 11
@@ -6761,6 +6888,7 @@ export interface ProviderPresetsResult {
 }
 export interface ProviderReadiness {
   configured: boolean;
+  disabled: boolean;
   credential_state: "unavailable" | "unchecked" | "not_required" | "missing" | "available" | "refresh_required";
   catalog_state: "missing" | "scope_changed" | "cached";
   model_state: "unknown" | "configured" | "catalogued";
@@ -10488,6 +10616,39 @@ export interface SetExecutionDefaultsParams {
     max_attempts: number;
   };
 }
+export interface SetExecutionPreferencesParams {
+  expected_revision: string;
+  preferences: {
+    engine: "starlark" | "quickjs";
+    compaction_percent: number;
+    compaction_model: {
+      selection: null | {
+        provider: string;
+        name: string;
+        effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
+      };
+      settings: null | {
+        prices: {
+          input: null | string;
+          output: null | string;
+          reasoning: null | string;
+          cached_input: null | string;
+          cached_output: null | string;
+        };
+        context_window_tokens: null | string;
+        max_output_tokens: string;
+        timeout_millis: string;
+        max_attempts: number;
+      };
+    };
+    goal_max_continuations: null | string;
+    max_attempts: number;
+    import_claude: boolean;
+    import_codex: boolean;
+  };
+}
 export interface SetHostProfilesParams {
   expected_revision: string;
   /**
@@ -10512,6 +10673,11 @@ export interface SetPermissionModeParams {
   session_id: string;
   expected_revision: string;
   mode: "prompt" | "automatic";
+}
+export interface SetProviderEnabledParams {
+  revision: string;
+  provider: string;
+  enabled: boolean;
 }
 export interface SetResourceParams {
   session_id: string;
@@ -11698,6 +11864,12 @@ export interface Usage {
 export interface UseBundledComputerParams {
   revision: string;
 }
+export interface UseProviderCandidateParams {
+  revision: string;
+  provider: string;
+  source: "env" | "inference-net" | "openai-codex";
+  environment: string;
+}
 export interface WorkspaceAction {
   id: string;
   session_id: string;
@@ -11870,6 +12042,7 @@ export interface ContractTypes {
   DefinitionDocument: DefinitionDocument;
   DefinitionRef: DefinitionRef;
   DeleteResult: DeleteResult;
+  DisconnectProviderParams: DisconnectProviderParams;
   EmptyParams: EmptyParams;
   ExecutorAccepted: ExecutorAccepted;
   ExecutorActivityResult: ExecutorActivityResult;
@@ -11998,12 +12171,15 @@ export interface ContractTypes {
   PermissionPolicy: PermissionPolicy;
   PermissionsParams: PermissionsParams;
   PermissionsResult: PermissionsResult;
+  ProviderCandidates: ProviderCandidates;
   ProviderCatalog: ProviderCatalog;
   ProviderDefaultsParams: ProviderDefaultsParams;
+  ProviderDisconnectResult: ProviderDisconnectResult;
   ProviderInventory: ProviderInventory;
   ProviderKeySetup: ProviderKeySetup;
   ProviderModelsResult: ProviderModelsResult;
   ProviderParams: ProviderParams;
+  ProviderPreferencesParams: ProviderPreferencesParams;
   ProviderPresetsResult: ProviderPresetsResult;
   ProviderReadiness: ProviderReadiness;
   ProviderReadinessParams: ProviderReadinessParams;
@@ -12060,9 +12236,11 @@ export interface ContractTypes {
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
   SetDefaultSkillRootsParams: SetDefaultSkillRootsParams;
   SetExecutionDefaultsParams: SetExecutionDefaultsParams;
+  SetExecutionPreferencesParams: SetExecutionPreferencesParams;
   SetHostProfilesParams: SetHostProfilesParams;
   SetPermissionDenialParams: SetPermissionDenialParams;
   SetPermissionModeParams: SetPermissionModeParams;
+  SetProviderEnabledParams: SetProviderEnabledParams;
   SetResourceParams: SetResourceParams;
   ShellInputParams: ShellInputParams;
   ShellInputResult: ShellInputResult;
@@ -12114,6 +12292,7 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
   Usage: Usage;
   UseBundledComputerParams: UseBundledComputerParams;
+  UseProviderCandidateParams: UseProviderCandidateParams;
   WorkspaceAction: WorkspaceAction;
   WorkspaceActionParams: WorkspaceActionParams;
   WorkspaceCompletionParams: WorkspaceCompletionParams;
@@ -12202,6 +12381,12 @@ export interface Operations {
   "workspace.action": { params: ReadWorkspaceActionParams; result: WorkspaceAction };
   "workspace.snapshot": { params: WorkspaceSnapshotParams; result: WorkspaceSnapshot };
   "workspace.snapshots": { params: WorkspaceSnapshotsParams; result: WorkspaceSnapshotsResult };
+  "providers.disconnect": { params: DisconnectProviderParams; result: ProviderDisconnectResult };
+  "providers.set_preferences": { params: ProviderPreferencesParams; result: ProviderInventory };
+  "host.set_execution_preferences": { params: SetExecutionPreferencesParams; result: HostExecutionDefaults };
+  "providers.candidates": { params: EmptyParams; result: ProviderCandidates };
+  "providers.use_candidate": { params: UseProviderCandidateParams; result: ProviderInventory };
+  "providers.set_enabled": { params: SetProviderEnabledParams; result: ProviderInventory };
   "providers.presets": { params: EmptyParams; result: ProviderPresetsResult };
   "providers.bundled": { params: ProviderParams; result: ProviderModelsResult };
   "providers.list": { params: EmptyParams; result: ProviderInventory };

@@ -4,6 +4,9 @@
     "configured": {
       "type": "boolean"
     },
+    "disabled": {
+      "type": "boolean"
+    },
     "credential_state": {
       "type": "string",
       "enum": [
@@ -43,6 +46,7 @@
   "title": "ProviderReadiness",
   "required": [
     "configured",
+    "disabled",
     "credential_state",
     "catalog_state",
     "model_state",

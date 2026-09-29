@@ -370,6 +370,36 @@ export const manifest = {
       "result": "WorkspaceSnapshotsResult"
     },
     {
+      "name": "providers.disconnect",
+      "params": "DisconnectProviderParams",
+      "result": "ProviderDisconnectResult"
+    },
+    {
+      "name": "providers.set_preferences",
+      "params": "ProviderPreferencesParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "host.set_execution_preferences",
+      "params": "SetExecutionPreferencesParams",
+      "result": "HostExecutionDefaults"
+    },
+    {
+      "name": "providers.candidates",
+      "params": "EmptyParams",
+      "result": "ProviderCandidates"
+    },
+    {
+      "name": "providers.use_candidate",
+      "params": "UseProviderCandidateParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "providers.set_enabled",
+      "params": "SetProviderEnabledParams",
+      "result": "ProviderInventory"
+    },
+    {
       "name": "providers.presets",
       "params": "EmptyParams",
       "result": "ProviderPresetsResult"

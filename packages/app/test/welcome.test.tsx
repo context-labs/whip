@@ -37,6 +37,7 @@ it('keeps provider controls neutral while configured readiness is pending', asyn
   await act(async () =>
     resolve({
       configured: true,
+      disabled: false,
       credential_state: 'available',
       catalog_state: 'missing',
       model_state: 'configured',
@@ -65,6 +66,7 @@ it.each(['unchecked', 'refresh_required'] as const)(
     f.runtime.queries.removeQueries({ queryKey: ['provider-readiness'] });
     f.on('providers.readiness', () => ({
       configured: true,
+      disabled: false,
       credential_state,
       catalog_state: 'missing',
       model_state: 'configured',

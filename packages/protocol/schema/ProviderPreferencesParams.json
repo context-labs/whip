@@ -147,14 +147,22 @@
         "settings"
       ],
       "additionalProperties": false
+    },
+    "permission_mode": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "automatic"
+      ]
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ProviderDefaultsParams",
+  "$id": "https://whip.dev/protocol/v4/ProviderPreferencesParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "ProviderDefaultsParams",
+  "title": "ProviderPreferencesParams",
   "required": [
     "revision",
-    "defaults"
+    "defaults",
+    "permission_mode"
   ],
   "additionalProperties": false
 }
