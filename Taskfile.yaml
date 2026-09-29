@@ -130,6 +130,8 @@ tasks:
       - npm run build
       - node --test --test-concurrency=1 scripts/redesign/v4-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/gateway-fixture.test.mjs
+      - node --test --test-concurrency=1 scripts/redesign/executor-fixture.test.mjs
+      - node --test --test-concurrency=1 scripts/redesign/shell-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/fixture.test.mjs
 
   check:analysis:

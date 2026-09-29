@@ -5,7 +5,7 @@ import { Client, DeliveryError } from '../dist/index.js';
 test('interactive shell preserves exact operation and input counters without replay', async () => {
  const requests = [];
  const client = await Client.connect(async request => {
-  if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] } };
+  if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot_test', network_client: false, builtins: [] } };
   requests.push(request);
   if (request.method === 'shell.input') throw new DeliveryError('lost reply');
   return { jsonrpc: '2.0', id: request.id, result: { interaction: { operation_id: 'operation', started_at: '2026-09-28T00:00:00Z', data_base64: 'cHJvbXB0', from: '9007199254740993', through: '9007199254740999', next_input: '9007199254740993', seconds_left: 10 } } };
