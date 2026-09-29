@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { deadline, eventually } from './native-fixture.mjs';
+import { startHistoryFixture } from './native-history-fixture.mjs';
 
-// The production app against an isolated synthetic history/agent fixture.
-process.env.WHIP_WEB_PERF_FIXTURE = '1';
+// Production renderer/runtime over canonical synthetic store history.
 const directory = process.env.WHIP_WEB_LAYOUT_RESULTS ?? '/tmp/whip-workspace-layout-results';
 await mkdir(directory, { recursive: true });
 const results = {};
@@ -14,30 +13,30 @@ const leaves = node => node.type === 'pane' ? [node] : [...leaves(node.first), .
 const allTabs = state => leaves(state.layout).flatMap(pane => pane.tabs);
 for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',')) {
   console.log(`${name}: starting split workspace fixture`);
-  const fixture = await startFixture();
+  const fixture = await startHistoryFixture();
   const browser = await ({ chromium, firefox }[name]).launch();
   const context = await browser.newContext({ viewport: { width: 1800, height: 1120 } });
   context.setDefaultTimeout(15_000);
   const page = await context.newPage();
-  const client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: `layout-${crypto.randomUUID()}`, clientKind: 'human' });
-  const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
-  const runtimeId = fixture.info.runtime_id, root = fixture.info.root_id;
+  const client = await fixture.connect(`layout-${crypto.randomUUID()}`);
+  const origin = fixture.info.web;
+  const runtimeId = fixture.info.runtime_id, root = fixture.history.root_id;
   const route = id => `/h/${runtimeId}/s/${id}`;
   const frames = [], errors = [], checks = [];
-  const sockets = new Map(); let maximumSubscriptions = 0;
-  page.on('pageerror', error => errors.push(error.message));
+  const observed = new Map(); let maximumObservers = 0;
+  page.on('pageerror', error => errors.push({ message: error.message, stack: error.stack }));
   page.on('console', event => { if (event.type() === 'error' && /content.security.policy|violates.*directive/i.test(event.text())) errors.push(event.text()); });
   page.on('websocket', socket => {
-    const active = new Set(); sockets.set(socket, active);
     socket.on('framesent', ({ payload }) => {
       try {
         const frame = JSON.parse(String(payload)); frames.push(frame);
-        if (frame.method === 'events.subscribe') active.add(frame.params.subscription_id);
-        if (frame.method === 'events.unsubscribe') active.delete(frame.params.subscription_id);
-        maximumSubscriptions = Math.max(maximumSubscriptions, active.size);
+        if (frame.method === 'sessions.observe') {
+          const now = Date.now(); observed.set(frame.params.session_id, now);
+          for (const [id, stamp] of observed) if (now - stamp > 1000) observed.delete(id);
+          maximumObservers = Math.max(maximumObservers, observed.size);
+        }
       } catch {}
     });
-    socket.on('close', () => sockets.delete(socket));
   });
   const workspace = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('whip.web.workspace.v3')).workspace);
   const tab = id => page.locator(`[id="whip-workspace-tab-${encodeURIComponent(id)}"]`);
@@ -46,12 +45,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const action = async (id, label) => { await tab(id).click({ button: 'right' }); await page.getByRole('menuitem', { name: label, exact: true }).click(); await page.getByRole('menu').waitFor({ state: 'hidden' }); };
   const countPanes = count => eventually(async () => (await page.locator('[data-workspace-frame]').count()) === count, { description: `${count} visible panes` });
   try {
-    await client.connect();
     const extras = [];
     for (let i = 0; i < 5; i++) {
-      const result = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
-      assert.equal(result.status, 'succeeded'); extras.push(result.result.root_id);
-      await client.session(result.result.root_id).rename(`Workspace example ${i + 1}`).result();
+      const result = await fixture.createRoot(client, { title: `Workspace example ${i + 1}` });
+      extras.push(result.root.id);
     }
     await context.addInitScript(seed => {
       if (!sessionStorage.getItem('whip.web.tabs.v1')) sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(seed));
@@ -62,7 +59,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     let state = await workspace();
     const duplicate = leaves(state.layout)[1].selected;
     await ready(duplicate);
-    assert.equal(frames.filter(f => f.method === 'root.snapshot').length, 1, 'Duplicating a chat hydrated the root twice');
+    assert.equal(frames.filter(f => f.method === 'sessions.history_page' && f.params.session_id === root && !f.params.cursor).length, 1, 'Duplicating a chat hydrated the root twice');
     await panel(root).getByLabel('Message WHIP', { exact: true }).fill('A shared draft in two independent views.');
     assert.equal(await panel(duplicate).getByLabel('Message WHIP', { exact: true }).inputValue(), 'A shared draft in two independent views.');
     const rootScroll = panel(root).getByRole('region', { name: 'Conversation', exact: true });
@@ -71,7 +68,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await duplicateScroll.evaluate(el => { el.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 })); el.scrollTop = 900; });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.ok(Math.abs((await rootScroll.evaluate(el => el.scrollTop)) - (await duplicateScroll.evaluate(el => el.scrollTop))) > 100);
-    checks.push('duplicate root shares one subscription and draft, with independent scroll');
+    checks.push('duplicate root shares one native history owner and draft, with independent scroll');
 
     // Identical URLs still carry independent view identities through browser history.
     await tab(root).click(); await tab(duplicate).click();
@@ -82,9 +79,17 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await tab(root).click();
     await page.locator(`[data-workspace-tab="${duplicate}"]`).getByRole('button', { name: /^Tab actions for / }).click();
     await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
-    await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
+    const details = page.getByRole('dialog', { name: 'Session details', exact: true });
+    const childLink = details.getByRole('link', { name: 'perf-child-000', exact: true });
+    for (let index = 0; index < 7 && !await childLink.count(); index++) {
+      const prior = await details.locator('article code').first().textContent();
+      assert.ok(await details.locator('article').count() <= 16, 'Agent inspector exceeded its native page bound');
+      await details.getByRole('button', { name: 'Next page', exact: true }).click();
+      await eventually(async () => await details.locator('article code').first().textContent() !== prior, { description: 'next native agent page' });
+    }
+    await childLink.click();
     await panel(duplicate).getByLabel('Message this agent', { exact: true }).waitFor();
-    await panel(duplicate).getByTitle('Child-agent models are set when the agent is created').waitFor();
+    await panel(duplicate).getByTitle('Child agent model and reasoning are read-only here').waitFor();
     assert.equal(await panel(duplicate).getByRole('button', { name: 'Model', exact: true }).count(), 0, 'Child composer offered to change the root model');
     assert.equal(await panel(duplicate).getByRole('button', { name: 'Reasoning effort', exact: true }).count(), 0, 'Child composer offered to change root reasoning');
     assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).count(), 1);
@@ -186,36 +191,34 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await action(lower, 'Split right'); await countPanes(4);
     await action(extras[2], 'Move to pane 2'); await ready(extras[2]);
     await tab(extras[3]).click(); await ready(extras[3]);
-    await eventually(() => frames.filter(f => f.method === 'root.snapshot').length >= 5, { description: 'five roots visited under four-root budget' });
-    const fresh = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
-    assert.equal(fresh.status, 'succeeded');
-    // Navigate in the same app without reloading its live root leases.
-    await client.session(fresh.result.root_id).rename('Fresh split navigation').result();
+    await eventually(() => new Set(frames.filter(f => f.method === 'sessions.history_page').map(f => f.params.session_id)).size >= 5, { description: 'five roots visited under four-pane budget' });
+    const fresh = await fixture.createRoot(client, { title: 'Fresh split navigation' });
+    // Navigate in the same app without reloading its live native views.
     await page.getByRole('link', { name: 'Fresh split navigation', exact: true }).click();
-    await ready(fresh.result.root_id);
-    assert.ok(maximumSubscriptions <= 4, `Observed ${maximumSubscriptions} subscriptions`);
+    await ready(fresh.root.id);
+    assert.ok(maximumObservers <= 16, `Observed ${maximumObservers} bounded native observers`);
     assert.equal(await page.getByRole('alert').filter({ hasText: 'Four session views' }).count(), 0);
-    assert.equal(frames.filter(f => f.method === 'command.submit').length, 0, 'Layout interaction sent durable commands');
-    const working = client.session(fresh.result.root_id).submit({ text: 'hold:tool-stream' });
-    await working.accepted();
-    await panel(fresh.result.root_id).getByRole('button', { name: 'Pause this turn', exact: true }).waitFor();
+    assert.equal(frames.filter(f => ['trees.create', 'sessions.submit', 'sessions.spawn', 'sessions.fork', 'sessions.configure'].includes(f.method)).length, 0, 'Layout interaction sent durable commands');
+    const working = client.session(fresh.root.id).submission([{ type: 'text', text: 'hold:tool-stream' }], crypto.randomUUID());
+    await working.send(deadline());
+    await panel(fresh.root.id).getByRole('button', { name: 'Pause this turn', exact: true }).waitFor();
     // Minimum-size panes must keep controls reachable even when extra notices
     // and the active-turn delivery selector leave no space for a transcript.
     await page.getByRole('separator', { name: 'Resize panes horizontally', exact: true }).last().focus();
     await page.keyboard.press('Home');
     await page.getByRole('separator', { name: 'Resize panes vertically', exact: true }).focus();
     await page.keyboard.press('Home');
-    const smallPanel = panel(fresh.result.root_id);
+    const smallPanel = panel(fresh.root.id);
     await smallPanel.evaluate(el => { el.scrollTop = el.scrollHeight; });
     const controlBounds = await smallPanel.getByRole('button', { name: 'Pause this turn', exact: true }).boundingBox();
     const paneBounds = await smallPanel.boundingBox();
     assert.ok(controlBounds.x >= paneBounds.x && controlBounds.x + controlBounds.width <= paneBounds.x + paneBounds.width + 1, 'Narrow pane clips composer controls');
     assert.ok(controlBounds.y >= paneBounds.y && controlBounds.y + controlBounds.height <= paneBounds.y + paneBounds.height + 1, 'Short pane makes composer unreachable');
     await page.screenshot({ path: join(directory, `${name}-minimum-pane.png`) });
-    await fixture.release('tool-stream'); await working.result();
+    await fixture.release('tool-stream'); await working.wait(deadline());
     checks.push('minimum-size active panes retain reachable composer controls');
     assert.deepEqual(errors, []);
-    checks.push('four-pane admission and replacing roots stay within four subscriptions without daemon commands');
+    checks.push('four-pane admission and replacing roots stay within four visible panes and sixteen warm native views without session mutations');
     // Saved-session drags always create another root chat view, never reuse a
     // selected duplicate, fork a session, or change another pane's reading state.
     await tab(root).click(); await ready(root);
@@ -290,8 +293,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const closedPane = leaves(afterExternal.layout).find(pane => pane.id === targetPane.id);
     assert.deepEqual(closedPane.tabs.slice(0, 2).map(tab => tab.id), [closedView.id, opened.id]);
     await ready(closedView.id);
-    assert.equal(frames.filter(frame => frame.method === 'command.submit').length, 0, 'Sidebar dragging created/forked a session or submitted work');
-    assert.ok(maximumSubscriptions <= 4, 'Sidebar drop exceeded the selected-root subscription budget');
+    assert.equal(frames.filter(frame => ['trees.create', 'sessions.submit', 'sessions.spawn', 'sessions.fork', 'sessions.configure'].includes(frame.method)).length, 0, 'Sidebar dragging created/forked a session or submitted work');
+    assert.ok(maximumObservers <= 16, 'Sidebar drop exceeded the bounded native warm-view budget');
     assert.deepEqual(errors, []);
     checks.push('sidebar drag inserts fresh open/closed session views, preserves existing state, cancels, and restores duplicate history without daemon commands');
     // Every edge must create a new root view, including when the source already
@@ -338,12 +341,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       assert.equal(await rootScroll.evaluate(element => element.scrollTop), scrollTop, `${edge}: moved original reading position`);
       assert.equal(await panel(view.id).getByLabel('Message WHIP', { exact: true }).inputValue(), `Preserve the ${edge} split draft.`);
       assert.equal(await sidebarSource(root).count(), 1);
-      assert.equal(frames.filter(frame => frame.method === 'command.submit').length, 0, `${edge}: sidebar split submitted daemon work`);
+      assert.equal(frames.filter(frame => ['trees.create', 'sessions.submit', 'sessions.spawn', 'sessions.fork', 'sessions.configure'].includes(frame.method)).length, 0, `${edge}: sidebar split submitted daemon work`);
       await tab(view.id).focus(); await page.keyboard.press('Delete'); await countPanes(2);
       assert.deepEqual((await workspace()).layout, beforeEdge.layout, `${edge}: closing the fresh view did not restore the originals`);
       checks.push(`sidebar ${edge} edge creates a fresh root view; originals, shared draft, reading position and cancellation survive`);
     }
-    assert.ok(maximumSubscriptions <= 4, 'Sidebar splits exceeded the root subscription budget');
+    assert.ok(maximumObservers <= 16, 'Sidebar splits exceeded the bounded native warm-view budget');
     assert.deepEqual(errors, []);
     // Home has a standalone strip rather than WorkspaceLayout, including when empty.
     await page.evaluate(() => sessionStorage.setItem('whip.web.workspace.v3', JSON.stringify({ version: 3, workspace: { layout: { type: 'pane', id: 'main', tabs: [] }, focusedPaneId: 'main', closed: [], restoreSelection: false } })));
@@ -355,7 +358,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const homeView = allTabs(await workspace())[0];
     assert.equal(homeView.rootId, extras[4]); assert.equal(homeView.kind, 'chat');
     await ready(homeView.id);
-    assert.equal(frames.filter(frame => frame.method === 'command.submit').length, 0, 'Home strip drop submitted session work');
+    assert.equal(frames.filter(frame => ['trees.create', 'sessions.submit', 'sessions.spawn', 'sessions.fork', 'sessions.configure'].includes(frame.method)).length, 0, 'Home strip drop submitted session work');
     assert.deepEqual(errors, []);
     checks.push('empty home strip accepts sidebar drops without a mounted layout');
     await sidebarSource(extras[4]).click({ button: 'right' });
@@ -365,16 +368,16 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const keyboardView = allTabs(await workspace()).find(tab => tab.id !== homeView.id);
     assert.equal(keyboardView.rootId, extras[4]); assert.equal(keyboardView.kind, 'chat');
     await ready(keyboardView.id);
-    assert.equal(frames.filter(frame => frame.method === 'command.submit').length, 0);
+    assert.equal(frames.filter(frame => ['trees.create', 'sessions.submit', 'sessions.spawn', 'sessions.fork', 'sessions.configure'].includes(frame.method)).length, 0);
     assert.deepEqual(errors, []);
     checks.push('Open in new tab keyboard action uses the same always-new session view operation');
-    results[name] = { browser: await browser.version(), maximumSubscriptions, checks };
+    results[name] = { browser: await browser.version(), maximumObservers, checks };
     console.log(`${name}: ${checks.length} split workspace workflows passed`);
   } catch (error) {
     await page.screenshot({ path: join(directory, `${name}-failure.png`) }).catch(() => {});
     await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n\n${await page.locator('body').innerText().catch(() => '')}\n\n${JSON.stringify(errors)}`);
-    await writeFile(join(directory, `${name}-frames.json`), JSON.stringify(frames.filter(f => /events\.|root.snapshot|history/.test(f.method)), null, 2));
+    await writeFile(join(directory, `${name}-frames.json`), JSON.stringify(frames.filter(f => /sessions\.observe|history/.test(f.method)), null, 2));
     throw error;
-  } finally { client.close(); await browser.close(); await fixture.close(); }
+  } finally { await browser.close(); await fixture.close(); }
 }
 await writeFile(join(directory, 'workspace-layout.json'), JSON.stringify(results, null, 2));
