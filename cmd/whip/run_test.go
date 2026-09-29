@@ -20,6 +20,7 @@ import (
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rpc"
+	"github.com/context-labs/whip/internal/runclient"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
@@ -465,14 +466,50 @@ func TestRunTimeoutCancelsExactHostInput(t *testing.T) {
 		close(cancelled)
 		return model.Response{}, ctx.Err()
 	})
-	out, err := runCapture(t, "", "--format", "json", "--timeout", "500ms", "wait")
-	if err == nil || !strings.Contains(err.Error(), "timed out") || !strings.Contains(out, `"type":"error"`) || strings.Contains(out, `"type":"done"`) {
-		t.Fatal(out, err)
+	// Cold worker startup is outside this cancellation assertion. Admit through
+	// the real client, await dispatch, then detach only its observer before the
+	// CLI's timed recovery observes and explicitly cancels that exact input.
+	c, err := connectNativeRuntime(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer func() { _ = c.Close() }()
+	output, err := runclient.NewOutput("json", true, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "record.json")
+	observing, detach := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		saved := false
+		_, err := runclient.Run(observing, c, runclient.Options{WorkingDirectory: cwd(), Prompt: "wait", Record: func(record client.InputRecord) error {
+			if saved {
+				return nil
+			}
+			saved = true
+			return saveRunRecord(path, record)
+		}}, output)
+		done <- err
+	}()
+	dispatched := false
 	select {
 	case <-started:
+		dispatched = true
+	case <-time.After(10 * time.Second):
+	}
+	detach()
+	if err := <-done; !errors.Is(err, context.Canceled) || !dispatched {
+		t.Fatalf("provider must start before its observer detaches: %v", err)
+	}
+	select {
+	case <-cancelled:
+		t.Fatal("detaching observation cancelled accepted execution")
 	default:
-		t.Fatal("provider never started")
+	}
+	out, err := runCapture(t, "", "--format", "json", "--recover", path, "--timeout", "500ms")
+	if err == nil || !strings.Contains(err.Error(), "timed out") || !strings.Contains(out, `"type":"error"`) || strings.Contains(out, `"type":"done"`) {
+		t.Fatal(out, err)
 	}
 	select {
 	case <-cancelled:

@@ -238,6 +238,7 @@ tasks:
     desc: UI browser behavior, exact CSP, packed consumer and model picker geometry
     cmds:
       - npm run build -w @whip/sdk
+      - npm run build:storybook -w @whip/ui
       - node packages/ui/tests/browser.mjs
       - node packages/ui/tests/csp.mjs
       - node packages/ui/tests/packed.mjs
