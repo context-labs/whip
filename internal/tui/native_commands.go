@@ -21,6 +21,7 @@ type nativeControlResult struct {
 	retry          tea.Cmd
 	inspectOnError bool
 	notice         string
+	decisionID     protocol.ID
 }
 
 // control owns only this UI request. Its retry closure captures the original

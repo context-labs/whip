@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +84,10 @@ type nativeModel struct {
 	noteRevisions                   [2]string
 	notice                          string
 	standingDraft                   *protocol.WriteHostStandingInstructionsParams
+	decisions                       []nativeDecision
+	decision                        *nativeDecisionDialog
+	hiddenDecision                  *nativeDecisionDialog
+	decisionsHidden                 bool
 }
 
 type (
@@ -99,6 +104,7 @@ type (
 		context       *protocol.ContextUsage
 		err           error
 		evidenceError error
+		decisions     *nativeDecisionPage
 	}
 )
 
@@ -135,7 +141,7 @@ func (m *nativeModel) read() tea.Cmd {
 		return nil
 	}
 	m.reading = true
-	observer, handle, generation := m.observer, m.handle, m.generation
+	observer, handle, generation, owner := m.observer, m.handle, m.generation, m.owner
 	evidence := m.polls%5 == 0
 	m.polls++
 	return func() tea.Msg {
@@ -186,6 +192,11 @@ func (m *nativeModel) read() tea.Cmd {
 		// Otherwise Observer's advanced cursor would silently skip messages.
 		result.output, result.evidenceError = handle.CellOutput(ctx)
 		if evidence {
+			result.decisions, err = readNativeDecisions(ctx, m.connection, owner)
+			result.evidenceError = errors.Join(result.evidenceError, err)
+			if err != nil {
+				result.decisions = nil
+			}
 			usage, err := handle.Usage(ctx)
 			if err == nil {
 				result.usage = &usage
@@ -254,6 +265,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if value.evidenceError != nil {
 			m.status = "Some live evidence is unavailable: " + value.evidenceError.Error()
 		}
+		if value.decisions != nil {
+			m.applyDecisions(value.decisions)
+		}
 		if renderChanged {
 			m.refresh()
 		}
@@ -317,6 +331,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.status = value.label
+			if value.decisionID != "" {
+				m.decision = nil
+				m.applyDecisions(&nativeDecisionPage{items: slices.DeleteFunc(m.decisions, func(item nativeDecision) bool { return item.id == value.decisionID })})
+			}
 			if value.notice != "" {
 				m.notice = nativeBoundedNotice(value.notice)
 				m.refresh()
@@ -339,6 +357,18 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Cancellation requested for turn " + string(value.turn)
 		}
 	case tea.KeyPressMsg:
+		if m.decision != nil && value.String() != "ctrl+c" {
+			return m, m.decisionKey(value)
+		}
+		if value.String() == "tab" && len(m.decisions) > 0 {
+			m.decisionsHidden = false
+			if m.hiddenDecision != nil {
+				m.decision, m.hiddenDecision = m.hiddenDecision, nil
+			} else {
+				m.decision = newNativeDecision(m.decisions[0], m.width)
+			}
+			return m, nil
+		}
 		switch value.String() {
 		case "ctrl+c":
 			if m.quitArmed {
@@ -364,6 +394,14 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(value)
 		return m, cmd
 	case tea.PasteMsg:
+		if m.decision != nil {
+			if m.decision.form != nil && m.decision.form.editing {
+				var cmd tea.Cmd
+				m.decision.form.input, cmd = m.decision.form.input.Update(value)
+				return m, cmd
+			}
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(value)
 		return m, cmd
@@ -522,6 +560,11 @@ func (m *nativeModel) refresh() {
 }
 
 func (m *nativeModel) View() tea.View {
+	if m.decision != nil {
+		view := tea.NewView(m.decision.view(m.width, m.height) + "\n" + ansi.Truncate(nativeDisplayText(m.status), m.width, "…"))
+		view.AltScreen = true
+		return view
+	}
 	state := m.activity.Lifecycle
 	if m.activity.ActiveTurn != nil {
 		state = m.activity.ActiveTurn.State
