@@ -25,7 +25,9 @@ cell ordinal, independently of opaque ID spelling. ExecutionView continues a
 partially retained turn before older turns; refresh keeps the selected older
 window. Exact call/result bodies absent from SessionView are read only for
 retained cells, deduplicated and charged to the same execution byte budget.
-The immutable `messages` field owns those bodies; disposal, history replacement
+Already-loaded bodies are retained by shared reference so independent transcript
+paging cannot erase code or output between reads. The immutable `messages` field
+owns these retained references; disposal, history replacement
 and process-epoch changes release them. Oversized or unavailable bodies are
 explicit in `unavailableMessageIDs`, without fabricating empty outputs.
 

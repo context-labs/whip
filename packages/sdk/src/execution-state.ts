@@ -17,7 +17,7 @@ export interface ExecutionViewSnapshot {
   historyRevision: string | null;
   turns: Turn[];
   cells: Cell[];
-  /** Exact canonical call/result bodies absent from the shared transcript window. */
+  /** Canonical call/result body references retained for these execution cells. */
   messages?: Message[];
   unavailableMessageIDs?: string[];
   olderCellCursor?: { turnID: string; before: string } | null;
