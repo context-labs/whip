@@ -398,7 +398,16 @@ export function SessionContent({
   const delivery = rows
     .filter((row) => row.role === 'user' && row.delivery)
     .at(-1)?.delivery;
-  const status = activityStatus(state, cells, connected, lastTurn, delivery);
+  const resourceError =
+    selectedQuery.error ||
+    rootQuery.error ||
+    treeQuery.error ||
+    state.error?.message;
+  const status = opening
+    ? { text: 'Loading session…', active: false }
+    : resourceError
+      ? { text: 'Session unavailable', active: false }
+      : activityStatus(state, cells, connected, lastTurn, delivery);
   const actions = useSessionActions(),
     navigate = useNavigate();
   const [actionError, setActionError] = useState<unknown>();
@@ -674,11 +683,6 @@ export function SessionContent({
         <Link to="/">Choose a session</Link>
       </div>
     );
-  const resourceError =
-    selectedQuery.error ||
-    rootQuery.error ||
-    treeQuery.error ||
-    state.error?.message;
   const history = state.history;
   return (
     <ChatDropSurface ref={dropTarget}>
@@ -876,7 +880,7 @@ export function SessionContent({
         <SessionLoading />
       ) : (
         <div {...stylex.props(layout.empty)}>
-          {state.error ? (
+          {resourceError ? (
             <p {...stylex.props(layout.emptyText)}>
               Session content is unavailable. Use Refresh above.
             </p>
