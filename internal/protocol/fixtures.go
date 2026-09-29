@@ -95,6 +95,7 @@ func Fixtures() ([]Fixture, error) {
 		{"SetHostProfilesParams", SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: []HostProfile{}}},
 		{"Input", directInput},
 		{"HostAttentionParams", HostAttentionParams{Limit: 100, MaxBytes: 524288}},
+		{"Usage", UsageFromDomain(session.Usage{SessionID: "session_root", Attempts: session.UsageAttempts{Settled: 2, InFlight: 1}, ReportedCost: session.UsageCost{Value: 9007199254740993, Attempts: 1}, UnknownCost: 1, InputTokens: session.UsageQuantity{Value: 9007199254740993, KnownAttempts: 1, MissingAttempts: 1}, OutputTokens: session.UsageQuantity{MissingAttempts: 2}, ReasoningTokens: session.UsageQuantity{MissingAttempts: 2}, CachedInput: session.UsageQuantity{MissingAttempts: 2}, CachedOutput: session.UsageQuantity{MissingAttempts: 2}, ElapsedMillis: session.UsageQuantity{MissingAttempts: 2}})},
 		{"TracePageParams", TracePageParams{RootID: "session_root", After: new(Counter(9007199254740993)), ExpectedRevision: new(Counter(9007199254740999)), Limit: 2048, MaxBytes: 524288}},
 		{"TracePageParams", TracePageParams{RootID: "session_root", Before: new((*Counter)(nil)), Limit: 2048, MaxBytes: 524288}},
 		{"TracePageParams", TracePageParams{RootID: "session_root", Before: new(new(Counter(9007199254740993))), ExpectedRevision: new(Counter(9007199254740999)), Limit: 2048, MaxBytes: 524288}},

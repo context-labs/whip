@@ -141,7 +141,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchSchedule(ctx, r, method, raw)
 	case "resources.list", "resources.set":
 		return dispatchResource(ctx, r, method, raw)
-	case "budgets.list", "budgets.set":
+	case "usage.get", "budgets.list", "budgets.set":
 		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
 		return dispatchObservation(ctx, r, raw)

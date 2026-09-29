@@ -680,6 +680,11 @@ export const manifest = {
       "result": "ResourceUsage"
     },
     {
+      "name": "usage.get",
+      "params": "SessionParams",
+      "result": "Usage"
+    },
+    {
       "name": "budgets.list",
       "params": "SessionParams",
       "result": "BudgetsResult"

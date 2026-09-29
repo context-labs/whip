@@ -9654,6 +9654,63 @@ export interface UpdateTreeParams {
     pinned: boolean;
   };
 }
+export interface Usage {
+  session_id: string;
+  attempts: {
+    reserved: string;
+    in_flight: string;
+    settled: string;
+    not_dispatched: string;
+    uncertain: string;
+  };
+  reported_cost: {
+    value: string;
+    attempts: string;
+    overflow: boolean;
+  };
+  estimated_cost: {
+    value: string;
+    attempts: string;
+    overflow: boolean;
+  };
+  unknown_cost: string;
+  input_tokens: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  output_tokens: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  reasoning_tokens: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  cached_input: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  cached_output: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  elapsed_millis: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+}
 export interface WorkspaceAction {
   id: string;
   session_id: string;
@@ -10034,6 +10091,7 @@ export interface ContractTypes {
   UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
+  Usage: Usage;
   WorkspaceAction: WorkspaceAction;
   WorkspaceActionParams: WorkspaceActionParams;
   WorkspaceCompletionParams: WorkspaceCompletionParams;
@@ -10183,6 +10241,7 @@ export interface Operations {
   "mail.read": { params: ReadMailParams; result: ReadMailResult };
   "resources.list": { params: SessionParams; result: ResourcesResult };
   "resources.set": { params: SetResourceParams; result: ResourceUsage };
+  "usage.get": { params: SessionParams; result: Usage };
   "budgets.list": { params: SessionParams; result: BudgetsResult };
   "budgets.set": { params: SetBudgetParams; result: Budget };
   "sessions.observe": { params: HistoryParams; result: SessionObservation };

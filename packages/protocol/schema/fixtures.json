@@ -435,6 +435,67 @@
     "valid": true
   },
   {
+    "type": "Usage",
+    "value": {
+      "session_id": "session_root",
+      "attempts": {
+        "reserved": "0",
+        "in_flight": "1",
+        "settled": "2",
+        "not_dispatched": "0",
+        "uncertain": "0"
+      },
+      "reported_cost": {
+        "value": "9007199254740993",
+        "attempts": "1",
+        "overflow": false
+      },
+      "estimated_cost": {
+        "value": "0",
+        "attempts": "0",
+        "overflow": false
+      },
+      "unknown_cost": "1",
+      "input_tokens": {
+        "value": "9007199254740993",
+        "known_attempts": "1",
+        "missing_attempts": "1",
+        "overflow": false
+      },
+      "output_tokens": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      },
+      "reasoning_tokens": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      },
+      "cached_input": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      },
+      "cached_output": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      },
+      "elapsed_millis": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "TracePageParams",
     "value": {
       "root_id": "session_root",

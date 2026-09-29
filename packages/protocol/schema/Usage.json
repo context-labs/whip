@@ -1,0 +1,297 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "attempts": {
+      "type": "object",
+      "properties": {
+        "reserved": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "in_flight": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "settled": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "not_dispatched": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "uncertain": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        }
+      },
+      "required": [
+        "reserved",
+        "in_flight",
+        "settled",
+        "not_dispatched",
+        "uncertain"
+      ],
+      "additionalProperties": false
+    },
+    "reported_cost": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "overflow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "attempts",
+        "overflow"
+      ],
+      "additionalProperties": false
+    },
+    "estimated_cost": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "overflow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "attempts",
+        "overflow"
+      ],
+      "additionalProperties": false
+    },
+    "unknown_cost": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "input_tokens": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "known_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "missing_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "overflow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "known_attempts",
+        "missing_attempts",
+        "overflow"
+      ],
+      "additionalProperties": false
+    },
+    "output_tokens": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "known_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "missing_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "overflow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "known_attempts",
+        "missing_attempts",
+        "overflow"
+      ],
+      "additionalProperties": false
+    },
+    "reasoning_tokens": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "known_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "missing_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "overflow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "known_attempts",
+        "missing_attempts",
+        "overflow"
+      ],
+      "additionalProperties": false
+    },
+    "cached_input": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "known_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "missing_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "overflow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "known_attempts",
+        "missing_attempts",
+        "overflow"
+      ],
+      "additionalProperties": false
+    },
+    "cached_output": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "known_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "missing_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "overflow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "known_attempts",
+        "missing_attempts",
+        "overflow"
+      ],
+      "additionalProperties": false
+    },
+    "elapsed_millis": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "known_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "missing_attempts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "overflow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "known_attempts",
+        "missing_attempts",
+        "overflow"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/Usage",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Usage",
+  "required": [
+    "session_id",
+    "attempts",
+    "reported_cost",
+    "estimated_cost",
+    "unknown_cost",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cached_input",
+    "cached_output",
+    "elapsed_millis"
+  ],
+  "additionalProperties": false
+}
