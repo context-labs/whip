@@ -170,7 +170,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		return nil, err
 	}
 	r := &Runtime{
-		mcp: newMCPOwners(), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
+		mcp: newMCPOwners(directory), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
 		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
 		store: database, content: bodies, owner: lock, directory: directory, host: host, configuration: configuration, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]*execution{},

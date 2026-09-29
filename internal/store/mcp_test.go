@@ -2,6 +2,8 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/context-labs/whip/internal/session"
@@ -45,5 +47,38 @@ func TestMCPCatalogIntrinsicGuardRejectsForgedIntent(t *testing.T) {
 	}
 	if _, err := db.SettleOperation(t.Context(), operation.ID, session.OperationResult{State: session.OperationSucceeded, Value: json.RawMessage(`[]`)}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMCPUntrustedCapabilitiesCannotUseAutomaticAdmissionOrDispatch(t *testing.T) {
+	db := fresh(t)
+	owner, cell := operationCell(t, db)
+	setModeTest(t, db, owner.ID, "automatic", 1, session.PermissionAutomatic)
+	for index, capability := range []string{"mcp.call", "mcp.connect"} {
+		spec := operationSpec(cell, fmt.Sprintf("untrusted_%d", index))
+		spec.Capability = capability
+		operation := admitOperation(t, db, spec)
+		if operation.State != session.OperationWaiting || operation.PermissionRevision != nil || operation.GrantID != nil {
+			t.Fatal("untrusted operation used full access", operation)
+		}
+		forged := operation
+		forged.PermissionRevision = new(session.Revision(2))
+		if err := authorizeOperation(t.Context(), db.db, forged); !errors.Is(err, ErrConflict) {
+			t.Fatal("untrusted dispatch used forged policy revision", err)
+		}
+		if _, err := db.ResolvePermission(t.Context(), operation.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		if allowed, err := db.DispatchOperation(t.Context(), operation.ID); err != nil || !allowed {
+			t.Fatal("explicit approval failed", allowed, err)
+		}
+	}
+	for index, capability := range []string{"mcp.call.trusted", "mcp.connect.trusted"} {
+		spec := operationSpec(cell, fmt.Sprintf("trusted_%d", index))
+		spec.Capability = capability
+		operation := admitOperation(t, db, spec)
+		if operation.State != session.OperationReady || operation.PermissionRevision == nil {
+			t.Fatal("trusted preparation lost automatic policy", operation)
+		}
 	}
 }

@@ -1,0 +1,279 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "server": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 16384
+          },
+          "maxItems": 128
+        },
+        "env": {
+          "type": "object",
+          "maxProperties": 128,
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 16384
+          },
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "cwd": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "headers": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 16384
+          },
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "enabled": {
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "startup_timeout_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300
+        },
+        "tool_timeout_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300
+        }
+      },
+      "required": [
+        "command",
+        "env",
+        "cwd",
+        "url",
+        "headers",
+        "enabled",
+        "note",
+        "startup_timeout_seconds",
+        "tool_timeout_seconds"
+      ],
+      "additionalProperties": false
+    },
+    "remove": {
+      "type": "boolean"
+    },
+    "imports": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "claude": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            }
+          },
+          "required": [
+            "enabled",
+            "only",
+            "exclude"
+          ],
+          "additionalProperties": false
+        },
+        "codex": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            }
+          },
+          "required": [
+            "enabled",
+            "only",
+            "exclude"
+          ],
+          "additionalProperties": false
+        },
+        "project": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            }
+          },
+          "required": [
+            "enabled",
+            "only",
+            "exclude"
+          ],
+          "additionalProperties": false
+        },
+        "opencode": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            }
+          },
+          "required": [
+            "enabled",
+            "only",
+            "exclude"
+          ],
+          "additionalProperties": false
+        },
+        "offered": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "claude",
+        "codex",
+        "project",
+        "opencode",
+        "offered"
+      ],
+      "additionalProperties": false
+    },
+    "brand_icons": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ConfigureMCPParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConfigureMCPParams",
+  "required": [
+    "revision",
+    "name",
+    "server",
+    "remove",
+    "imports",
+    "brand_icons"
+  ],
+  "additionalProperties": false
+}

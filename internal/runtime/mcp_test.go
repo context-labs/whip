@@ -93,6 +93,9 @@ func TestMCPUntrustedDiscoveryRequiresExactApprovalAndRetryNeverReplays(t *testi
 	isolateMCP(t)
 	url, _, effects := mcpHTTPFixture(t)
 	r, owner, cell := modelHelperFixture(t, model.Scripted{})
+	if _, err := r.SetPermissionMode(t.Context(), session.PermissionModeRequest{ID: "full_access", SessionID: owner.ID, ExpectedRevision: 1, Mode: session.PermissionAutomatic}); err != nil {
+		t.Fatal(err)
+	}
 	path := mcp.ClaudeGlobalPath()
 	if err := os.WriteFile(path, fmtJSONMCP(url), 0o600); err != nil {
 		t.Fatal(err)
@@ -154,6 +157,38 @@ func TestMCPUntrustedDiscoveryRequiresExactApprovalAndRetryNeverReplays(t *testi
 	}
 	if effects.Load() != 1 {
 		t.Fatal("wrong effect count", effects.Load())
+	}
+}
+
+func TestMCPNativeFullAccessUsesHostTrustAndRejectsGuestTrustFlags(t *testing.T) {
+	isolateMCP(t)
+	url, _, effects := mcpHTTPFixture(t)
+	r, owner, cell := modelHelperFixture(t, model.Scripted{})
+	configureMCPFixture(t, r, url)
+	if _, err := r.SetPermissionMode(t.Context(), session.PermissionModeRequest{ID: "automatic", SessionID: owner.ID, ExpectedRevision: 1, Mode: session.PermissionAutomatic}); err != nil {
+		t.Fatal(err)
+	}
+	invocation := tool.Invocation{SessionID: owner.ID, CellID: cell.ID, RequestID: "trusted_refresh", Module: "mcp", Name: "refresh", Arguments: map[string]any{}}
+	_, id, err := r.tools.Call(t.Context(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, err := r.Operation(t.Context(), id)
+	if err != nil || operation.Capability != "mcp.connect.trusted" || operation.PermissionRevision == nil || operation.GrantID != nil {
+		t.Fatal(operation, err)
+	}
+	awaitMCPReady(t, r, owner)
+	invocation.RequestID, invocation.Name, invocation.Arguments = "trusted_call", "call", map[string]any{"server": "fixture", "tool": "visible", "arguments": map[string]any{}}
+	if _, _, err := r.tools.Call(t.Context(), invocation); err != nil {
+		t.Fatal(err)
+	}
+	invocation.RequestID = "forged_trust"
+	invocation.Arguments["trusted"] = true
+	if _, _, err := r.tools.Call(t.Context(), invocation); err == nil {
+		t.Fatal("guest selected trust")
+	}
+	if effects.Load() != 1 {
+		t.Fatal("forged request executed", effects.Load())
 	}
 }
 

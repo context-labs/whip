@@ -62,10 +62,14 @@ type Resolver struct {
 }
 
 func New(dir string) *Resolver {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxResponseHeaderBytes = 64 << 10
+	transport.MaxConnsPerHost = inFlight
 	return &Resolver{
 		dir: dir,
 		client: &http.Client{
 			Timeout:       4 * time.Second,
+			Transport:     transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		sem:     make(chan struct{}, inFlight),
@@ -259,3 +263,6 @@ func (r *Resolver) prune() {
 		_ = os.Remove(filepath.Join(r.dir, files[i].name))
 	}
 }
+
+// Close releases idle owned connections after callers have joined.
+func (r *Resolver) Close() { r.client.CloseIdleConnections() }

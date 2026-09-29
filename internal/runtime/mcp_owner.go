@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/context-labs/whip/internal/brandicon"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
@@ -31,6 +32,7 @@ type mcpRoot struct {
 // mcpOwners owns transport lifetimes independently of observing callers and
 // turns. Stopping one child does not retire its siblings' borrowed connections.
 type mcpOwners struct {
+	icons     *brandicon.Resolver
 	humans    chan struct{}
 	workers   sync.WaitGroup
 	mu        sync.Mutex
@@ -48,9 +50,9 @@ type mcpChildCalls struct {
 	users int
 }
 
-func newMCPOwners() *mcpOwners {
+func newMCPOwners(directory string) *mcpOwners {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &mcpOwners{humans: make(chan struct{}, 16), roots: map[session.TreeID]*mcpRoot{}, budget: mcp.NewBudget(), processes: capability.NewProcessManager(), ctx: ctx, cancel: cancel, calls: make(chan struct{}, 64), children: map[session.SessionID]*mcpChildCalls{}}
+	return &mcpOwners{icons: brandicon.New(filepath.Join(directory, "mcp-icons")), humans: make(chan struct{}, 16), roots: map[session.TreeID]*mcpRoot{}, budget: mcp.NewBudget(), processes: capability.NewProcessManager(), ctx: ctx, cancel: cancel, calls: make(chan struct{}, 64), children: map[session.SessionID]*mcpChildCalls{}}
 }
 
 func (o *mcpOwners) close() error {
@@ -68,6 +70,7 @@ func (o *mcpOwners) close() error {
 		manager.Close()
 	}
 	o.workers.Wait()
+	o.icons.Close()
 	return o.processes.Close()
 }
 

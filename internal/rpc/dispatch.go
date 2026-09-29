@@ -71,6 +71,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 
 	case "shell.interaction", "shell.input":
 		return dispatchShell(ctx, r, method, raw)
+	case "mcp.configuration", "mcp.configure", "mcp.import.candidates", "mcp.import.apply", "mcp.status", "mcp.refresh", "mcp.reload", "mcp.reconnect", "mcp.enable", "mcp.disable", "mcp.attach", "mcp.tools", "mcp.instructions", "mcp.brand.icons":
+		return dispatchMCP(ctx, r, method, raw)
 	case "workspace.capture", "workspace.restore", "workspace.release", "workspace.action", "workspace.snapshot", "workspace.snapshots":
 		return dispatchWorkspace(ctx, r, method, raw)
 	case "providers.presets", "providers.bundled", "providers.list", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
@@ -487,6 +489,7 @@ func wireError(err error) *protocol.RPCError {
 		{ErrIdentity, -32014, "IDENTITY"},
 		{ErrNetworkRestricted, -32015, "NETWORK_RESTRICTED"},
 		{ErrMethod, -32601, "METHOD"},
+		{errMCPUnavailable, -32035, "MCP_UNAVAILABLE"},
 	}
 	for _, kind := range kinds {
 		if errors.Is(err, kind.err) {

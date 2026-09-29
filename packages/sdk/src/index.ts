@@ -137,6 +137,27 @@ export class Client {
     return this.call('questions.answer', { session_id: sessionID, operation_id: operationID, answers }, options);
   }
 
+  /** Saved declarations only; never connects or resolves credentials. */
+  mcpConfiguration(options: CallOptions = {}): Promise<Operations['mcp.configuration']['result']> { return this.call('mcp.configuration', {}, options); }
+  /** Explicit CAS publication. Reread configuration after lost delivery; never automatically replay. */
+  configureMCP(params: Operations['mcp.configure']['params'], options: CallOptions = {}): Promise<Operations['mcp.configure']['result']> { return this.call('mcp.configure', params, options); }
+  mcpImportCandidates(sessionID: string | null = null, options: CallOptions = {}): Promise<Operations['mcp.import.candidates']['result']> { return this.call('mcp.import.candidates', { session_id: sessionID }, options); }
+  /** Saves the exact fingerprinted candidates. Connecting is a separate explicit refresh. */
+  importMCP(params: Operations['mcp.import.apply']['params'], options: CallOptions = {}): Promise<Operations['mcp.import.apply']['result']> { return this.call('mcp.import.apply', params, options); }
+  mcpStatus(sessionID: string, options: CallOptions = {}): Promise<Operations['mcp.status']['result']> { return this.call('mcp.status', { session_id: sessionID }, options); }
+  /** Additive discovery; existing and disabled live entries are preserved. Inspect changed before choosing reload. */
+  refreshMCP(sessionID: string, options: CallOptions = {}): Promise<Operations['mcp.refresh']['result']> { return this.call('mcp.refresh', { session_id: sessionID }, options); }
+  /** Explicitly retires the root's shared connections and reloads current declarations. */
+  reloadMCP(sessionID: string, options: CallOptions = {}): Promise<Operations['mcp.reload']['result']> { return this.call('mcp.reload', { session_id: sessionID }, options); }
+  reconnectMCP(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.reconnect']['result']> { return this.call('mcp.reconnect', { session_id: sessionID, server }, options); }
+  enableMCP(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.enable']['result']> { return this.call('mcp.enable', { session_id: sessionID, server }, options); }
+  disableMCP(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.disable']['result']> { return this.call('mcp.disable', { session_id: sessionID, server }, options); }
+  /** Attachments never confer native trust or replace declared servers. */
+  attachMCP(params: Operations['mcp.attach']['params'], options: CallOptions = {}): Promise<Operations['mcp.attach']['result']> { return this.call('mcp.attach', params, options); }
+  mcpTools(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.tools']['result']> { return this.call('mcp.tools', { session_id: sessionID, server }, options); }
+  mcpInstructions(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.instructions']['result']> { return this.call('mcp.instructions', { session_id: sessionID, server }, options); }
+  mcpBrandIcons(keys: string[], options: CallOptions = {}): Promise<Operations['mcp.brand.icons']['result']> { return this.call('mcp.brand.icons', { keys }, options); }
+
   /** Read-only observation; never starts a server or grants workspace access. */
   languageServerStatus(sessionID: string, options: CallOptions = {}): Promise<Operations['lsp.status']['result']> {
     return this.call('lsp.status', { session_id: sessionID }, options);

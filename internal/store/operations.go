@@ -146,12 +146,13 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		var grantID *session.GrantID
 		var permissionRevision *session.Revision
 		state := session.OperationWaiting
-		if spec.Capability == "mcp.catalog" {
+		switch spec.Capability {
+		case "mcp.catalog":
 			if err := validateMCPCatalog(ctx, tx, spec); err != nil {
 				return err
 			}
 			state = session.OperationReady
-		} else if spec.Capability == session.QuestionCapability {
+		case session.QuestionCapability:
 			if err := validateQuestionIntent(cell.SessionID, spec); err != nil {
 				return err
 			}
@@ -170,7 +171,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 			if owner.ParentID == nil {
 				state = session.OperationReady
 			}
-		} else {
+		default:
 			grant, err := matchingGrant(ctx, tx, cell.SessionID, spec.Capability, spec.Resource)
 			if err == nil {
 				grantID, state = &grant.ID, session.OperationReady

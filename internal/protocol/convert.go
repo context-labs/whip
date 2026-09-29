@@ -124,6 +124,9 @@ func (p DefinitionDocument) Domain() (session.DefinitionDocument, error) {
 // Encoding is deliberate: configuration DTOs use the same documented JSON field
 // names but are separate types, so no map/slice storage can alias a live caller.
 func ConfigurationFromDomain(value session.Configuration) (Configuration, error) {
+	if value.MCPServers == nil {
+		value.MCPServers = &session.MCPSelection{All: true, Servers: []string{}}
+	}
 	var result Configuration
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -149,6 +152,9 @@ func (p ConfigPatch) Domain() (session.ConfigPatch, error) {
 
 func (p ConfigPatch) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{}
+	if p.MCPServers != nil {
+		fields["mcp_servers"] = p.MCPServers
+	}
 	if p.Modules != nil {
 		fields["modules"] = p.Modules
 	}

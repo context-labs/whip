@@ -380,11 +380,11 @@ func (r *Runtime) mcpMetadataValue(ctx context.Context, owner session.SessionID,
 	if len(raw) <= 64<<10 {
 		return value, nil
 	}
-	refs, err := r.mcpContentParts(ctx, owner, id, "metadata", "application/json", raw)
+	refs, err := r.mcpContentParts(ctx, owner, string(id), "metadata", "application/json", raw)
 	return map[string]any{"content_parts": refs, "bytes": len(raw)}, err
 }
 
-func (r *Runtime) mcpContentParts(ctx context.Context, owner session.SessionID, id session.OperationID, part, media string, data []byte) ([]session.ContentReference, error) {
+func (r *Runtime) mcpContentParts(ctx context.Context, owner session.SessionID, id, part, media string, data []byte) ([]session.ContentReference, error) {
 	if len(data) > 16<<20 {
 		return nil, store.ErrLimit
 	}
@@ -405,7 +405,7 @@ func (r *Runtime) mcpContentParts(ctx context.Context, owner session.SessionID, 
 func (r *Runtime) mcpResult(ctx context.Context, owner session.SessionID, id session.OperationID, result capability.MCPResult) (any, error) {
 	value := map[string]any{"text": result.Text}
 	if len(result.Text) > 64<<10 {
-		refs, err := r.mcpContentParts(ctx, owner, id, "text", "text/plain", []byte(result.Text))
+		refs, err := r.mcpContentParts(ctx, owner, string(id), "text", "text/plain", []byte(result.Text))
 		if err != nil {
 			return nil, err
 		}
@@ -419,7 +419,7 @@ func (r *Runtime) mcpResult(ctx context.Context, owner session.SessionID, id ses
 		if err := session.ValidateMediaType(media); err != nil {
 			media = "application/octet-stream"
 		}
-		refs, err := r.mcpContentParts(ctx, owner, id, fmt.Sprintf("attachment_%d", index), media, attachment.Data)
+		refs, err := r.mcpContentParts(ctx, owner, string(id), fmt.Sprintf("attachment_%d", index), media, attachment.Data)
 		if err != nil {
 			return nil, err
 		}

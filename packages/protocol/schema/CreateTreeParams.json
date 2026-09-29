@@ -102,6 +102,50 @@
     "overrides": {
       "type": "object",
       "properties": {
+        "mcp_servers": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "all": {
+              "type": "boolean"
+            },
+            "servers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "maxItems": 64,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "all",
+            "servers"
+          ],
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "all": {
+                    "const": true
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "servers": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          ]
+        },
         "modules": {
           "type": [
             "null",
