@@ -5707,3 +5707,14 @@ an explicitly requested final diagnostic, excluded from acceptance. All eleven
 keyboard/retention contracts pass locally (10.038s) and are included in the normal
 performance gate. A new trace and final unchanged-workload measurement are still
 required; functional success does not close the measured performance gap.
+
+The same hosted run subsequently passes the full browser gate and both repaired
+SSH integration blocks (Linux 54.316s/macOS 48.928s). Both client jobs fail later
+at the final packaged-runtime fixture: Task's embedded shell rejects the named
+`HUP` signal trap before executing either Go command. Explicit Bash now owns
+that unchanged fixture block. An exact-block Task reproduction fails before the
+repair and passes afterward, including cleanup on successful execution, failed
+build and failed test, with no test after failed build. The actual packaged
+runtime integration passes in 3.413s with unchanged race/shuffle/engine assertions
+and two-minute deadline (`/tmp/whip-platform-runtime-fixture.log`). No product
+runtime behavior or test requirement changed.

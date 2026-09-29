@@ -24,16 +24,17 @@ retains the earlier failures and intermediate results.
 | Files, LSP, shell, permissions/questions and MCP | [Native family tests](backend-native-core-retirement.md#behavior-and-test-disposition), joined process/LSP ownership, direct human actions, scoped grants and real MCP self-host fixtures; mounted controls preserve root/child distinctions. | Final-head automated/lifecycle validation; live external servers remain explicit opt-in evidence. |
 | Browser/computer and native helpers | External Chrome and offered Desktop tabs have distinct scoped owners and human controls across clients. Both ambient wrappers are removed: [browser driver disposition](browser-computer-use.md#native-browser-test-ownership), [computer disposition](backend-native-computer-retirement.md). Actual private Chrome covers both drivers/engines; Desktop bridge fixtures cover real IPC. | Headed dedicated/real extension opt-ins, real accessibility/TCC and applicable platform checks are not established by headless or fake-helper tests. |
 | SDK, shared app and mobile | At `1fa8dbfb2`: protocol18 checks, SDK205/example5 tests, app types/1382 tests, mobile types/226 tests. [Mobile readiness](backend-native-mobile-readiness.md) separately records exports, simulator and Android compilation provenance. | Final combined gates, physical-device UI/lifecycle/accessibility and signed-device checks. Simulator storage evidence does not prove Android or physical-device behavior. |
-| Go CLI, TUI and ACP | Complete normal `check:native-cli` passes at `1fa8dbfb2`, including real compiled entrypoints, SSH/update fixtures, both native TUI partitions and pure presentation complement; [CLI](backend-native-cli-disposition.md) and [terminal](native-terminal-retirement.md) dispositions retain exact semantics. The SSH fixture's duplicate `exec` is repaired after a Bash reproduction and exact-family race validation. | Final hosted Linux/macOS client reruns remain pending in the current snapshot. |
+| Go CLI, TUI and ACP | Complete normal `check:native-cli` passes at `1fa8dbfb2`, including real compiled entrypoints, SSH/update fixtures, both native TUI partitions and pure presentation complement; [CLI](backend-native-cli-disposition.md) and [terminal](native-terminal-retirement.md) dispositions retain exact semantics. The SSH fixture's duplicate `exec` is repaired; its compiled integration block now passes hosted Linux/macOS (54.316s/48.928s). | Both hosted client gates fail later at the packaged-runtime Task shell's signal trap. The explicit-Bash repair passes the real local packaged-runtime block; final combined hosted gates remain open. |
 | Shared UI | Complete `check:product-ui` passes locally at `d9545097d` and hosted at `1edc9d823`: Storybook,66 themes/14 interactions, strict CSP, isolated packed consumers, tabs/layout in both browsers and30 model-picker scenarios. Workspace regressions fail before their repairs; no tolerance changes. | Final combined-source gate. This is not all application browser workflows or actual Safari. |
 | Desktop and distribution | Complete [staged Desktop gate](backend-native-desktop-readiness.md) passes at `1fa8dbfb2`, including166 tests,116 distribution checks, onboarding, normal/failure workspace flows and terminal/editor/browser IPC. | Signed/quarantined release, target/minimum-OS execution, real SSH hardware/account scenarios and quiet performance remain distinct. |
 
 Hosted run36584226063 at `1edc9d823` is not green. Analysis, evals, mobile, UI,
-Settings and all Linux/macOS race partitions pass. Two new failures require
-follow-through: Linux dedicated Chrome loses Xvfb's display environment, and the
-Chromium REPL probe reports overlapping observations. The first has a proven
-real-process regression and local repair; the second still needs exact observer
-lifetime evidence. Other jobs are not counted as passed until they finish.
+Settings, product browser and all Linux/macOS race partitions pass. Three failure
+classes require follow-through: Linux dedicated Chrome loses Xvfb's display
+environment, the Chromium REPL probe reports overlapping observations, and both
+client gates reach an unsupported signal trap in Task's embedded shell. The
+launch and Task failures have reproduced local repairs; REPL still needs exact
+observer lifetime evidence. Other jobs are not counted as passed until they finish.
 The earlier `b1c9ca965` run remains failed evidence; its dependency-download
 failures were neither product findings nor passing checks.
 
@@ -43,6 +44,13 @@ repair and passes as a real process on macOS and Linux, including unrelated-secr
 exclusion and unchanged headless/ordinary process isolation. The complete normal
 native-browser gate passes locally at `d0769783f` (browser15.430s/runtime12.475s).
 Hosted Linux headed Chrome still requires its next exact-head run.
+
+The packaged-runtime fixture now executes its existing owned-directory/trap/
+build/race sequence in explicit Bash. The original block reproduces the trap
+failure before any Go command; the repair preserves success and both build/test
+failure cleanup without running a later command after failed build. The actual
+packaged runtime integration passes in 3.413s with the same two-minute deadline,
+race, shuffle and engine assertions.
 
 The command boundaries below remain the normal complete gate; do not replace them
 with selected passing subsets. Observation-lifetime diagnosis and the measured

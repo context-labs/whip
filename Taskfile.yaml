@@ -447,10 +447,13 @@ tasks:
       - node --test --test-concurrency=1 scripts/redesign/browser-provider-fixture.test.mjs
       - WHIP_TEST_SELFHOST=1 go test -race -shuffle=on -count=1 -timeout=150s ./internal/mcp -run '^Test(ServeSelfHost|StdioServerEndToEnd)$'
       - |
+        # Task's embedded shell does not implement these POSIX signal traps.
+        bash -e <<'SH'
         fixture=$(mktemp -d "${TMPDIR:-/tmp}/whip-runtime-gate.XXXXXX")
         trap 'rm -rf "$fixture"' EXIT HUP INT TERM
         go build -o "$fixture/whipcode" ./cmd/whip
         WHIP_RLM_TEST_EXECUTABLE="$fixture/whipcode" go test -race -shuffle=on -tags=integration -count=1 -timeout=2m ./internal/engine/process -run '^TestPackagedRuntime$'
+        SH
 
   check:analysis:
     desc: Pinned lint against the frozen baseline and reachable-vulnerability checks over the complete module
