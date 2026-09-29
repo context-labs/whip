@@ -7,9 +7,10 @@ import { createFallbackStorage, type AppStorage } from '../src/platform';
 const mocks = vi.hoisted(() => ({
   client: { runtimeID: 'runtime', clientID: 'client', listProviders: vi.fn(async () => ({ revision: '1', defaults: null, routes: [] })), session: vi.fn((id: string) => ({ id })) },
   createView: vi.fn(() => ({ start: vi.fn(async () => {}), suspend: vi.fn(async () => {}), reconnect: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })),
+  createExecution: vi.fn(() => ({ start: vi.fn(async () => {}), suspend: vi.fn(async () => {}), reconnect: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })),
   listeners: new Set<() => void>(), catalogRevision: '1',
 }));
-vi.mock('@whip/sdk/state', () => ({ createSessionView: mocks.createView }));
+vi.mock('@whip/sdk/state', () => ({ createSessionView: mocks.createView, createExecutionView: mocks.createExecution }));
 vi.mock('../src/hosts', () => ({ HostConnections: class {
   private attached = false;
   private controller = new AbortController();
@@ -53,10 +54,12 @@ describe('v4 application observation ownership', () => {
     const second = app.acquireView('runtime', 'root', 'child');
     const root = app.acquireView('runtime', 'root');
     expect(first.view).toBe(second.view); expect(root.view).not.toBe(first.view);
+    expect(first.execution).toBe(second.execution); expect(root.execution).not.toBe(first.execution);
+    expect(mocks.createExecution).toHaveBeenCalledWith({ id: 'child' }, first.view);
     expect(mocks.createView).toHaveBeenCalledWith({ id: 'child' }, { maxBytes: 4 << 20, maxMessages: 256 });
     vi.advanceTimersByTime(30_001); expect(first.view.dispose).not.toHaveBeenCalled();
     second.release(); second.release(); vi.advanceTimersByTime(30_001);
-    expect(first.view.dispose).toHaveBeenCalledOnce();
+    expect(first.view.dispose).toHaveBeenCalledOnce(); expect(first.execution.dispose).toHaveBeenCalledOnce();
     app.dispose(); root.release(); expect(vi.getTimerCount()).toBe(0);
   });
   it('never evicts active views and reuses the least recently used inactive slot', async () => {
@@ -319,4 +322,23 @@ it('keeps aborted possibly-sent input unresolved and explicitly checks the exact
     expect(recovered.check).toHaveBeenCalledOnce(); expect(recovered.send).not.toHaveBeenCalled(); expect(recovered.retry).not.toHaveBeenCalled();
     expect(accepted).toHaveBeenCalledOnce(); expect(app.getSnapshot().commands[0]?.status).toBe('succeeded');
   } finally { app.dispose(); recover.mockRestore(); mocks.client = previous; }
+});
+
+
+it('suspends and reconnects the shared execution observer with its exact transcript owner', async () => {
+  const app = runtime(); await app.connect();
+  const lease = app.acquireView('runtime', 'root', 'child');
+  app.connections.disconnect('local', true);
+  expect(lease.view.suspend).toHaveBeenCalledOnce(); expect(lease.execution.suspend).toHaveBeenCalledOnce();
+  expect(lease.execution.dispose).not.toHaveBeenCalled();
+  const previous = mocks.client; mocks.client = { ...previous };
+  try {
+    await app.connect();
+    expect(lease.view.reconnect).toHaveBeenCalledWith(mocks.client);
+    expect(lease.execution.reconnect).toHaveBeenCalledWith(mocks.client);
+    const next = app.acquireView('runtime', 'root', 'child');
+    expect(next.view).toBe(lease.view); expect(next.execution).toBe(lease.execution);
+    next.release(); lease.release(); app.dispose();
+    expect(lease.execution.dispose).toHaveBeenCalledOnce();
+  } finally { app.dispose(); mocks.client = previous; }
 });

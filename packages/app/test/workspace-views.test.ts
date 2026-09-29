@@ -14,7 +14,7 @@ function fixture() {
     if (active.size === 4) throw new Error('Four session views');
     const k = workspaceSessionKey({ runtimeId, rootId: id, sessionId });
     active.add(k); events.push(`acquire:${k}`);
-    return { view: { id } as unknown as Lease['view'], release: vi.fn(() => { active.delete(k); events.push(`release:${k}`); }) };
+    return { view: { id } as unknown as Lease['view'], execution: { id } as unknown as Lease['execution'], release: vi.fn(() => { active.delete(k); events.push(`release:${k}`); }) };
   });
   return { active, events, runtime: { acquireView }, leases: new Map<string, WorkspaceLease>() };
 }

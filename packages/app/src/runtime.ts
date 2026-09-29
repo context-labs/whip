@@ -5,7 +5,7 @@ import {
   type Client, type DurableMethod, type Operations,
   type Admission,
 } from '@whip/sdk';
-import { createSessionView, type SessionView } from '@whip/sdk/state';
+import { createExecutionView, createSessionView, type ExecutionView, type SessionView } from '@whip/sdk/state';
 import { recoveryStorage } from './recovery-storage';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';
@@ -22,6 +22,7 @@ interface ViewLease {
   runtimeId: string;
   rootId: string;
   view: SessionView;
+  execution: ExecutionView;
   users: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -205,7 +206,7 @@ export class AppRuntime {
         void this.primeProviders(runtimeId, client);
         for (const lease of this.views.values()) if (lease.runtimeId === runtimeId && lease.client !== client) {
           lease.client = client;
-          void lease.view.reconnect(client).catch(error => this.report(error));
+          void Promise.all([lease.view.reconnect(client), lease.execution.reconnect(client)]).catch(error => this.report(error));
         }
       },
       detached: (client, runtimeId, options?: { recovering: boolean }) => {
@@ -215,7 +216,7 @@ export class AppRuntime {
         // Durable unresolved commands survive transport replacement; only an explicit
         // recovery action may bind their exact record to a matching new client.
         for (const [id, lease] of this.views) if (lease.client === client) {
-          if (options?.recovering) void lease.view.suspend(); else this.dropView(id, lease);
+          if (options?.recovering) void Promise.all([lease.view.suspend(), lease.execution.suspend()]); else this.dropView(id, lease);
         }
         if (runtimeId) this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId });
       },
@@ -532,7 +533,7 @@ export class AppRuntime {
       throw error;
     }
   }
-  acquireView(runtimeId: string, rootId: string, sessionId = rootId): { view: SessionView; release(): void } {
+  acquireView(runtimeId: string, rootId: string, sessionId = rootId): { view: SessionView; execution: ExecutionView; release(): void } {
     const client = this.connections.host(runtimeId)?.client;
     if (!client) throw new Error('Connect to a host first');
     const key = JSON.stringify([runtimeId, sessionId]);
@@ -546,10 +547,12 @@ export class AppRuntime {
         throw new Error(
           'Sixteen session views are already open. Close a view before opening another.',
         );
-      lease = { client, runtimeId, rootId, view: createSessionView(client.session(sessionId), { maxBytes: 4 << 20, maxMessages: 256 }), users: 0 };
+      const session = client.session(sessionId);
+      const view = createSessionView(session, { maxBytes: 4 << 20, maxMessages: 256 });
+      lease = { client, runtimeId, rootId, view, execution: createExecutionView(session, view), users: 0 };
       this.views.set(key, lease);
       // Snapshot and history failures belong to the view's scoped error state.
-      void lease.view.start().catch(() => {});
+      void Promise.all([lease.view.start(), lease.execution.start()]).catch(() => {});
     }
     // Reusing a root moves it behind older inactive views in eviction order.
     this.views.delete(key);
@@ -560,6 +563,7 @@ export class AppRuntime {
     let released = false;
     return {
       view: lease.view,
+      execution: lease.execution,
       release: () => {
         if (released) return;
         released = true;
@@ -575,7 +579,7 @@ export class AppRuntime {
   private dropView(id: string, lease: ViewLease) {
     clearTimeout(lease.timer);
     if (this.views.get(id) === lease) this.views.delete(id);
-    void lease.view.dispose();
+    void Promise.all([lease.view.dispose(), lease.execution.dispose()]);
   }
   private commandNotice(notice: CommandNotice) {
     const notices = [

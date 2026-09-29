@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Client } from '@whip/sdk';
-import type { SessionView } from '@whip/sdk/state';
+import type { ExecutionView, SessionView } from '@whip/sdk/state';
 import type { AppRuntime } from './runtime';
 import type { HostConnection } from './hosts';
 
@@ -24,7 +24,7 @@ export function reconcileWorkspaceViews(runtime: Pick<AppRuntime, 'acquireView'>
 export function useWorkspaceViews(runtime: AppRuntime, roots: readonly Pick<WorkspaceRoot, 'runtimeId' | 'rootId' | 'sessionId'>[], hosts: readonly HostConnection[]) {
   const leases = useRef(new Map<string, WorkspaceLease>());
   const key = JSON.stringify([...new Set(roots.map(workspaceSessionKey))].sort());
-  const [state, setState] = useState<{ views: ReadonlyMap<string, SessionView>; errors: ReadonlyMap<string, string> }>({ views: new Map(), errors: new Map() });
+  const [state, setState] = useState<{ views: ReadonlyMap<string, SessionView>; executions: ReadonlyMap<string, ExecutionView>; errors: ReadonlyMap<string, string> }>({ views: new Map(), executions: new Map(), errors: new Map() });
   useLayoutEffect(() => () => {
     for (const entry of leases.current.values()) entry.lease.release();
     leases.current.clear();
@@ -35,7 +35,7 @@ export function useWorkspaceViews(runtime: AppRuntime, roots: readonly Pick<Work
       return { runtimeId, rootId, sessionId, client: hosts.find(host => host.runtimeId === runtimeId)?.client };
     });
     const errors = reconcileWorkspaceViews(runtime, leases.current, wanted);
-    setState({ views: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.view])), errors });
+    setState({ views: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.view])), executions: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.execution])), errors });
   }, [runtime, hosts, key]);
   return state;
 }
