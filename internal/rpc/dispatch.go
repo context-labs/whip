@@ -143,12 +143,29 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			if err != nil {
 				return nil, err
 			}
-			tree, root, err := r.CreateTree(ctx, store.CreateTree{PermissionMode: p.DomainPermissionMode(), Metadata: session.TreeMetadata(p.Metadata), Engine: session.Engine(p.Engine), Resources: protocol.ResourceLimitsDomain(p.Resources), Definition: definitionRef(p.Definition), Overrides: patch, WorkingDirectory: p.WorkingDirectory})
+			result, err := r.CreateRoot(ctx, session.TreeCreationRequest{
+				ID: session.CreationID(p.CreationID), PermissionMode: p.DomainPermissionMode(),
+				Metadata: session.TreeMetadata(p.Metadata), Engine: session.Engine(p.Engine),
+				Resources: protocol.ResourceLimitsDomain(p.Resources), Definition: definitionRef(p.Definition),
+				Overrides: patch, WorkingDirectory: p.WorkingDirectory,
+			})
 			if err != nil {
 				return nil, err
 			}
-			wire, err := protocol.SessionFromDomain(root)
-			return protocol.CreateTreeResult{Tree: protocol.TreeFromDomain(tree), Root: wire}, err
+			return protocol.CreationFromDomain(result)
+		})
+	case "trees.creation":
+		return decode(raw, func(p protocol.TreeCreationParams) (any, error) {
+			result, err := r.TreeCreation(ctx, session.CreationID(p.CreationID))
+			if err != nil {
+				return nil, err
+			}
+			return protocol.CreationFromDomain(result)
+		})
+	case "trees.catalog":
+		return decode(raw, func(_ protocol.EmptyParams) (any, error) {
+			revision, err := r.TreeCatalog(ctx)
+			return protocol.TreeCatalog{Revision: protocol.Counter(revision)}, err
 		})
 	case "trees.list":
 		return listTrees(ctx, r, raw)

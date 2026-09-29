@@ -247,6 +247,7 @@ type Admission struct {
 }
 
 type CreateTreeParams struct {
+	CreationID       ID              `json:"creation_id"`
 	PermissionMode   *string         `json:"permission_mode,omitempty" enum:"prompt,automatic"`
 	Metadata         TreeMetadata    `json:"metadata"`
 	Engine           string          `json:"engine" enum:"starlark,quickjs"`
@@ -255,10 +256,7 @@ type CreateTreeParams struct {
 	Overrides        ConfigPatch     `json:"overrides"`
 	WorkingDirectory string          `json:"working_directory"`
 }
-type CreateTreeResult struct {
-	Tree Tree    `json:"tree"`
-	Root Session `json:"root"`
-}
+
 type TreeParams struct {
 	TreeID ID `json:"tree_id"`
 }

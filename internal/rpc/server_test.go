@@ -3,6 +3,7 @@ package rpc_test
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net"
@@ -70,7 +71,8 @@ func call[R any](t *testing.T, c *client.Client, method string, p any) R {
 func create(t *testing.T, c *client.Client) protocol.CreateTreeResult {
 	t.Helper()
 	return call[protocol.CreateTreeResult](t, c, "trees.create", protocol.CreateTreeParams{
-		Engine: "starlark", Definition: c.Builtins()[0], WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{ReportMode: new("message"), Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}},
+		CreationID: protocol.ID(rand.Text()),
+		Engine:     "starlark", Definition: c.Builtins()[0], WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{ReportMode: new("message"), Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}},
 	})
 }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -19,7 +20,7 @@ export async function workspaceAcceptance(runtime, client, createParams, evidenc
   await writeFile(tracked, 'base'); await writeFile(outside, 'outside base');
   await git('add', '.'); await git('commit', '-qm', 'fixture base');
   await writeFile(tracked, 'captured');
-  const { root } = await client.call('trees.create', { ...createParams, working_directory: scope }, deadline());
+  const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, working_directory: scope }, deadline());
   const snapshotID = 'workspace-snapshot';
   const loseAcknowledgement = async (method, actionID) => {
     const proxy = join(runtime.directory, 'workspace-drop.sock');

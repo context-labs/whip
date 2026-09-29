@@ -1,6 +1,7 @@
 package rpc_test
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ func TestDiscoveryRPCMetadataPaginationAndBounds(t *testing.T) {
 	if empty.Items == nil || len(empty.Items) != 0 || empty.NextCursor != nil {
 		t.Fatal(empty)
 	}
-	created := call[protocol.CreateTreeResult](t, c, "trees.create", protocol.CreateTreeParams{Engine: "starlark", Definition: c.Builtins()[0], WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Instructions: &protocol.Instructions{Text: "private root instructions"}, Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}})
+	created := call[protocol.CreateTreeResult](t, c, "trees.create", protocol.CreateTreeParams{CreationID: protocol.ID(rand.Text()), Engine: "starlark", Definition: c.Builtins()[0], WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Instructions: &protocol.Instructions{Text: "private root instructions"}, Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}})
 	call[protocol.Tree](t, c, "trees.update", protocol.UpdateTreeParams{TreeID: created.Tree.ID, ExpectedRevision: created.Tree.Revision, Metadata: protocol.TreeMetadata{Title: new("Read from catalog"), Pinned: true}})
 	page := call[protocol.ListTreesResult](t, c, "trees.list", protocol.ListTreesParams{Pinned: new(true), Archived: new(false), Limit: 1})
 	if len(page.Items) != 1 || page.Items[0].RootID != created.Root.ID || page.Items[0].Tree.Metadata.Title == nil || *page.Items[0].Tree.Metadata.Title != "Read from catalog" || page.NextCursor != nil {

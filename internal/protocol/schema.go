@@ -123,6 +123,8 @@ func Operations() []Operation {
 		{"questions.answer", reflect.TypeFor[AnswerQuestionParams](), reflect.TypeFor[Question]()},
 		{"initialize", reflect.TypeFor[InitializeParams](), reflect.TypeFor[InitializeResult]()},
 		{"trees.create", reflect.TypeFor[CreateTreeParams](), reflect.TypeFor[CreateTreeResult]()},
+		{"trees.creation", reflect.TypeFor[TreeCreationParams](), reflect.TypeFor[CreateTreeResult]()},
+		{"trees.catalog", reflect.TypeFor[EmptyParams](), reflect.TypeFor[TreeCatalog]()},
 		{"trees.list", reflect.TypeFor[ListTreesParams](), reflect.TypeFor[ListTreesResult]()},
 		{"definitions.list", reflect.TypeFor[ListDefinitionsParams](), reflect.TypeFor[ListDefinitionsResult]()},
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},

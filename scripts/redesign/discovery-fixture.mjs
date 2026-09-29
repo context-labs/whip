@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 
 export async function discoveryAcceptance(runtime, client, createParams, evidence, deadline) {
   const instructions = text => ({ text, project_root: null, project_files: [], discover_skills: false, standing_instructions: false, skill_roots: [] });
-  const created = await client.call('trees.create', {
+  const created = await client.call('trees.create', { creation_id: randomUUID(),
     ...createParams,
     metadata: { title: 'Discover retained work', archived: true, pinned: true },
     overrides: { ...createParams.overrides, instructions: instructions('private discovery instructions') },

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -52,7 +53,7 @@ process.stdin.on('data', data => {
     const roots = [];
     for (const engine of ['starlark', 'quickjs']) {
       const workspace = join(runtime.directory, `files-lsp-${engine}`); await mkdir(workspace);
-      const { root } = await client.call('trees.create', { ...createParams, engine, working_directory: workspace, overrides: { model: { provider: 'file_lsp', name: 'fixture', effort: '' } } }, deadline());
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine, working_directory: workspace, overrides: { model: { provider: 'file_lsp', name: 'fixture', effort: '' } } }, deadline());
       roots.push(root.id);
       assert.equal((await client.languageServerStatus(root.id, deadline())).items[0].state, 'not_started');
       for (const capability of ['files.write', 'files.list', 'files.search', 'lsp.diagnostics']) await client.call('grants.create', { id: `${engine}-${capability}`, session_id: root.id, capability, resource: root.working_directory }, deadline());

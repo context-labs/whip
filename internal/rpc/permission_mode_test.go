@@ -1,6 +1,7 @@
 package rpc_test
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"path/filepath"
 	"reflect"
@@ -30,7 +31,7 @@ func TestPermissionModeRPCExactReceiptsStoppedEditingAndHostDefaults(t *testing.
 			t.Fatal("host default mutated existing root or missed new root", policy)
 		}
 	}
-	explicit := call[protocol.CreateTreeResult](t, c, "trees.create", protocol.CreateTreeParams{PermissionMode: new("prompt"), Engine: "starlark", Definition: c.Builtins()[0], WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}})
+	explicit := call[protocol.CreateTreeResult](t, c, "trees.create", protocol.CreateTreeParams{CreationID: protocol.ID(rand.Text()), PermissionMode: new("prompt"), Engine: "starlark", Definition: c.Builtins()[0], WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}})
 	if policy := call[protocol.PermissionPolicy](t, c, "permissions.policy", protocol.SessionParams{SessionID: explicit.Root.ID}); policy.Mode != "prompt" {
 		t.Fatal("explicit mode was ignored", policy)
 	}

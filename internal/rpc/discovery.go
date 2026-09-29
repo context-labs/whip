@@ -14,6 +14,9 @@ import (
 func listTrees(ctx context.Context, r *runtime.Runtime, raw json.RawMessage) (any, error) {
 	return decode(raw, func(p protocol.ListTreesParams) (any, error) {
 		request := store.TreeList{Limit: p.Limit, Archived: p.Archived, Pinned: p.Pinned}
+		if p.ExpectedRevision != nil {
+			request.ExpectedRevision = new(session.Revision(*p.ExpectedRevision))
+		}
 		if p.After != nil {
 			request.After = session.TreeID(*p.After)
 		}
@@ -21,7 +24,7 @@ func listTrees(ctx context.Context, r *runtime.Runtime, raw json.RawMessage) (an
 		if err != nil {
 			return nil, err
 		}
-		result := protocol.ListTreesResult{Items: []protocol.TreeSummary{}}
+		result := protocol.ListTreesResult{Revision: protocol.Counter(page.Revision), Items: []protocol.TreeSummary{}}
 		for _, item := range page.Items {
 			result.Items = append(result.Items, protocol.TreeSummary{Tree: protocol.TreeFromDomain(item.Tree), RootID: protocol.ID(item.RootID)})
 		}

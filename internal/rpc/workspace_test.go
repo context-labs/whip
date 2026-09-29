@@ -1,6 +1,7 @@
 package rpc_test
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"os"
@@ -62,7 +63,7 @@ func TestWorkspaceRPCScopedOverlayReceiptsAndPrivateMetadata(t *testing.T) {
 	git("add", ".")
 	git("commit", "-qm", "base")
 	write(tracked, "captured")
-	tree := call[protocol.CreateTreeResult](t, c, "trees.create", protocol.CreateTreeParams{Engine: "starlark", Definition: c.Builtins()[0], WorkingDirectory: filepath.Join(directory, "scope [literal] "), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}})
+	tree := call[protocol.CreateTreeResult](t, c, "trees.create", protocol.CreateTreeParams{CreationID: protocol.ID(rand.Text()), Engine: "starlark", Definition: c.Builtins()[0], WorkingDirectory: filepath.Join(directory, "scope [literal] "), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}})
 	params := protocol.WorkspaceActionParams{ActionID: "capture", SnapshotID: "snapshot-a", SessionID: tree.Root.ID}
 	first := call[protocol.WorkspaceResult](t, c, "workspace.capture", params)
 	if first.Action.State != "succeeded" || first.Snapshot.Scope != "session_working_directory" || first.Snapshot.Semantics == "" || first.Snapshot.ReleasedAt != nil {

@@ -1,6 +1,7 @@
 package rpc_test
 
 import (
+	"crypto/rand"
 	"errors"
 	"testing"
 
@@ -84,7 +85,7 @@ func TestResourceRequestsRejectDuplicateLimitsWithoutAdmission(t *testing.T) {
 	_, c := fixture(t)
 	limits := []protocol.ResourceLimit{{Kind: "descendants", Limit: new(protocol.Counter(1))}, {Kind: "descendants", Limit: new(protocol.Counter(2))}}
 	var result protocol.CreateTreeResult
-	params := protocol.CreateTreeParams{Engine: "starlark", Definition: c.Builtins()[0], Resources: limits, WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}}
+	params := protocol.CreateTreeParams{CreationID: protocol.ID(rand.Text()), Engine: "starlark", Definition: c.Builtins()[0], Resources: limits, WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}}
 	if err := c.Call(t.Context(), "trees.create", params, &result); !rpcKind(err, "INVALID") {
 		t.Fatalf("duplicate root limits accepted: %v", err)
 	}

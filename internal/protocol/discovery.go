@@ -7,10 +7,11 @@ import (
 )
 
 type ListTreesParams struct {
-	After    *ID   `json:"after,omitempty"`
-	Archived *bool `json:"archived,omitempty"`
-	Pinned   *bool `json:"pinned,omitempty"`
-	Limit    int   `json:"limit" min:"1" max:"100"`
+	ExpectedRevision *Counter `json:"expected_revision,omitempty" pattern:"^[1-9][0-9]{0,18}$"`
+	After            *ID      `json:"after,omitempty"`
+	Archived         *bool    `json:"archived,omitempty"`
+	Pinned           *bool    `json:"pinned,omitempty"`
+	Limit            int      `json:"limit" min:"1" max:"100"`
 }
 
 type TreeSummary struct {
@@ -19,6 +20,7 @@ type TreeSummary struct {
 }
 
 type ListTreesResult struct {
+	Revision   Counter       `json:"revision" pattern:"^[1-9][0-9]{0,18}$"`
 	Items      []TreeSummary `json:"items"`
 	NextCursor *ID           `json:"next_cursor"`
 }
@@ -37,6 +39,10 @@ type DefinitionSummary struct {
 type ListDefinitionsResult struct {
 	Items      []DefinitionSummary `json:"items"`
 	NextCursor *DefinitionRef      `json:"next_cursor"`
+}
+
+type TreeCatalog struct {
+	Revision Counter `json:"revision" pattern:"^[1-9][0-9]{0,18}$"`
 }
 
 func discoverySchema(schema *jsonschema.Schema, t reflect.Type) {
