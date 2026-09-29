@@ -3,13 +3,13 @@ import type { AppRuntime } from '../src/runtime';
 import { createSessionNavigator } from '../src/session-tab-routing';
 
 function client(runtimeId: string, state = 'connected') {
-  return { getSnapshot: () => ({ state, info: { runtime_id: runtimeId } }) };
+  return { runtimeID: runtimeId };
 }
 function fixture() {
-  const mac = { id: 'local', runtimeId: 'mac', client: client('mac') };
-  const remote = { id: 'ssh:remote', runtimeId: 'remote', client: undefined as ReturnType<typeof client> | undefined };
+  const mac = { id: 'local', runtimeId: 'mac', state: 'connected', client: client('mac') };
+  const remote = { id: 'ssh:remote', runtimeId: 'remote', state: 'closed', client: undefined as ReturnType<typeof client> | undefined };
   const state = { hosts: [mac, remote] };
-  const connect = vi.fn(async (id: string) => { const host = state.hosts.find(host => host.id === id)!; host.client = client(host.runtimeId); });
+  const connect = vi.fn(async (id: string) => { const host = state.hosts.find(host => host.id === id)!; host.client = client(host.runtimeId); host.state = 'connected'; });
   const runtime = { getSnapshot: () => state, connections: { connect, host: (id: string) => state.hosts.find(host => host.runtimeId === id) }, reportWorkspace: vi.fn() };
   const navigate = vi.fn();
   let location = '/';
@@ -62,7 +62,7 @@ it.each(['replacement', 'reconnecting', 'removed'] as const)('does not navigate 
   const opened = f.navigator.open('/h/remote/s/root');
   if (changed === 'replacement') f.remote.runtimeId = 'other';
   else if (changed === 'removed') f.state.hosts = [f.mac];
-  else f.remote.client = client('remote', 'reconnecting');
+  else { f.remote.client = client('remote'); f.remote.state = 'reconnecting'; }
   completion.resolve(); await opened; expect(f.navigate).not.toHaveBeenCalled();
 });
 it('cancels pending navigation on disposal and ignores later native links', async () => {

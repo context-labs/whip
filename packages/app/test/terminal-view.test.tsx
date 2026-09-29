@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { WhipClient } from '@whip/legacy-sdk';
-import { RpcError } from '@whip/legacy-sdk';
+import { RemoteError, type Client } from '@whip/sdk';
+import { providerFixture } from './provider-fixture';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { TerminalView, createWriteQueue, dragSelection, passesToApp, terminalFontFamily, wheelReports } from '../src/terminal-view';
@@ -50,50 +50,54 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function fakeClient() {
-  const output = new Set<(value: { id: string; cursor: number; bytes: Uint8Array }) => void>();
-  const exited = new Set<(value: { id: string; exitCode: number; signal?: string }) => void>();
-  const detached = new Set<(id: string) => void>();
-  const connectionListeners = new Set<() => void>();
-  const connection = { state: 'connected' as string, info: { runtime_id: 'mac', capabilities: ['terminals'] } };
-  const terminals = {
-    attach: vi.fn(async () => ({ cursor: 0, cwd: '/work', cols: 80, rows: 24, exited: false })),
-    write: vi.fn(async () => {}), resize: vi.fn(async () => {}), close: vi.fn(async () => {}),
-    open: vi.fn(async () => ({ id: 'term-2', shell: '/bin/zsh', cwd: '/work' })),
-    onOutput: (listener: (value: { id: string; cursor: number; bytes: Uint8Array }) => void) => { output.add(listener); return () => output.delete(listener); },
-    onExited: (listener: (value: { id: string; exitCode: number; signal?: string }) => void) => { exited.add(listener); return () => exited.delete(listener); },
-    onDetached: (listener: (id: string) => void) => { detached.add(listener); return () => detached.delete(listener); },
+async function fakeClient() {
+  const f = await providerFixture({ runtimeID: 'mac' });
+  const state = { start: 0n, text: '', exited: false, exitCode: 0, signal: '' };
+  const info = (id = 'term-1') => ({ process_epoch: 'boot', id, cwd: '/work', shell: '/bin/zsh', cols: 80, rows: 24, closing: false, exited: state.exited, exit_code: state.exitCode, signal: state.signal, start: String(state.start), end: String(state.start + BigInt(state.text.length)), created_at: '2026-09-28T00:00:00Z' });
+  f.data.handlers['terminal.read'] = request => {
+    if (request.method !== 'terminal.read') throw new Error('Wrong request');
+    const requested = BigInt(request.params.cursor), from = requested < state.start ? state.start : requested;
+    const text = state.text.slice(Number(from - state.start), Number(from - state.start) + request.params.limit);
+    return { terminal: info(), from: String(from), next: String(from + BigInt(text.length)), end: info().end, truncated: from !== requested, data_base64: btoa(text) };
   };
-  const client = { getSnapshot: () => connection, subscribe: (fn: () => void) => { connectionListeners.add(fn); return () => connectionListeners.delete(fn); }, terminals };
-  return {
-    client: client as unknown as WhipClient, terminals,
-    emitOutput: (id: string, cursor: number, text: string) => act(() => output.forEach(fn => fn({ id, cursor, bytes: new TextEncoder().encode(text) }))),
-    emitExited: (value: { id: string; exitCode: number; signal?: string }) => act(() => exited.forEach(fn => fn(value))),
-    emitDetached: (id: string) => act(() => detached.forEach(fn => fn(id))),
-    setState: (state: string) => act(() => { connection.state = state; connectionListeners.forEach(fn => fn()); }),
+  f.data.handlers['terminal.write'] = f.data.handlers['terminal.resize'] = f.data.handlers['terminal.close'] = () => ({ accepted: true });
+  f.data.handlers['terminal.open'] = () => info('term-2');
+  const terminals = { read: vi.spyOn(f.client, 'readTerminal'), write: vi.spyOn(f.client, 'writeTerminal'), resize: vi.spyOn(f.client, 'resizeTerminal'), close: vi.spyOn(f.client, 'closeTerminal'), open: vi.spyOn(f.client, 'openTerminal') };
+  return { ...f, terminals,
+    emitOutput: async (id: string, cursor: number, text: string) => {
+      if (id !== 'term-1') return;
+      if (BigInt(cursor) !== state.start + BigInt(state.text.length)) { state.start = BigInt(cursor); state.text = ''; }
+      state.text += text;
+      await waitFor(() => expect(terminal().write.mock.calls.some(([bytes]) => new TextDecoder().decode(bytes as Uint8Array).includes(text))).toBe(true));
+    },
+    emitExited: async (value: { id: string; exitCode: number; signal?: string }) => { state.exited = true; state.exitCode = value.exitCode; state.signal = value.signal ?? ''; await screen.findByText(/Shell exited/); },
   };
 }
 
-function mount(client: WhipClient, focused = true) {
+function mount(client: Client, focused = true, processEpoch: string | undefined = client.processEpoch) {
   const disk = new Map<string, string>();
   const runtime = new AppRuntime({ defaultConnection: localProfile, connectionKinds: ['local'], resolveConnection: resolveURLConnection,
     storage: { keys: () => [...disk.keys()], getItem: key => disk.get(key) ?? null, setItem: (key, value) => { disk.set(key, value); }, removeItem: key => { disk.delete(key); } },
     copy: vi.fn(async () => {}), openExternal: async () => {}, download: async () => 'saved' });
-  const id = runtime.tabs.openTerminal('mac', 'term-1', '/work');
+  const id = runtime.tabs.openTerminal('mac', 'term-1', '/work', undefined, processEpoch);
   const tab = () => runtime.tabs.workspace().tabs.find(item => item.id === id)!;
-  const view = render(<RuntimeContext.Provider value={runtime}><UIProvider><ThemeProvider>
-    <TerminalView tab={tab() as Extract<ReturnType<typeof tab>, { kind: 'terminal' }>} client={client} focused={focused} />
-  </ThemeProvider></UIProvider></RuntimeContext.Provider>);
-  return { runtime, id, tab, view };
+  let connected = true;
+  vi.spyOn(runtime.connections, 'isAttached').mockImplementation(() => connected);
+  const tree = () => <RuntimeContext.Provider value={runtime}><UIProvider><ThemeProvider>
+    <TerminalView tab={tab() as Extract<ReturnType<typeof tab>, { kind: 'terminal' }>} client={client} focused={focused} connected={connected} />
+  </ThemeProvider></UIProvider></RuntimeContext.Provider>;
+  const view = render(tree());
+  return { runtime, id, tab, view, setConnected: (value: boolean) => { connected = value; view.rerender(tree()); } };
+
 }
 
 const terminal = () => ghostty.Terminal.instances[0]!;
 const ready = async () => { await waitFor(() => expect(ghostty.Terminal.instances).toHaveLength(1)); return terminal(); };
 
 it('attaches from cursor zero, writes output in order, forwards keystrokes, titles and debounced resizes', async () => {
-  const fake = fakeClient();
+  const fake = await fakeClient();
   const { runtime, tab } = mount(fake.client);
-  await waitFor(() => expect(fake.terminals.attach).toHaveBeenCalledWith('term-1', 0));
+  await waitFor(() => expect(fake.terminals.read).toHaveBeenCalledWith({ id: 'term-1', process_epoch: 'boot' }, '0', 32768, { signal: expect.any(AbortSignal) }));
   const instance = await ready();
   expect(instance.open).toHaveBeenCalledTimes(1);
   expect(instance.focus).toHaveBeenCalled();
@@ -102,9 +106,9 @@ it('attaches from cursor zero, writes output in order, forwards keystrokes, titl
   expect(String(instance.options.fontFamily)).toContain("'MesloLGS NF'");
   expect(terminalFontFamily("Menlo, monospace").startsWith('Menlo, monospace, ')).toBe(true);
   expect(terminalFontFamily('')).toContain("'JetBrains Mono Variable'");
-  fake.emitOutput('term-1', 0, '$ ');
-  fake.emitOutput('other', 0, 'ignored');
-  fake.emitOutput('term-1', 2, 'ls\r\n');
+  await fake.emitOutput('term-1', 0, '$ ');
+  await fake.emitOutput('other', 0, 'ignored');
+  await fake.emitOutput('term-1', 2, 'ls\r\n');
   expect(instance.write.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes as Uint8Array))).toEqual(['$ ', 'ls\r\n']);
   expect(instance.reset).not.toHaveBeenCalled();
   instance.emit('data', 'echo hi\r');
@@ -122,7 +126,7 @@ it('attaches from cursor zero, writes output in order, forwards keystrokes, titl
   expect(tab()).toMatchObject({ kind: 'terminal', titleHint: 'zsh — project' });
   instance.emit('resize', { cols: 100, rows: 40 });
   instance.emit('resize', { cols: 120, rows: 40 });
-  await waitFor(() => expect(fake.terminals.resize).toHaveBeenCalledWith('term-1', 120, 40));
+  await waitFor(() => expect(fake.terminals.resize).toHaveBeenCalledWith({ id: 'term-1', process_epoch: 'boot' }, 120, 40));
   expect(fake.terminals.resize).toHaveBeenCalledTimes(1);
   expect(fake.terminals.close).not.toHaveBeenCalled();
   expect(runtime.getSnapshot().workspaceError).toBeUndefined();
@@ -159,7 +163,7 @@ it('keeps one write in flight and coalesces keystrokes typed meanwhile, in order
 });
 
 it('answers the native copy command with the canvas selection and offers Copy on right-click', async () => {
-  const fake = fakeClient();
+  const fake = await fakeClient();
   const { view } = mount(fake.client);
   const instance = await ready();
   const surface = view.container.querySelector('[data-terminal-view] > div, [data-terminal-view] div') as HTMLElement;
@@ -204,22 +208,22 @@ it('turns wheel travel into SGR mouse reports at the cell under the pointer', ()
 });
 
 it('redraws when the daemon replays from a different cursor than the view saw', async () => {
-  const fake = fakeClient();
+  const fake = await fakeClient();
   mount(fake.client);
   const instance = await ready();
-  fake.emitOutput('term-1', 0, 'abc');
-  fake.emitOutput('term-1', 3, 'def');
+  await fake.emitOutput('term-1', 0, 'abc');
+  await fake.emitOutput('term-1', 3, 'def');
   expect(instance.reset).not.toHaveBeenCalled();
-  fake.emitOutput('term-1', 40, 'later');
+  await fake.emitOutput('term-1', 40, 'later');
   expect(instance.reset).toHaveBeenCalledTimes(1);
   expect(instance.write).toHaveBeenCalledTimes(3);
 });
 
 it('reports an exited shell and restarts it behind the same tab', async () => {
-  const fake = fakeClient();
+  const fake = await fakeClient();
   const { tab, id } = mount(fake.client);
   await ready();
-  fake.emitExited({ id: 'term-1', exitCode: 3 });
+  await fake.emitExited({ id: 'term-1', exitCode: 3 });
   expect(screen.getByRole('status').textContent).toContain('Shell exited (code 3).');
   fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
   await waitFor(() => expect(fake.terminals.open).toHaveBeenCalledWith({ cwd: '/work', cols: 80, rows: 24 }));
@@ -228,29 +232,32 @@ it('reports an exited shell and restarts it behind the same tab', async () => {
 });
 
 it('shows an ended shell when the daemon no longer knows the terminal', async () => {
-  const fake = fakeClient();
-  fake.terminals.attach.mockRejectedValueOnce(new RpcError({ code: -32003, message: 'terminal not found' }));
+  const fake = await fakeClient();
+  fake.terminals.read.mockRejectedValueOnce(new RemoteError({ code: -32003, kind: 'NOT_FOUND', message: 'terminal not found' }));
   mount(fake.client);
   await waitFor(() => expect(screen.getByRole('status').textContent).toContain('This shell has ended.'));
   expect(screen.getByRole('button', { name: 'Restart' })).toBeTruthy();
 });
 
-it('reports detachment and reattaches from the last cursor on request or reconnect', async () => {
-  const fake = fakeClient();
-  mount(fake.client);
-  await ready();
-  fake.emitOutput('term-1', 0, 'hello');
-  fake.emitDetached('term-1');
-  expect(screen.getByRole('status').textContent).toContain('Attached in another window.');
-  fireEvent.click(screen.getByRole('button', { name: 'Reattach here' }));
-  await waitFor(() => expect(fake.terminals.attach).toHaveBeenLastCalledWith('term-1', 5));
-  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
-  fake.setState('reconnecting');
-  expect(screen.getByRole('status').textContent).toContain('Reconnecting to the host…');
-  const attaches = fake.terminals.attach.mock.calls.length;
-  fake.setState('connected');
-  await waitFor(() => expect(fake.terminals.attach.mock.calls.length).toBe(attaches + 1));
-  expect(fake.terminals.attach).toHaveBeenLastCalledWith('term-1', 5);
+it('stops observation while disconnected and resumes exact native reads on reconnect', async () => {
+  const fake = await fakeClient(); const f = mount(fake.client); await ready();
+  await fake.emitOutput('term-1', 0, 'hello');
+  f.setConnected(false); await screen.findByText('Reconnecting to the host…');
+  const calls = fake.terminals.read.mock.calls.length;
+  await new Promise(resolve => setTimeout(resolve, 300)); expect(fake.terminals.read).toHaveBeenCalledTimes(calls);
+  f.setConnected(true); await waitFor(() => expect(fake.terminals.read.mock.calls.length).toBeGreaterThan(calls));
+  expect(fake.terminals.close).not.toHaveBeenCalled();
+});
+it('never attaches a terminal retained from a different host process', async () => {
+  const fake = await fakeClient(); mount(fake.client, true, 'retired-boot');
+  await screen.findByText('This shell has ended.'); expect(fake.terminals.read).not.toHaveBeenCalled();
+  expect(fake.terminals.write).not.toHaveBeenCalled(); expect(fake.terminals.open).not.toHaveBeenCalled();
+});
+it('bounds pending terminal input and discards it after overflow or disposal', async () => {
+  const send = vi.fn(() => new Promise<void>(() => {})), error = vi.fn();
+  const queue = createWriteQueue(send, error); queue.push('first'); queue.push('x'.repeat(256 << 10)); queue.push('overflow');
+  expect(error).toHaveBeenCalledOnce(); expect(queue.pendingBytes).toBe(0); queue.push('later'); expect(send).toHaveBeenCalledOnce();
+  const other = createWriteQueue(send); other.dispose(); other.push('never'); expect(send).toHaveBeenCalledOnce();
 });
 
 it('selects locally on Shift+drag while a program has mouse tracking, keeping the drag from the reporter', async () => {
@@ -258,7 +265,7 @@ it('selects locally on Shift+drag while a program has mouse tracking, keeping th
   expect(dragSelection({ x: 15, y: 5 }, { x: 55, y: 45 }, geometry)).toEqual({ column: 1, row: 0, length: 165 });
   expect(dragSelection({ x: 55, y: 45 }, { x: 15, y: 5 }, geometry)).toEqual({ column: 1, row: 0, length: 165 });
   expect(dragSelection({ x: -9, y: -9 }, { x: 9999, y: 9999 }, geometry)).toEqual({ column: 0, row: 0, length: 80 * 24 });
-  const fake = fakeClient();
+  const fake = await fakeClient();
   const { view } = mount(fake.client);
   const instance = await ready();
   const frame = view.container.querySelector('[data-terminal-view]') as HTMLElement;
@@ -287,7 +294,7 @@ it('selects locally on Shift+drag while a program has mouse tracking, keeping th
 });
 
 it('lets app shortcuts through and copies a selection with the platform chord', async () => {
-  const fake = fakeClient();
+  const fake = await fakeClient();
   const { runtime } = mount(fake.client);
   const instance = await ready();
   const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init);

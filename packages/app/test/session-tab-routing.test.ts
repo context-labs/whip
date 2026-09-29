@@ -502,21 +502,21 @@ describe('terminal tab routes', () => {
     expect(f.router.navigate).not.toHaveBeenCalled();
     dispose();
   });
-  it('opens a shell on the host before adding a tab, and reports hosts without terminals', async () => {
+  it('opens a shell on the host before adding a tab, and reports disconnected hosts', async () => {
     const { openTerminalTab } = await import('../src/session-tab-routing');
     const tabs = new SessionTabs();
-    const open = vi.fn(async () => ({ id: 'term-7', shell: '/bin/zsh', cwd: '/resolved' }));
-    const snapshot = { state: 'connected', info: { runtime_id: 'mac', capabilities: ['terminals'] } };
-    const client = { getSnapshot: () => snapshot, terminals: { open } };
-    const runtime = { tabs, connections: { host: (id: string) => id === 'mac' ? { client } : undefined }, reportWorkspace: vi.fn() } as unknown as AppRuntime;
+    const open = vi.fn(async () => ({ id: 'term-7', process_epoch: 'boot', shell: '/bin/zsh', cwd: '/resolved' }));
+    let attached = true;
+    const client = { runtimeID: 'mac', processEpoch: 'boot', openTerminal: open };
+    const runtime = { tabs, connections: { isAttached: () => attached, host: (id: string) => id === 'mac' ? { client } : undefined }, reportWorkspace: vi.fn() } as unknown as AppRuntime;
     const navigate = vi.fn(async () => {});
     const id = await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac', cwd: '/work', rootId: 'root' });
-    expect(open).toHaveBeenCalledWith({ cwd: '/work', rootId: 'root', cols: 80, rows: 24 });
+    expect(open).toHaveBeenCalledWith({ cwd: '/work', cols: 80, rows: 24 });
     expect(tabs.workspace().tabs.find(tab => tab.id === id)).toMatchObject({ kind: 'terminal', terminalId: 'term-7', cwd: '/resolved' });
     expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/h/$runtimeId/t/$terminalId', params: { runtimeId: 'mac', terminalId: 'term-7' } }));
-    snapshot.info.capabilities = [];
+    attached = false;
     expect(await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac' })).toBeUndefined();
-    expect((runtime.reportWorkspace as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]).toMatchObject({ message: expect.stringContaining('does not offer terminals') });
+    expect((runtime.reportWorkspace as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]).toMatchObject({ message: expect.stringContaining('Connect this host') });
     expect(await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'other' })).toBeUndefined();
     expect(open).toHaveBeenCalledTimes(1);
   });

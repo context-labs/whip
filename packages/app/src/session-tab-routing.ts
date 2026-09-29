@@ -102,12 +102,11 @@ export function openChildChat(runtime: AppRuntime, navigate: AnyRouter['navigate
 export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['navigate'], options: { runtimeId: string; cwd?: string; rootId?: string; paneId?: string }) {
   try {
     const client = runtime.connections.host(options.runtimeId)?.client;
-    const connection = client?.getSnapshot();
-    if (!client || connection?.state !== 'connected') throw new Error('Connect this host before opening a terminal.');
-    if (!connection.info?.capabilities?.includes('terminals')) throw new Error('This host\'s Whip does not offer terminals. Update it to a build with protocol 6.5 or newer.');
+    if (!client || !runtime.connections.isAttached(client)) throw new Error('Connect this host before opening a terminal.');
     if (!runtime.tabs.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening a terminal.');
-    const opened = await client.terminals.open({ ...(options.cwd ? { cwd: options.cwd } : {}), ...(options.rootId ? { rootId: options.rootId } : {}), cols: 80, rows: 24 });
-    const id = runtime.tabs.openTerminal(options.runtimeId, opened.id, opened.cwd, options.paneId);
+    const opened = await client.openTerminal({ cwd: options.cwd ?? '', cols: 80, rows: 24 });
+    if (opened.process_epoch !== client.processEpoch) throw new Error('The opened terminal belongs to a different host process.');
+    const id = runtime.tabs.openTerminal(options.runtimeId, opened.id, opened.cwd, options.paneId, opened.process_epoch);
     const tab = runtime.tabs.workspace().tabs.find(item => item.id === id)!;
     await navigate(tabDestination(tab));
     return id;
@@ -170,14 +169,13 @@ export function createSessionNavigator(runtime: AppRuntime, navigate: (path: str
         const state = runtime.getSnapshot();
         const profile = state.hosts.find(host => host.runtimeId === destination.runtimeId);
         if (!profile) throw new Error('This session belongs to an unknown execution host. Connect to that host first, then open this link again.');
-        const connection = profile.client?.getSnapshot();
-        if (connection?.state !== 'connected' || connection.info?.runtime_id !== destination.runtimeId) {
+        if (profile.state !== 'connected' || profile.client?.runtimeID !== destination.runtimeId) {
           // connect owns its error state and suppresses failures from a retired
           // host attempt. Reporting that rejection here would undo its guard.
           try { await runtime.connections.connect(profile.id); } catch { return; }
         }
-        const latest = runtime.connections.host(destination.runtimeId); const attached = latest?.client?.getSnapshot();
-        if (current !== epoch || currentLocation?.() !== location || latest?.id !== profile.id || attached?.state !== 'connected' || attached.info?.runtime_id !== destination.runtimeId) return;
+        const latest = runtime.connections.host(destination.runtimeId);
+        if (current !== epoch || currentLocation?.() !== location || latest?.id !== profile.id || latest?.state !== 'connected' || latest.client?.runtimeID !== destination.runtimeId) return;
         navigate(url.pathname + url.search);
       } catch (error) { if (current === epoch) runtime.reportWorkspace(error); }
     },

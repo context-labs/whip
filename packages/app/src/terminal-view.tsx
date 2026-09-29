@@ -5,8 +5,10 @@ import * as stylex from '@stylexjs/stylex';
 import { Button, ContextMenu } from '@whip/ui';
 import { colors, surface, typography } from '@whip/ui/tokens.stylex';
 import { useTheme } from '@whip/ui/themes';
-import type { WhipClient } from '@whip/legacy-sdk';
-import { MAX_TERMINAL_WRITE_BYTES, RpcError } from '@whip/legacy-sdk';
+import { RemoteError, type Client } from '@whip/sdk';
+import { readTerminalOutput } from './terminal-output';
+const MAX_TERMINAL_WRITE_BYTES = 16384;
+const MAX_PENDING_INPUT_BYTES = 256 << 10;
 import { FitAddon, Ghostty, Terminal } from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { useAppState, useRuntime } from './context';
@@ -28,7 +30,6 @@ type TerminalStatus =
   | { kind: 'reconnecting' }
   | { kind: 'exited'; exitCode: number; signal?: string }
   | { kind: 'ended' }
-  | { kind: 'detached' }
   | { kind: 'error'; message: string };
 
 /**
@@ -52,11 +53,12 @@ export function createWriteQueue(send: (bytes: Uint8Array) => Promise<void>, onE
   const encoder = new TextEncoder();
   let pending: Uint8Array[] = [];
   let inFlight = false;
+  let stopped = false;
   const flush = async () => {
     if (inFlight) return;
     inFlight = true;
     try {
-      while (pending.length) {
+      while (!stopped && pending.length) {
         let chunk: Uint8Array;
         if (pending[0]!.byteLength > MAX_TERMINAL_WRITE_BYTES) {
           // A paste larger than one write goes out in order, head first.
@@ -74,17 +76,21 @@ export function createWriteQueue(send: (bytes: Uint8Array) => Promise<void>, onE
       }
     } catch (error) {
       // A failed write means the connection is gone; stale keystrokes are not replayed.
-      pending = [];
+      pending = []; stopped = true;
       onError(error);
     } finally { inFlight = false; }
   };
   return {
     push(data: string | Uint8Array) {
       const bytes = typeof data === 'string' ? encoder.encode(data) : data;
-      if (!bytes.byteLength) return;
-      pending.push(bytes);
+      if (stopped || !bytes.byteLength) return;
+      if (pending.reduce((total, item) => total + item.byteLength, 0) + bytes.length > MAX_PENDING_INPUT_BYTES) {
+        stopped = true; pending = []; onError(new Error('Terminal input queue is full. Pending input was discarded.')); return;
+      }
+      pending.push(bytes.slice());
       void flush();
     },
+    dispose() { stopped = true; pending = []; },
     get pendingBytes() { return pending.reduce((total, part) => total + part.byteLength, 0); },
   };
 }
@@ -132,7 +138,7 @@ export function passesToApp(event: KeyboardEvent, shortcuts: readonly string[]):
  * cursor and presentation; the shell lives on the host and survives unmounts,
  * reloads and reconnects. Restart replaces the shell behind the same tab.
  */
-export function TerminalView({ tab, client, focused }: { tab: TerminalTab; client: WhipClient; focused: boolean }) {
+export function TerminalView({ tab, client, focused, connected }: { tab: TerminalTab; client: Client; focused: boolean; connected: boolean }) {
   const runtime = useRuntime();
   const { preferences } = useAppState();
   const { resolvedTheme } = useTheme();
@@ -140,8 +146,7 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
   const container = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal>(null);
   /** Absolute cursor of the next expected byte; -1 until the first chunk arrives. */
-  const cursor = useRef(-1);
-  const pending = useRef<Uint8Array[]>([]);
+  const cursor = useRef('0');
   const [status, setStatus] = useState<TerminalStatus>({ kind: 'loading' });
   /** The renderer exists; output arriving earlier waits in pending. */
   const [ready, setReady] = useState(false);
@@ -150,7 +155,11 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
   const shortcuts = [preferences.commandShortcut, preferences.composerShortcut, preferences.terminalShortcut];
   const shortcutsRef = useRef(shortcuts);
   shortcutsRef.current = shortcuts;
-  const { terminalId } = tab;
+  const { terminalId, processEpoch } = tab;
+  const writable = useRef(false); writable.current = connected && status.kind === 'live' && processEpoch === client.processEpoch;
+  const observation = useRef<AbortController | null>(null);
+  const inputQueue = useRef<ReturnType<typeof createWriteQueue> | null>(null);
+  useEffect(() => { if (!connected) inputQueue.current?.dispose(); }, [connected]);
 
   // Mount the renderer once per shell identity; output arriving earlier is queued.
   useEffect(() => {
@@ -158,8 +167,7 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
     if (!element) return;
     // A fresh renderer has an empty screen: forget the cursor so the next attach
     // replays the whole ring instead of resuming mid-history onto a blank canvas.
-    cursor.current = -1;
-    pending.current = [];
+    cursor.current = '0';
     let disposed = false;
     const allowCopy = (event: Event) => { if (terminal?.hasSelection()) event.preventDefault(); };
     const copySelection = (event: ClipboardEvent) => {
@@ -198,7 +206,12 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
         }
         return false;
       });
-      const writes = createWriteQueue(bytes => client.terminals.write(terminalId, bytes));
+      const ref = { id: terminalId, process_epoch: processEpoch ?? '' };
+      const writes = createWriteQueue(async bytes => {
+        if (!writable.current || !runtime.connections.isAttached(client)) throw new Error('Reconnect and review this shell before typing.');
+        await client.writeTerminal(ref, bytes);
+      }, error => { observation.current?.abort(); if (!disposed) setStatus({ kind: 'error', message: error instanceof Error ? error.message : String(error) }); });
+      inputQueue.current = writes;
       terminal.onData(data => writes.push(data));
       // ghostty-web's capture-phase wheel handler stops propagation before its own SGR
       // reporter runs, then falls back to arrow keys in the alternate screen. A TUI that
@@ -245,16 +258,14 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
       element.addEventListener('copy', copySelection);
       terminal.onResize(({ cols, rows }) => {
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => { void client.terminals.resize(terminalId, cols, rows).catch(() => {}); }, 100);
+        resizeTimer = setTimeout(() => { if (writable.current && runtime.connections.isAttached(client)) void client.resizeTerminal(ref, cols, rows).catch(error => { observation.current?.abort(); inputQueue.current?.dispose(); if (!disposed) setStatus({ kind: 'error', message: String(error) }); }); }, 100);
       });
       fit.fit();
       observer = new ResizeObserver(() => fit.fit());
       observer.observe(element);
       term.current = terminal;
-      for (const chunk of pending.current) terminal.write(chunk);
-      pending.current = [];
       setReady(true);
-      setStatus(current => current.kind === 'loading' ? { kind: 'live' } : current);
+
     }).catch((error: unknown) => {
       if (!disposed) setStatus({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
     });
@@ -265,6 +276,7 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
       element.removeEventListener('beforecopy', allowCopy);
       element.removeEventListener('copy', copySelection);
       mouseListeners();
+      inputQueue.current?.dispose(); inputQueue.current = null;
       terminal?.dispose();
       term.current = null;
       setReady(false);
@@ -272,55 +284,35 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
     };
     // Theme changes remount through the strip's key; colors are read once here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalId, client, resolvedTheme.id]);
+  }, [terminalId, processEpoch, client, connected, attachEpoch, resolvedTheme.id]);
 
-  // Attach on mount and after every reconnect; deliver output in cursor order.
+  // Read one bounded page at a time. Observation never owns or closes the shell.
   useEffect(() => {
-    let cancelled = false;
-    const write = (bytes: Uint8Array) => {
-      if (term.current) term.current.write(bytes); else pending.current.push(bytes);
-    };
-    const offOutput = client.terminals.onOutput(output => {
-      if (output.id !== terminalId) return;
-      if (cursor.current >= 0 && output.cursor !== cursor.current) {
-        // A gap means the daemon replayed from an older or newer point than we
-        // saw; redraw from what it sent rather than interleave two histories.
-        term.current?.reset();
-        pending.current = [];
-      }
-      cursor.current = output.cursor + output.bytes.byteLength;
-      write(output.bytes);
-      // Output only clears a reconnect notice; 'loading' ends when the renderer mounts.
-      setStatus(current => current.kind === 'reconnecting' ? { kind: 'live' } : current);
-    });
-    const offExited = client.terminals.onExited(exit => {
-      if (exit.id === terminalId) setStatus({ kind: 'exited', exitCode: exit.exitCode, ...(exit.signal ? { signal: exit.signal } : {}) });
-    });
-    const offDetached = client.terminals.onDetached(id => { if (id === terminalId) setStatus({ kind: 'detached' }); });
-    const attach = async () => {
+    if (!processEpoch || processEpoch !== client.processEpoch) { setStatus({ kind: 'ended' }); return; }
+    if (!connected) { setStatus({ kind: 'reconnecting' }); return; }
+    if (!ready) return;
+    const controller = new AbortController(); observation.current = controller;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
       try {
-        const attachment = await client.terminals.attach(terminalId, cursor.current < 0 ? 0 : cursor.current);
-        if (cancelled) return;
-        if (attachment.exited) setStatus({ kind: 'exited', exitCode: attachment.exitCode ?? -1, ...(attachment.signal ? { signal: attachment.signal } : {}) });
-        else setStatus(current => current.kind === 'detached' || current.kind === 'reconnecting' || current.kind === 'error' ? { kind: 'live' } : current);
+        const { page, bytes, reset } = await readTerminalOutput(client, { id: terminalId, process_epoch: processEpoch }, cursor.current, controller.signal);
+        if (controller.signal.aborted) return;
+        if (reset) term.current?.reset();
+        if (bytes.length) term.current?.write(bytes);
+        cursor.current = page.next;
+        const ended = page.terminal.exited && page.next === page.end;
+        setStatus(ended ? { kind: 'exited', exitCode: page.terminal.exit_code, signal: page.terminal.signal } : { kind: 'live' });
+        if (!ended) timer = setTimeout(() => void poll(), page.next !== page.end ? 0 : 250);
       } catch (error) {
-        if (cancelled) return;
-        if (error instanceof RpcError && error.code === -32003) setStatus({ kind: 'ended' });
+        if (controller.signal.aborted) return;
+        inputQueue.current?.dispose();
+        if (error instanceof RemoteError && error.kind === 'NOT_FOUND') setStatus({ kind: 'ended' });
         else setStatus({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
       }
     };
-    let wasConnected = client.getSnapshot().state === 'connected';
-    if (wasConnected) void attach(); else setStatus({ kind: 'reconnecting' });
-    const offConnection = client.subscribe(() => {
-      const connected = client.getSnapshot().state === 'connected';
-      if (connected && !wasConnected) void attach();
-      else if (!connected && wasConnected) setStatus(current => current.kind === 'live' || current.kind === 'loading' ? { kind: 'reconnecting' } : current);
-      wasConnected = connected;
-    });
-    return () => { cancelled = true; offOutput(); offExited(); offDetached(); offConnection(); };
-    // ready flips whenever the renderer is recreated (theme or client change), so
-    // the new canvas attaches again and receives a full redraw.
-  }, [client, terminalId, attachEpoch, ready]);
+    void poll();
+    return () => { controller.abort(); clearTimeout(timer); if (observation.current === controller) observation.current = null; };
+  }, [client, terminalId, processEpoch, connected, attachEpoch, ready]);
 
   useEffect(() => {
     if (ready && focused && status.kind === 'live' && !document.querySelector('[role="dialog"], [role="alertdialog"]')) term.current?.focus();
@@ -329,15 +321,16 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
   const restart = async () => {
     try {
       const size = term.current ? { cols: term.current.cols, rows: term.current.rows } : { cols: 80, rows: 24 };
-      const opened = await client.terminals.open({ cwd: tab.cwd, ...size });
-      runtime.tabs.updateTerminal(tab.id, { terminalId: opened.id, cwd: opened.cwd });
+      if (!connected || !runtime.connections.isAttached(client)) throw new Error('Connect this host before restarting the shell.');
+      const opened = await client.openTerminal({ cwd: tab.cwd, ...size });
+      if (opened.process_epoch !== client.processEpoch) throw new Error('The new shell belongs to another host process.');
+      runtime.tabs.updateTerminal(tab.id, { terminalId: opened.id, processEpoch: opened.process_epoch, cwd: opened.cwd });
       const updated = runtime.tabs.workspace().tabs.find(item => item.id === tab.id);
       if (updated) await navigate({ ...tabDestination(updated), replace: true });
     } catch (error) { runtime.reportWorkspace(error); }
   };
   const notice = status.kind === 'exited' ? `Shell exited${status.signal ? ` (${status.signal})` : status.exitCode ? ` (code ${status.exitCode})` : ''}.`
     : status.kind === 'ended' ? 'This shell has ended.'
-    : status.kind === 'detached' ? 'Attached in another window.'
     : status.kind === 'reconnecting' ? 'Reconnecting to the host…'
     : status.kind === 'loading' ? 'Starting terminal…' : undefined;
   const copySelected = () => { const text = term.current?.getSelection(); if (text) void runtime.platform.copy(text).catch(error => runtime.reportWorkspace(error)); };
@@ -348,8 +341,7 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
     {status.kind === 'error' && <div {...stylex.props(styles.bar)}><ErrorNotice type="resource" owner={`terminal:${terminalId}`} title="Terminal is unavailable" error={status.message} action={<Button variant="ghost" onClick={() => setAttachEpoch(value => value + 1)}>Try again</Button>} /></div>}
     {notice && <div role="status" {...stylex.props(styles.bar)}>
       <span {...stylex.props(layout.grow)}>{notice}</span>
-      {(status.kind === 'exited' || status.kind === 'ended') && <Button variant="secondary" onClick={() => void restart()}>Restart</Button>}
-      {status.kind === 'detached' && <Button variant="secondary" onClick={() => setAttachEpoch(value => value + 1)}>Reattach here</Button>}
+      {(status.kind === 'exited' || status.kind === 'ended') && <Button variant="secondary" disabled={!connected} onClick={() => void restart()}>Restart</Button>}
     </div>}
   </div>;
 }

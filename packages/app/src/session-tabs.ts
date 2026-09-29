@@ -53,6 +53,8 @@ export interface TerminalTab {
   readonly runtimeId: string;
   /** Daemon-owned shell identity; the tab reattaches to it after a reload. */
   readonly terminalId: string;
+  /** Missing only for retained descriptors whose shell lifetime cannot be verified. */
+  readonly processEpoch?: string;
   readonly cwd: string;
   readonly titleHint: string;
 }
@@ -72,7 +74,7 @@ export const viewSearch = (kind: SessionViewKind): SessionSearch['view'] => kind
 export const kindFromSearch = (view: unknown): SessionViewKind => view === 'repl' || view === 'trace' ? view : 'chat';
 /** Tab title suffix for a non-chat view. */
 export const viewSuffix = (kind: SessionTab['kind']) => kind === 'repl' ? ' · REPL' : kind === 'trace' ? ' · Trace' : '';
-export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'cwd' | 'titleHint'>>;
+export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'processEpoch' | 'cwd' | 'titleHint'>>;
 export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition' | 'unresolvedDefinition' | 'model' | 'provider' | 'effort'>>;
 /** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
 export const definitionIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
@@ -211,8 +213,8 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
     try { return { id: value.id, kind: 'browser', url: browserURL(value.url), titleHint: browserTitle(typeof value.titleHint === 'string' ? value.titleHint : ''), ...(value.environmentId === undefined ? {} : { environmentId: value.environmentId as string }) }; } catch { return; }
   }
   if (object(value) && value.kind === 'terminal' && !legacy) {
-    if (!identity(value.id) || !identity(value.runtimeId) || !identity(value.terminalId) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd)) return;
-    return { id: value.id, kind: 'terminal', runtimeId: value.runtimeId, terminalId: value.terminalId, cwd: value.cwd, titleHint: title(value.titleHint) };
+    if (!identity(value.id) || !identity(value.runtimeId) || !identity(value.terminalId) || (value.processEpoch !== undefined && !identity(value.processEpoch)) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd)) return;
+    return { id: value.id, kind: 'terminal', runtimeId: value.runtimeId, terminalId: value.terminalId, ...(value.processEpoch ? { processEpoch: value.processEpoch as string } : {}), cwd: value.cwd, titleHint: title(value.titleHint) };
   }
   if (!object(value) || !identity(value.rootId) || (!legacy && !identity(value.id))) return;
   const kind = legacy && value.kind === undefined ? 'chat' : value.kind;
@@ -552,9 +554,9 @@ export class SessionTabs {
     return { tab, companion: { source, tab, sourcePaneId: sourcePane.id, paneId: pane.id } };
   }
   /** Insert a tab for a shell the host already started, after the pane's selected tab. */
-  openTerminal(runtimeId: string, terminalId: string, cwd: string, paneId?: string): string {
+  openTerminal(runtimeId: string, terminalId: string, cwd: string, paneId?: string, processEpoch?: string): string {
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
-    const tab = parseTab({ id: newId(), kind: 'terminal', runtimeId, terminalId, cwd, titleHint: '' });
+    const tab = parseTab({ id: newId(), kind: 'terminal', runtimeId, terminalId, processEpoch, cwd, titleHint: '' });
     if (!tab) throw new Error('Invalid terminal identity');
     const workspace = this.workspace();
     const target = sessionPanes(workspace.layout).find(p => p.id === (paneId ?? workspace.focusedPaneId)) ?? sessionPanes(workspace.layout)[0]!;
