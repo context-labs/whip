@@ -39,7 +39,7 @@ export class Session {
     return this.client.call('inputs.cancel', { input_id: input.id }, options);
   }
   readonly history = {
-    page: (params: Page<'sessions.history'> = { after: '0' }, options: CallOptions = {}) => this.client.call('sessions.history', { limit: 100, ...params, session_id: this.id }, options),
+    page: (params: Page<'sessions.history_page'> = { direction: 'backward' }, options: CallOptions = {}) => this.client.call('sessions.history_page', { limit: 100, ...params, session_id: this.id }, options),
     snapshot: (options: CallOptions = {}) => this.client.call('context.snapshot', { session_id: this.id }, options),
     rewind: (params: Omit<Params<'sessions.rewind'>, 'session_id' | 'edit_id'>, editID: string, options: CallOptions = {}) => this.client.rewind({ ...params, session_id: this.id }, editID, options),
     fork: (params: Omit<Params<'sessions.fork'>, 'session_id' | 'fork_id'>, forkID: string, options: CallOptions = {}) => this.client.fork({ ...params, session_id: this.id }, forkID, options),

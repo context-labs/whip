@@ -7,7 +7,8 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./node": { "types": "./dist/node.d.ts", "import": "./dist/node.js" },
-    "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" }
+    "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" },
+    "./state": { "types": "./dist/state.d.ts", "import": "./dist/state.js" }
   },
   "files": ["dist"],
   "scripts": {
