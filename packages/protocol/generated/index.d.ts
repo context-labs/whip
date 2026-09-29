@@ -9318,15 +9318,25 @@ export interface TraceExportResult {
   spans: number;
   traces: number;
 }
-export interface TracePageParams {
-  root_id: string;
-  after: string;
-  expected_revision: null | string;
-  trace_id: string;
-  roots_only: boolean;
-  limit: number;
-  max_bytes: number;
-}
+export type TracePageParams =
+  | {
+      after: string;
+      expected_revision: null | string;
+      limit: number;
+      max_bytes: number;
+      root_id: string;
+      roots_only: boolean;
+      trace_id: string;
+    }
+  | {
+      before: null | string;
+      expected_revision: null | string;
+      limit: number;
+      max_bytes: number;
+      root_id: string;
+      roots_only: boolean;
+      trace_id: string;
+    };
 export interface TracePageResult {
   /**
    * @maxItems 2048

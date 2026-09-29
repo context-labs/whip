@@ -448,6 +448,32 @@
     "valid": true
   },
   {
+    "type": "TracePageParams",
+    "value": {
+      "root_id": "session_root",
+      "before": null,
+      "expected_revision": null,
+      "trace_id": "",
+      "roots_only": false,
+      "limit": 2048,
+      "max_bytes": 524288
+    },
+    "valid": true
+  },
+  {
+    "type": "TracePageParams",
+    "value": {
+      "root_id": "session_root",
+      "before": "9007199254740993",
+      "expected_revision": "9007199254740999",
+      "trace_id": "",
+      "roots_only": false,
+      "limit": 2048,
+      "max_bytes": 524288
+    },
+    "valid": true
+  },
+  {
     "type": "TracePageResult",
     "value": {
       "items": [

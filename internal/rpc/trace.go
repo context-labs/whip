@@ -13,7 +13,15 @@ func dispatchTrace(ctx context.Context, r *runtime.Runtime, method string, raw j
 	switch method {
 	case "trace.page":
 		return decode(raw, func(p protocol.TracePageParams) (any, error) {
-			query := session.TraceQuery{RootID: session.SessionID(p.RootID), After: int64(p.After), TraceID: p.TraceID, RootsOnly: p.RootsOnly, Limit: p.Limit, MaxBytes: p.MaxBytes}
+			query := session.TraceQuery{RootID: session.SessionID(p.RootID), TraceID: p.TraceID, RootsOnly: p.RootsOnly, Limit: p.Limit, MaxBytes: p.MaxBytes}
+			if p.After != nil {
+				query.After = int64(*p.After)
+			} else {
+				query.Backward = true
+				if p.Before != nil && *p.Before != nil {
+					query.Before = new(int64(**p.Before))
+				}
+			}
 			if p.ExpectedRevision != nil {
 				query.ExpectedRevision = new(int64(*p.ExpectedRevision))
 			}
