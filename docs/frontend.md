@@ -3038,3 +3038,22 @@ acknowledgement does not prove child consumption; only the current prompt accept
 input, and closing it clears queued bytes. Preview cursors are exact decimal byte
 offsets with explicit truncation. Keep these controls distinct from independently
 owned human terminal tabs and from explicit execution cancellation.
+
+### V4 MCP, terminals and browser executor transport
+
+The v4 SDK now exposes native MCP configuration/import/status/connection controls,
+process-epoch human terminals and `browserDuplex` for persistent executor peers.
+These are available backend/SDK contracts; retained product screens still use
+legacy services until their explicit cutover. An MCP status read does not connect
+a server; show unavailable/unsupported/import-gated states and preserve declared
+trust independently from connection state. Captured child server selection and
+live grant filtering remain backend authority.
+
+Human terminal tabs keep only a bounded reading cursor and transient input.
+Preserve the terminal's process epoch; a new runtime process cannot restore it.
+Show ring truncation, resolve uncertain opens through listing, and expose
+uncertain writes without replaying their bytes. A view detach is observation
+cleanup; explicit close terminates the terminal. Browser network-terminal policy
+comes from the runtime, not local UI state. Use browserDuplex with ExecutorClient
+for explicitly registered browser handlers and discard revoked lease state on
+connection loss. These handlers have no reconnect or automatic rebind policy.

@@ -2074,3 +2074,69 @@ joins callbacks and clears pending input, so bytes never spill into a later
 shell. The child controls PTY echo. These controls are separate from human
 terminal tabs, and the gateway rejects shell.input unless network terminals
 are explicitly enabled. Observation/disconnection does not cancel accepted work.
+
+## MCP ownership, imports and delegated discovery
+
+Fresh schema40/config16 introduces native MCP declarations and nullable captured
+server selection: null inherits configured availability, while an empty list
+selects none. Child selection can only narrow its parent's scope. Each runtime
+owns one MCP connection manager and its private process manager, separate from
+session kernels and human terminals. Session stop/deletion and runtime shutdown
+cancel and join owned work; a reload does not replace unrelated session state.
+
+Metadata inspection never implicitly connects a server. Guest catalog reads
+validate the exact session, captured configuration and live delegated grants.
+Calls and connections enter the ordinary operation/consent/dispatch ledger.
+Only explicitly trusted server variants are eligible for saved automatic
+permission policy. Untrusted variants remain excluded both at admission and
+immediately before dispatch; SQL rejects a forged policy-revision bypass.
+
+The host configuration service owns explicit compare-and-set writes, imports,
+refresh/reload, enable/disable, attach and reconnect. Import candidates carry
+fingerprints checked again at publication. Native declarations override project,
+Codex, Claude and OpenCode sources in that order. Project imports default disabled;
+copying a declaration does not imply trust. Unsupported OAuth/SSE configurations
+remain visible with an unsupported outcome. No account or network action occurs
+merely because a client reads status or an import candidate list.
+
+Limits are128 owners and128 host connections,16 per owner,64 configured servers;
+catalogs are2048 tools/2MiB per owner and8192 tools/8MiB per host. Wire frames cap
+at16MiB with a64MiB shared wire allowance; decoded results have an independent
+64MiB allowance and at most four held result slots through projection. Declared
+configuration and metadata each cap at8MiB. Model-visible result previews cap
+at32KiB; larger text/images use session-owned content references. At this
+checkpoint image references are result metadata; same-turn model vision is a
+following typed-attachment checkpoint, not an implied feature of JSON output.
+Brand icons use64 domain entries, four active requests,4-second deadlines,
+48KiB bodies and512 disk records. Their resolver owns its HTTP transport and
+never borrows an account manager's replacement of the global default transport.
+
+## Human terminal tabs and persistent browser executors
+
+Human terminals are command-owned PTYs, independent of sessions, models and
+agent permissions. Every terminal request carries the exact process epoch;
+restart rejects old handles and restores no process or transcript. Open requires
+an explicit absolute canonical directory, host-resolved login shell and the
+process manager's allowlisted environment. Login profiles remain host controlled.
+The16-handle registry retains a1MiB byte ring per terminal, accepts at most16KiB
+per write and returns at most32KiB per read. Offsets are exact decimal counters;
+truncation is explicit. Detaching a reader leaves the terminal running.
+
+An uncertain open is resolved by listing the current epoch's terminals. Writes
+have no durable receipt and must not be replayed after a lost acknowledgement.
+Explicit close and command shutdown join output readers, attachments, the shell
+and its captured foreground process group. Retiring a handle under its lock
+prevents a delayed attachment from reviving an evicted terminal. Both terminal
+and agent-shell masters use the same close-interruptible PTY primitive. Process
+groups do not provide a sandbox or ownership of arbitrarily detached descendants.
+Network clients require the operator's explicit terminal opt-in at the RPC owner.
+
+`browserDuplex` supplies an identity-checked persistent transport to the same
+ExecutorClient used over Unix sockets. Initialization pins runtime ID, optional
+process epoch and the gateway network restriction before dependent calls. It
+bounds32 pending requests,32 events and8MiB aggregate incoming bytes, supports one
+event consumer and closes the peer on overflow or transport loss. Request and
+startup deadlines do not impose a hidden lifetime on an established executor.
+Closing revokes connection leases; accepted execution remains owned by Go.
+There is no automatic reconnect, rebind or replay. Browser UI assets and product
+client adoption remain Phase6 work.

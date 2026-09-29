@@ -873,17 +873,17 @@ replays a request. Content transfers preserve the owning session and reference,
 verify the digest and exact byte length, and share the runtime's4MiB bound.
 Retain the original upload identity and bytes after uncertain delivery.
 The gateway currently serves API discovery and transport only; product UI
-packaging and persistent executor browser support are separate increments.
+packaging is a separate increment.
 
 
 `ExecutorClient` owns one explicit persistent connection, supplied by `executorSocket`
-from `@whip/sdk/node`. Connect with the expected runtime identity, bind the exact
+from `@whip/sdk/node`, or `browserDuplex` from `@whip/sdk/browser`.
+Connect with the expected runtime identity, bind the exact
 registered definition and complete tool/hook coverage, then consume events once.
 Return results/progress using the event's exact epoch, generation and invocation
 identity. Payloads remain base64 JSON bytes to preserve exact numbers. A pending
 page is inspection only. Disconnection revokes availability; the SDK never
-rebinds or replays calls. Closing its event iterator closes the peer. Browser
-persistent transport remains the following increment.
+rebinds or replays calls. Closing its event iterator closes the peer. The browser peer uses the same lease and event contract.
 
 `shellInteraction(sessionID, cursor)` reads the current human-input prompt;
 `shellInput` sends a caller-preserved operation identity, sequence and base64
@@ -891,3 +891,17 @@ bytes. Inspect the returned next-input sequence after uncertain delivery. Only
 an exact retry of the most recent sequence is duplicate-safe. Input acceptance
 means queued, not consumed. Keep input in transient local state; do not replay it
 on reconnect or persist secrets. A null interaction means no active prompt.
+
+
+MCP controls include `mcpConfiguration`, `configureMCP`, `mcpImportCandidates`,
+`importMCP`, `mcpStatus`, `refreshMCP`, `reloadMCP`, `reconnectMCP`, `enableMCP`,
+`disableMCP`, `attachMCP`, `mcpTools`, `mcpInstructions` and `mcpBrandIcons`.
+Preserve the returned configuration revision and candidate fingerprints for
+explicit edits/imports. Reading status does not establish a connection.
+
+Human terminal methods are `openTerminal`, `listTerminals`, `readTerminal`,
+`writeTerminal`, `resizeTerminal` and `closeTerminal`. Open uses the connected
+process epoch; subsequent calls preserve the exact returned terminal reference.
+An uncertain open can be inspected by listing. Input writes have no receipt;
+report uncertain delivery and never retry their bytes automatically. Reads use
+exact byte cursors with visible truncation; view disposal is independent of close.

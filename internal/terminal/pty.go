@@ -8,38 +8,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/creack/pty"
+	"github.com/context-labs/whip/internal/capability"
 	"golang.org/x/sys/unix"
 )
 
 // Rewrap the master in nonblocking mode so Go owns its read/write deadlines.
 // All later ioctls use SyscallConn, never File.Fd (which switches to blocking).
 func openPTY(cols, rows uint16) (*os.File, *os.File, error) {
-	master, slave, err := pty.Open()
+	master, slave, err := capability.OpenPTY()
 	if err != nil {
 		return nil, nil, err
 	}
-	raw, err := master.SyscallConn()
-	fd := -1
-	var operationErr error
-	if err == nil {
-		err = raw.Control(func(value uintptr) {
-			fd, operationErr = unix.FcntlInt(value, unix.F_DUPFD_CLOEXEC, 0)
-			if operationErr == nil {
-				operationErr = unix.SetNonblock(fd, true)
-			}
-		})
-	}
-	err = errors.Join(err, operationErr)
-	_ = master.Close()
-	if err != nil {
-		if fd >= 0 {
-			_ = unix.Close(fd)
-		}
-		_ = slave.Close()
-		return nil, nil, err
-	}
-	master = os.NewFile(uintptr(fd), "terminal-master")
 	if err := setSize(master, cols, rows); err != nil {
 		_ = master.Close()
 		_ = slave.Close()
