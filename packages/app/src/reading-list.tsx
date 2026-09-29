@@ -48,7 +48,7 @@ export interface ReadingListActions {
 }
 
 /** Shared virtual reading/selection anchors; session data stays with the SDK. */
-export function ReadingList<Row extends { id: string; seq?: number }>({
+export function ReadingList<Row extends { id: string; seq?: string }>({
   actionsRef, rows, hasMore, loadOlder, loadLatest, latestMissing = false, bookmarkKey, historyRevision, historyCursor, historyReady = true,
   label, earlierLabel, renderRow, contentStyle, empty, footer, canLoadOlder = true, loadingHistory = false, chatFollow = false,
 }: {
@@ -60,7 +60,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   latestMissing?: boolean;
   bookmarkKey?: string;
   historyRevision?: string;
-  historyCursor?: number;
+  historyCursor?: string;
   historyReady?: boolean;
   label: string;
   earlierLabel: string;
@@ -93,7 +93,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   const [loadingLatest, setLoadingLatest] = useState(false);
   const latestIntent = useRef(0);
   const loadingRef = useRef(false);
-  const prefetch = useRef<{ pages: number; cursor?: number } | undefined>(undefined);
+  const prefetch = useRef<{ pages: number; cursor?: string } | undefined>(undefined);
   const prefetchFrame = useRef(0);
   const upwardGesture = useRef(false);
   const cancelPrefetch = () => {
@@ -293,7 +293,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     if (!episode || !root) return;
     // Raw cursors, not visible rows/height, prove progress through filtered pages.
     if (episode.pages >= 3 || !canReadHistory || !nearTop(root) ||
-      episode.cursor === undefined || historyCursor === undefined || historyCursor >= episode.cursor) {
+      episode.cursor === undefined || historyCursor === undefined || BigInt(historyCursor) >= BigInt(episode.cursor)) {
       cancelPrefetch(); return;
     }
     void loadEarlier(true);

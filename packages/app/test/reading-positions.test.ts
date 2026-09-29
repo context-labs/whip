@@ -5,7 +5,7 @@ const bookmark = {
   revision: '9007199254740993',
   offset: 15,
   follow: false,
-  seq: 10,
+  seq: '10',
 };
 it('retains stable identity/revision/offset without transcript payloads or numeric revision coercion', () => {
   const positions = new ReadingPositions();
@@ -19,7 +19,7 @@ it('retains stable identity/revision/offset without transcript payloads or numer
   positions.set('invalid', { ...bookmark, revision: '1e10' });
   expect(positions.get('invalid')).toBeUndefined();
 });
-it('evicts least recently read positions at both the128entry and64KiB bounds', () => {
+it('evicts least recently read positions at both the 128 entry and 64 KiB bounds', () => {
   const positions = new ReadingPositions();
   for (let i = 0; i < 128; i++) positions.set(`r:${i}:root`, bookmark);
   positions.get('r:0:root');
@@ -44,9 +44,9 @@ it('forgets only the requested runtime and root namespace', () => {
 });
 it('restores exact anchors only within the same revision and falls back to nearest loaded sequence', () => {
   const rows = [
-    { id: 'first', seq: 4 },
-    { id: 'message', seq: 10 },
-    { id: 'last', seq: 15 },
+    { id: 'first', seq: '4' },
+    { id: 'message', seq: '10' },
+    { id: 'last', seq: '15' },
   ];
   expect(readingTarget(rows, bookmark.revision, bookmark)).toEqual({
     index: 1,
@@ -79,4 +79,16 @@ it('keeps chat and REPL bookmarks independent and forgets both modes of a closed
   expect(positions.get('host:view:root')).toBeUndefined();
   expect(positions.get('host:view:root:repl')).toBeUndefined();
   expect(positions.get('host:duplicate:root:repl')).toEqual(bookmark);
+});
+
+
+it('retains exact counters above the safe integer range when finding nearby anchors', () => {
+  const positions = new ReadingPositions();
+  const saved = { ...bookmark, seq: '9007199254740993', messageId: 'gone' };
+  positions.set('host:view:child', saved);
+  expect(positions.get('host:view:child')?.seq).toBe('9007199254740993');
+  const rows = [{ id: 'before', seq: '9007199254740991' }, { id: 'after', seq: '9007199254740994' }];
+  expect(readingTarget(rows, '2', saved)).toEqual({ index: 1, offset: 0, fallback: true });
+  for (const seq of ['01', '-1', '1e4', '9223372036854775808']) positions.set('invalid', { ...saved, seq });
+  expect(positions.get('invalid')).toBeUndefined();
 });
