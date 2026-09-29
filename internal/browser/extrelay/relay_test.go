@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -245,4 +246,82 @@ func TestExtensionHandshakePublicationPrecedesAttachedObservation(t *testing.T) 
 	if got := readSrv(t, cdp); !strings.Contains(got, `"value":2`) {
 		t.Fatal(got)
 	}
+}
+
+type relayReadBarrier struct {
+	io.Reader
+	started chan struct{}
+	release <-chan struct{}
+	once    sync.Once
+}
+
+func (r *relayReadBarrier) Read(p []byte) (int, error) {
+	r.once.Do(func() { close(r.started) })
+	n, err := r.Reader.Read(p)
+	if err != nil && r.release != nil {
+		<-r.release
+	}
+	return n, err
+}
+
+func TestObsoleteCDPDisconnectCannotClearReplacement(t *testing.T) {
+	r := &Relay{}
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	makeConnection := func(block <-chan struct{}) (*conn, *client, <-chan struct{}) {
+		t.Helper()
+		server, peer := net.Pipe()
+		t.Cleanup(func() { _ = server.Close(); _ = peer.Close() })
+		reader := &relayReadBarrier{Reader: server, started: make(chan struct{}), release: block}
+		connection := &conn{nc: server, r: reader}
+		connection.w = &lockedWriter{nc: server, mu: &connection.wm}
+		return connection, &client{nc: peer, br: bufio.NewReader(peer)}, reader.started
+	}
+	wait := func(done <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("relay owner did not reach its test barrier")
+		}
+	}
+	old, _, oldRead := makeConnection(release)
+	oldDone := make(chan struct{})
+	go func() { r.serveCDP(old); close(oldDone) }()
+	t.Cleanup(func() { unblock(); old.close(); wait(oldDone) })
+	wait(oldRead)
+	current, cdp, currentRead := makeConnection(nil)
+	currentDone := make(chan struct{})
+	go func() { r.serveCDP(current); close(currentDone) }()
+	t.Cleanup(func() { current.close(); wait(currentDone) })
+	wait(currentRead) // Replacement is published; obsolete cleanup remains held.
+	unblock()
+	wait(oldDone)
+	r.mu.Lock()
+	live := r.cdpConn == current
+	r.mu.Unlock()
+	if !live {
+		t.Fatal("obsolete connection cleanup cleared its live replacement")
+	}
+	extConnection, ext, _ := makeConnection(nil)
+	r.mu.Lock()
+	r.ext = extConnection
+	r.mu.Unlock()
+	extDone := make(chan struct{})
+	go func() { r.serveExt(extConnection); close(extDone) }()
+	t.Cleanup(func() { extConnection.close(); wait(extDone) })
+	writeCli(t, cdp, `{"id":11,"method":"Runtime.evaluate","params":{"expression":"1+1"}}`)
+	if got := readSrv(t, ext); !strings.Contains(got, "Runtime.evaluate") {
+		t.Fatal(got)
+	}
+	writeCli(t, ext, `{"id":11,"result":{"value":2}}`)
+	if got := readSrv(t, cdp); !strings.Contains(got, `"value":2`) {
+		t.Fatal(got)
+	}
+	_ = cdp.Close()
+	_ = ext.Close()
+	wait(currentDone)
+	wait(extDone)
 }

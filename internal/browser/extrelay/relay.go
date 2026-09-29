@@ -296,7 +296,9 @@ func (r *Relay) serveCDP(c *conn) {
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()
-		r.setCDPLocked(nil)
+		if r.cdpConn == c {
+			r.setCDPLocked(nil)
+		}
 		r.mu.Unlock()
 		c.close()
 	}()
