@@ -45,3 +45,22 @@ test('scoped handles reject foreign session/turn evidence before a cancellation'
   await assert.rejects(child.cancelTurn('turn_title'), /another session/);
   assert.deepEqual(calls.map(value => value.method), ['sessions.get', 'turns.get']);
 });
+
+test('scoped input metadata stays bounded and full payload/cancellation are explicit reads', async () => {
+  let foreign = false;
+  const { client, calls } = await clientFixture(request => {
+    if (request.method === 'inputs.page') { const page = fixture('InputPageResult'); for (const item of page.items) item.session_id = 'child'; return page; }
+    if (request.method === 'inputs.get' || request.method === 'inputs.cancel') return { ...fixture('Input'), id: 'input', session_id: foreign ? 'foreign' : 'child' };
+    throw new Error(request.method);
+  });
+  const session = client.session('child');
+  const page = await session.inputs.page({ state: 'queued', after: '0', limit: 1 });
+  assert.ok(page.items.every(item => !('parts' in item)));
+  assert.deepEqual(calls.map(call => call.method), ['inputs.page']);
+  assert.ok((await session.inputs.get('input')).parts);
+  await session.inputs.cancel('input');
+  assert.deepEqual(calls.slice(-2).map(call => call.method), ['inputs.get', 'inputs.cancel']);
+  foreign = true;
+  await assert.rejects(session.inputs.cancel('input'), /another session/);
+  assert.equal(calls.at(-1).method, 'inputs.get');
+});

@@ -100,6 +100,22 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
   const catalog = createTreeCatalogView(web, { maxItems: 1, pollIntervalMs: 60_000 });
   t.after(async () => { await Promise.all(views.map(view => view.dispose())); await catalog.dispose(); });
   await Promise.all(views.map(view => view.start())); await catalog.start();
+  // A second client discovers ordinary work without owning its submission receipts.
+  for (const [index, tree] of [first, second].entries()) {
+    await local.submit(tree.root.id, [{ type: 'text', text: 'observed by browser activity' }], 'activity-' + index, options());
+    await views[index].refresh();
+    const activity = views[index].getSnapshot().activity;
+    assert.equal(activity.session_id, tree.root.id);
+    assert.ok(activity.active_turn || BigInt(activity.queued_input_count) > 0n);
+    const inputs = await web.session(tree.root.id).inputs.page({ state: 'all', limit: 10 }, options());
+    assert.ok(inputs.items.some(input => input.text_preview === 'observed by browser activity'));
+    for (;;) {
+      const result = await local.call('receipts.get', { client_id: local.clientID, request_id: 'activity-' + index }, options());
+      if (result.turn?.finished_at) { assert.equal(result.turn.state, 'succeeded'); break; }
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    await views[index].refresh(); assert.equal(views[index].getSnapshot().activity.active_turn, null);
+  }
   const histories = views.map(view => view.getSnapshot().history.messages.map(message => message.id));
   assert.ok(histories.every(ids => ids.length > 0 && ids.length <= 4 && new Set(ids).size === ids.length));
   assert.equal(catalog.getSnapshot().items.length, 1); assert.equal(catalog.getSnapshot().truncated, true);

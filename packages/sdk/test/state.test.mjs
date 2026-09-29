@@ -10,7 +10,7 @@ const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boo
 const owner = 'session_child';
 const message = (sequence, text = 'body') => ({ ...fixture('Message'), id: 'message_' + sequence, session_id: owner, sequence: String(sequence), parts: [{ type: 'text', text }] });
 async function backend() {
-  const state = { messages: [], revision: '1', epoch: 'boot_one', preview: null, calls: [], intercept: undefined, catalogRevision: '1', trees: [] };
+  const state = { activity: { ...fixture('SessionActivity'), session_id: owner, active_turn: null, active_input_id: null }, messages: [], revision: '1', epoch: 'boot_one', preview: null, calls: [], intercept: undefined, catalogRevision: '1', trees: [] };
   const snapshot = () => ({ session_id: owner, revision: state.revision, through_sequence: state.messages.at(-1)?.sequence ?? '0', message_count: String(state.messages.length) });
   const client = await Client.connect(async request => {
     if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: initial };
@@ -18,7 +18,8 @@ async function backend() {
     const p = request.params;
     const conflict = () => ({ jsonrpc: '2.0', id: request.id, error: { code: -32004, kind: 'CONFLICT', message: 'revision changed' } });
     let result;
-    if (request.method === 'sessions.history_page') {
+    if (request.method === 'sessions.activity') result = state.activity;
+    else if (request.method === 'sessions.history_page') {
       if (p.expected_revision !== undefined && p.expected_revision !== state.revision) return conflict();
       const all = state.messages.filter(value => p.cursor === undefined || (p.direction === 'backward' ? BigInt(value.sequence) < BigInt(p.cursor) : BigInt(value.sequence) > BigInt(p.cursor)));
       const messages = p.direction === 'backward' ? all.slice(-p.limit) : all.slice(0, p.limit);
@@ -43,7 +44,7 @@ test('large history starts at the actual tail and navigates bounded windows acro
   const base = 9007199254740993n;
   state.messages = Array.from({ length: 3000 }, (_, index) => message(base + BigInt(index) * 1000n));
   const view = viewFor(t, client, { maxMessages: 5 }); await view.start();
-  assert.equal(state.calls.length, 2); assert.equal(state.calls[0].method, 'sessions.history_page'); assert.equal(state.calls[0].params.cursor, undefined);
+  assert.equal(state.calls.length, 3); assert.equal(state.calls[1].method, 'sessions.history_page'); assert.equal(state.calls[1].params.cursor, undefined);
   assert.deepEqual(view.getSnapshot().history.messages.map(value => value.sequence), state.messages.slice(-5).map(value => value.sequence));
   const first = view.getSnapshot().history.messages[0].sequence;
   await view.loadOlder();
@@ -97,7 +98,7 @@ test('suspension joins pending observation and discards a late page before expli
 test('foreign history ownership fails closed and concurrent refreshes have one bounded fetch', async t => {
   const { state, client } = await backend(); state.messages = [{ ...message(1), session_id: 'foreign' }];
   const view = viewFor(t, client); await Promise.all(Array.from({ length: 100 }, () => view.start()));
-  assert.equal(state.calls.length, 1); assert.equal(view.getSnapshot().unavailable, true); assert.equal(view.getSnapshot().history.messages.length, 0);
+  assert.equal(state.calls.length, 2); assert.equal(view.getSnapshot().unavailable, true); assert.equal(view.getSnapshot().history.messages.length, 0);
 });
 
 function trees(count) { return Array.from({ length: count }, (_, index) => { const item = fixture('ListTreesResult').items[0]; item.tree.id = 'tree_' + String(index).padStart(4, '0'); item.root_id = 'root_' + index; return item; }); }
@@ -128,7 +129,7 @@ test('slow and reentrant consumers retain one snapshot without starting duplicat
   let notifications = 0;
   const unsubscribe = view.subscribe(() => { notifications++; void view.refresh(); });
   await view.start();
-  assert.equal(state.calls.length, 2);
+  assert.equal(state.calls.length, 3);
   const old = view.getSnapshot();
   unsubscribe();
   for (let index = 2; index <= 40; index++) { state.messages.push(message(index)); await view.refresh(); }
@@ -138,4 +139,20 @@ test('slow and reentrant consumers retain one snapshot without starting duplicat
   const listeners = Array.from({ length: 64 }, () => view.subscribe(() => {}));
   assert.throws(() => view.subscribe(() => {}), /listener limit/);
   for (const remove of listeners) remove();
+});
+
+test('activity observes other clients durable work without hydrating queue payloads or guessing from previews', async t => {
+  const { state, client } = await backend(); const view = viewFor(t, client); await view.start();
+  state.activity = { ...state.activity, queued_input_count: '9007199254740993', pending_question_count: '1', active_turn: { ...fixture('Turn'), session_id: owner, state: 'running', finished_at: null }, execution_permit: false };
+  await view.refresh();
+  assert.equal(view.getSnapshot().preview, null);
+  assert.equal(view.getSnapshot().activity.queued_input_count, '9007199254740993');
+  assert.equal(view.getSnapshot().activity.active_turn.state, 'running');
+  assert.equal(view.getSnapshot().activity.execution_permit, false);
+  assert.ok(state.calls.every(call => !call.method.startsWith('inputs.')));
+  await view.suspend(); assert.equal(view.getSnapshot().activity, null);
+  state.activity = { ...state.activity, active_turn: null, active_workspace_action_id: 'restore', queued_input_count: '0' };
+  await view.resume(); assert.equal(view.getSnapshot().activity.active_workspace_action_id, 'restore');
+  state.intercept = () => { throw new Error('disconnected'); }; await view.refresh();
+  assert.equal(view.getSnapshot().status, 'stale'); assert.equal(view.getSnapshot().activity, null);
 });

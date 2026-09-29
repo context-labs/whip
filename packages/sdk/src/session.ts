@@ -17,6 +17,30 @@ export class Session {
     if (value.id !== this.id) throw new TypeError('Session identity mismatch');
     return value;
   }
+  async activity(options: CallOptions = {}) {
+    const value = await this.client.call('sessions.activity', { session_id: this.id }, options);
+    if (value.session_id !== this.id || value.active_turn && value.active_turn.session_id !== this.id) throw new TypeError('Activity belongs to another session');
+    return value;
+  }
+  readonly inputs = {
+    page: async (params: Page<'inputs.page'> = { state: 'queued' }, options: CallOptions = {}) => {
+      const value = await this.client.call('inputs.page', { limit: 50, ...params, session_id: this.id }, options);
+      const items = value.items ?? [];
+      let previous = params.after ?? '0';
+      for (const item of items) {
+        if (item.session_id !== this.id || BigInt(item.ordinal) <= BigInt(previous)) throw new TypeError('Input page scope or ordering mismatch');
+        previous = item.ordinal;
+      }
+      if (value.next_cursor !== null && (!items.length || value.next_cursor !== previous)) throw new TypeError('Input page continuation mismatch');
+      return { ...value, items };
+    },
+    get: async (inputID: string, options: CallOptions = {}) => {
+      const value = await this.client.call('inputs.get', { session_id: this.id, input_id: inputID }, options);
+      if (value.id !== inputID || value.session_id !== this.id) throw new TypeError('Input belongs to another session');
+      return value;
+    },
+    cancel: async (inputID: string, options: CallOptions = {}) => this.cancelInput(await this.inputs.get(inputID, options), options),
+  };
   configure(expectedRevision: string, patch: Params<'sessions.configure'>['patch'], options: CallOptions = {}) {
     return this.client.call('sessions.configure', { session_id: this.id, expected_revision: expectedRevision, patch }, options);
   }

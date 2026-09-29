@@ -6,6 +6,7 @@ import { boundedInteger, bytes, freeze } from './value.js';
 import type { DeepReadonly } from './value.js';
 export type { DeepReadonly } from './value.js';
 type MessagePreview = NonNullable<Operations['sessions.observe']['result']['preview']>;
+type SessionActivity = Operations['sessions.activity']['result'];
 type TreeSummary = Operations['trees.list']['result']['items'][number];
 
 export type ObservationStatus = 'idle' | 'loading' | 'live' | 'stale' | 'suspended' | 'closed';
@@ -35,6 +36,8 @@ export interface SessionViewSnapshot {
   runtimeID: string;
   sessionID: string;
   epoch: string | null;
+  /** Durable SQL facts; null means unavailable, never idle. */
+  activity: SessionActivity | null;
   history: HistoryView;
   preview: MessagePreview | null;
   previewUnavailable: boolean;
@@ -73,7 +76,7 @@ export class SessionView {
     if (this.maxBytes < 4096) throw new RangeError('maxBytes must be at least 4096');
     this.pageSize = boundedInteger(options.pageSize ?? 100, 'pageSize', 100);
     this.interval = boundedInteger(options.pollIntervalMs ?? 250, 'pollIntervalMs', 60_000);
-    this.current = freeze({ status: 'idle', runtimeID: session.client.runtimeID, sessionID: session.id, epoch: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false }, preview: null, previewUnavailable: false, retainedBytes: 0, truncated: false, unavailable: false });
+    this.current = freeze({ status: 'idle', runtimeID: session.client.runtimeID, sessionID: session.id, epoch: null, activity: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false }, preview: null, previewUnavailable: false, retainedBytes: 0, truncated: false, unavailable: false });
   }
   getSnapshot = (): DeepReadonly<SessionViewSnapshot> => this.current;
   subscribe = (listener: () => void): (() => void) => {
@@ -99,7 +102,7 @@ export class SessionView {
   }
   async suspend(): Promise<void> {
     this.active = false; this.generation++; clearTimeout(this.timer); this.timer = undefined; this.controller.abort();
-    if (!this.closed) this.patch({ status: 'suspended', preview: null, previewUnavailable: false });
+    if (!this.closed) this.patch({ status: 'suspended', activity: null, preview: null, previewUnavailable: false });
     await this.pending?.catch(() => {});
     await this.navigation?.promise.catch(() => {});
   }
@@ -111,7 +114,7 @@ export class SessionView {
   async dispose(): Promise<void> {
     if (this.closed) return;
     await this.suspend(); this.closed = true; this.rows = [];
-    this.patch({ status: 'closed', preview: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false } });
+    this.patch({ status: 'closed', activity: null, preview: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false } });
     this.listeners.clear();
   }
   refresh(): Promise<void> {
@@ -121,7 +124,7 @@ export class SessionView {
     const generation = this.generation;
     this.pending = Promise.resolve().then(() => this.read(generation)).catch(error => {
       if (generation !== this.generation) return;
-      this.patch({ status: 'stale', preview: null, previewUnavailable: false, error: describe(error), unavailable: error instanceof TypeError || error instanceof RemoteError && error.kind === 'NOT_FOUND' });
+      this.patch({ status: 'stale', activity: null, preview: null, previewUnavailable: false, error: describe(error), unavailable: error instanceof TypeError || error instanceof RemoteError && error.kind === 'NOT_FOUND' });
     }).finally(() => { this.pending = undefined; this.schedule(); });
     return this.pending;
   }
@@ -147,11 +150,11 @@ export class SessionView {
       return size > this.maxBytes - 2048 ? { gap: { messageID: message.id, sequence: message.sequence, reason: 'message_too_large' as const, bytes: size } } : { message };
     });
   }
-  private window(snapshot: HistorySnapshot, rows: Row[], olderCursor: string | null, preview: MessagePreview | null, epoch: string | null, keep: 'older' | 'latest') {
+  private window(snapshot: HistorySnapshot, rows: Row[], olderCursor: string | null, preview: MessagePreview | null, epoch: string | null, keep: 'older' | 'latest', activity: SessionActivity | null = this.current.activity as SessionActivity | null) {
     let latestMissing = keep === 'older' ? this.current.history.latestMissing : BigInt(this.after) < BigInt(snapshot.through_sequence);
     let previewUnavailable = false;
     if (preview && bytes(preview) > Math.floor(this.maxBytes / 4)) { preview = null; previewUnavailable = true; }
-    const make = (): SessionViewSnapshot => ({ status: 'live', runtimeID: this.current.runtimeID, sessionID: this.session.id, epoch, history: { snapshot, messages: rows.flatMap(row => row.message ? [row.message] : []), gaps: rows.flatMap(row => row.gap ? [row.gap] : []), olderCursor, latestMissing }, preview, previewUnavailable, retainedBytes: 0, truncated: olderCursor !== null || latestMissing || rows.some(row => !!row.gap) || previewUnavailable, unavailable: false });
+    const make = (): SessionViewSnapshot => ({ status: 'live', runtimeID: this.current.runtimeID, sessionID: this.session.id, epoch, activity, history: { snapshot, messages: rows.flatMap(row => row.message ? [row.message] : []), gaps: rows.flatMap(row => row.gap ? [row.gap] : []), olderCursor, latestMissing }, preview, previewUnavailable, retainedBytes: 0, truncated: olderCursor !== null || latestMissing || rows.some(row => !!row.gap) || previewUnavailable, unavailable: false });
     while (rows.length > this.maxMessages || bytes(make()) > this.maxBytes - 2048) {
       if (rows.length === 0) throw new RangeError('Session metadata exceeds view byte limit');
       if (rows.length === 1 && rows[0]!.message) {
@@ -167,14 +170,17 @@ export class SessionView {
     if (preview && committed.has(preview.message_id)) preview = null;
     this.publish(make());
   }
-  private async seed(generation: number): Promise<void> {
+  private async seed(generation: number, activity: SessionActivity | null = this.current.activity as SessionActivity | null): Promise<void> {
     const page = await this.page();
     if (!this.valid(generation)) return;
     this.followLatest = true; this.after = page.snapshot.through_sequence;
-    this.window(page.snapshot, this.convert(page.messages), page.next_cursor, null, this.current.epoch, 'latest');
+    this.window(page.snapshot, this.convert(page.messages), page.next_cursor, null, this.current.epoch, 'latest', activity);
   }
   private async read(generation: number): Promise<void> {
-    if (!this.current.history.snapshot) { this.patch({ status: 'loading', error: undefined }); await this.seed(generation); }
+    if (!this.valid(generation)) return;
+    const activity = await this.session.activity({ signal: this.controller.signal });
+    if (!this.valid(generation)) return;
+    if (!this.current.history.snapshot) { this.patch({ status: 'loading', error: undefined }); await this.seed(generation, activity); }
     if (!this.valid(generation)) return;
     const revision = this.current.history.snapshot!.revision;
     try {
@@ -186,11 +192,11 @@ export class SessionView {
       const last = messages.at(-1);
       if (last) this.after = last.sequence;
       if (this.followLatest) {
-        this.window(observation.snapshot, [...this.rows, ...this.convert(messages)], this.current.history.olderCursor, observation.preview, observation.epoch, 'latest');
+        this.window(observation.snapshot, [...this.rows, ...this.convert(messages)], this.current.history.olderCursor, observation.preview, observation.epoch, 'latest', activity);
       } else {
         if (messages.length) this.patch({ history: { ...this.current.history, latestMissing: true } as HistoryView });
         this.after = observation.snapshot.through_sequence; // Deliberately do not retain an off-screen suffix.
-        this.window(observation.snapshot, this.rows, this.current.history.olderCursor, observation.preview, observation.epoch, 'older');
+        this.window(observation.snapshot, this.rows, this.current.history.olderCursor, observation.preview, observation.epoch, 'older', activity);
       }
     } catch (error) {
       if (!isConflict(error) || !this.valid(generation)) throw error;
@@ -198,7 +204,7 @@ export class SessionView {
       // pages from zero or join two revisions into one presentation.
       this.rows = []; this.after = '0';
       this.patch({ status: 'loading', preview: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false } });
-      await this.seed(generation);
+      await this.seed(generation, activity);
     }
   }
   private navigate(kind: 'older' | 'latest'): Promise<void> {
