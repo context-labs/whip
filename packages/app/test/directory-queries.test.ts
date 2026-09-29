@@ -1,12 +1,12 @@
 import { QueryClient } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client } from '@whip/sdk';
 import { directoryCache, directoryOptions } from '../src/directory-queries';
 
 afterEach(() => vi.useRealTimers());
 function fixture(id = 'remote') {
   const directories = vi.fn(async ({ path }: { path?: string }) => ({ path: path!, parent: '/', entries: [], has_more: false, next_after: '' }));
-  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: id } }), host: { directories } } as unknown as WhipClient;
+  const client = { runtimeID: id, processEpoch: 'boot', call: (_method: string, params: never, options: never) => directories(params, options) } as unknown as Client;
   return { client, directories };
 }
 it('reuses a warmed listing for selection and navigation while isolating hosts and filters', async () => {
@@ -70,11 +70,11 @@ it('expires inactive directory results after a minute', async () => {
   queries.clear();
 });
 
-it('does not run queued reads after a client attaches to a different runtime', async () => {
+it('does not run queued reads after their client owner cancels observation', async () => {
   vi.useFakeTimers();
   const queries = new QueryClient(), cache = directoryCache(queries), f = fixture();
   cache.warm(f.client, { path: '/project' });
-  vi.spyOn(f.client, 'getSnapshot').mockReturnValue({ state: 'connected', info: { runtime_id: 'different' } } as never);
+  cache.cancel(f.client);
   await vi.advanceTimersByTimeAsync(110);
   expect(f.directories).not.toHaveBeenCalled();
   queries.clear();

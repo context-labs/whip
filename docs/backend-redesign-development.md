@@ -3996,3 +3996,11 @@ New-chat workspace descriptors now persist validated immutable agent references
 with copied/frozen revisions. Existing mutable-name drafts are preserved as an
 unresolved choice that requires explicit selection; they are never rebound to a
 current definition. All 78 session-tab tests pass (2.22 seconds).
+
+Native directory browsing retains keyboard selection, direct local picking,
+remote confirmation, bounded speculative reads/cache, scroll positions, paging
+and explicit truncation. Query ownership includes runtime, epoch and client;
+offline/client changes cancel queued work and discard stale picker responses.
+Recents use the native bounded activity-ordered roots API. All 20 directory
+interaction/cache tests pass (3.40 seconds), including actual validating SDK
+wire fixtures; affected source types are clean.

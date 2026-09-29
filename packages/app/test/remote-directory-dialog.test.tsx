@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client } from '@whip/sdk';
 import { RemoteDirectoryDialog, directoryCrumbs, recentDirectories } from '../src/remote-directory-dialog';
 import { directoryOptions } from '../src/directory-queries';
 
@@ -11,15 +11,15 @@ afterEach(() => vi.unstubAllGlobals());
 const result = (path: string, names: string[] = []) => ({ path, parent: path.slice(0, path.lastIndexOf('/')) || '/', entries: names.map(name => ({ name, path: `${path}/${name}` })), has_more: false, next_after: '' });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 function fixture() {
-  let snapshot = { state: 'connected', info: { runtime_id: 'kuzco' } };
-  const listeners = new Set<() => void>();
+  let online = true;
   const directories = vi.fn(async (params: { path?: string; limit?: number; prefix?: string; show_hidden?: boolean; after?: string }, _options?: { signal?: AbortSignal }) => result(params.path || '/home/sam', params.path === '/home/sam' ? ['alpha', 'beta', 'private'] : []));
-  const client = { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); }, getSnapshot: () => snapshot, host: { directories } } as unknown as WhipClient;
+  const client = { runtimeID: 'kuzco', processEpoch: 'boot', trees: { recent: async () => ({ items: [] }) }, call: (_method: string, params: never, options: never) => directories(params, options) } as unknown as Client;
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const onSelect = vi.fn(), onClose = vi.fn();
   const reconnect = vi.fn(async () => { setState('connected'); });
-  function setState(state: string) { act(() => { snapshot = { ...snapshot, state }; listeners.forEach(listener => listener()); }); }
-  const view = render(<ThemeProvider initialTheme="dark"><UIProvider><QueryClientProvider client={query}><RemoteDirectoryDialog client={client} host={{ name: 'Kuzco', detail: 'sam@kuzco', reconnect }} value="/home/sam" disabled={false} onSelect={onSelect} onClose={onClose} /></QueryClientProvider></UIProvider></ThemeProvider>);
+  function setState(state: string) { act(() => { online = state === 'connected'; view.rerender(tree()); }); }
+  const tree = () => <ThemeProvider initialTheme="dark"><UIProvider><QueryClientProvider client={query}><RemoteDirectoryDialog connected={online} client={client} host={{ name: 'Kuzco', detail: 'sam@kuzco', reconnect }} value="/home/sam" disabled={false} onSelect={onSelect} onClose={onClose} /></QueryClientProvider></UIProvider></ThemeProvider>;
+  const view = render(tree());
   return { client, directories, query, onSelect, onClose, reconnect, setState, view };
 }
 const choose = () => screen.getByRole('button', { name: 'Choose folder', exact: true }) as HTMLButtonElement;
@@ -81,7 +81,7 @@ it('uses host-side prefix, hidden and page filters and retains bounded listings 
   await waitFor(() => expect(f.directories).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'a', after: 'alpha' }), expect.anything()));
   await ready();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Hidden folders' }));
-  await waitFor(() => expect(f.directories).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'a', after: undefined, show_hidden: true }), expect.anything()));
+  await waitFor(() => expect(f.directories).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'a', after: '', show_hidden: true }), expect.anything()));
   await ready();
   fireEvent.change(filter, { target: { value: '/' } });
   await screen.findByText('Enter a folder name without slashes.'); expect(choose().disabled).toBe(true);
@@ -144,8 +144,8 @@ it('builds host paths independently of the browser OS and bounds recent folders'
   expect(directoryCrumbs('/home/sam')).toEqual([{ label: '/', path: '/' }, { label: 'home', path: '/home' }, { label: 'sam', path: '/home/sam' }]);
   expect(directoryCrumbs('C:\\Users\\sam').map(crumb => crumb.path)).toEqual(['C:\\', 'C:\\Users', 'C:\\Users\\sam']);
   expect(directoryCrumbs('\\\\server\\share\\project').map(crumb => crumb.path)).toEqual(['\\\\server\\share\\', '\\\\server\\share\\project']);
-  const items = Array.from({ length: 8 }, (_, i) => ({ cwd: `/project/${i}`, updated_at: `2026-09-${10 + i}` }));
-  expect(recentDirectories([...items, items[7], { cwd: 'relative', updated_at: '2027' }])).toEqual(['/project/7', '/project/6', '/project/5', '/project/4', '/project/3']);
+  const items = Array.from({ length: 8 }, (_, i) => ({ working_directory: `/project/${7 - i}` }));
+  expect(recentDirectories([...items, items[7], { working_directory: 'relative' }] as never)).toEqual(['/project/7', '/project/6', '/project/5', '/project/4', '/project/3']);
 });
 
 it('retains rows and breadcrumbs during a slow navigation and reuses Back without another read', async () => {
