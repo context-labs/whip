@@ -189,7 +189,7 @@ export class Client {
   /** Saved declarations only; never connects or resolves credentials. */
   computerStatus(options: CallOptions = {}): Promise<Operations['computer.status']['result']> { return this.call('computer.status', {}, options); }
   configureComputer(params: Operations['computer.configure']['params'], options: CallOptions = {}): Promise<Operations['computer.configure']['result']> { return this.call('computer.configure', params, options); }
-  reconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.reconnect']['result']> { return this.call('computer.reconnect', { generation }, options); }
+  reconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.reconnect']['result']> { return this.call('computer.reconnect', { generation }, { timeoutMs: 160_000, ...options }); }
   disconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.disconnect']['result']> { return this.call('computer.disconnect', { generation }, options); }
   mcpConfiguration(options: CallOptions = {}): Promise<Operations['mcp.configuration']['result']> { return this.call('mcp.configuration', {}, options); }
   /** Explicit CAS publication. Reread configuration after lost delivery; never automatically replay. */
@@ -343,7 +343,7 @@ export class Client {
   }
 
   pickHostDirectory(start = '', options: CallOptions = {}): Promise<Operations['host.directory.pick']['result']> {
-    return this.call('host.directory.pick', { start }, options);
+    return this.call('host.directory.pick', { start }, { timeoutMs: 130_000, ...options });
   }
 
   completeHostSkills(params: Operations['host.skills.complete']['params'], options: CallOptions = {}): Promise<Operations['host.skills.complete']['result']> {

@@ -20,7 +20,15 @@ export class DeliveryError extends Error {
   }
 }
 
-export type CallOptions = { signal?: AbortSignal };
+export type CallOptions = { signal?: AbortSignal; timeoutMs?: number };
+/** A local request bound; expiry never authorizes mutation replay. */
+export function callSignal(options: CallOptions, defaultMs = 15_000): AbortSignal {
+  const timeout = options.timeoutMs ?? defaultMs;
+  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 180_000) throw new RangeError('timeoutMs must be within 1..180000');
+  options.signal?.throwIfAborted();
+  const deadline = AbortSignal.timeout(timeout);
+  return options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+}
 export type Transport = (request: Request, expectedRuntimeID: string | undefined, options: CallOptions) => Promise<Response>;
 export type Method = keyof Operations;
 

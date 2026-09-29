@@ -1,3 +1,4 @@
+import { callSignal } from './wire.js';
 import { connect } from 'node:net';
 import { once } from 'node:events';
 import { assertValid } from '@whip/protocol';
@@ -114,7 +115,7 @@ export async function executorSocket(path: string, options: CallOptions = {}): P
       const bytes = Buffer.from(JSON.stringify(request) + '\n');
       if (bytes.length > maxFrameBytes || bytes.length > maxFrameBytes - socket.writableLength) return Promise.reject(new TypeError('Executor write exceeds bounds'));
       return new Promise<Response>((resolve, reject) => {
-        const signal = callOptions.signal ? AbortSignal.any([callOptions.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+        const signal = callSignal(callOptions);
         const abort = () => finish(signal.reason);
         signal.addEventListener('abort', abort, { once: true });
         requests.set(request.id, { resolve, reject, cleanup: () => signal.removeEventListener('abort', abort) });

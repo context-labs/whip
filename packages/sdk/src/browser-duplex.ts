@@ -1,3 +1,4 @@
+import { callSignal } from './wire.js';
 import { assertValid } from '@whip/protocol';
 import type { ExecutorEvent, Request, Response } from '@whip/protocol';
 import { maxFrameBytes, openBrowserConnection } from './browser-connection.js';
@@ -102,9 +103,9 @@ export async function browserDuplex(endpoint: string, options: BrowserOptions & 
         return Promise.reject(new TypeError('Executor connection requires initialization'));
       }
       if (requests.size >= maxRequests || requests.has(request.id)) return Promise.reject(new TypeError('Executor request capacity or identity conflict'));
+      const signal = callSignal(callOptions);
       if (initialize) initializing = true;
       return new Promise<Response>((resolve, reject) => {
-        const signal = callOptions.signal ? AbortSignal.any([callOptions.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
         const abort = () => finish(signal.reason);
         signal.addEventListener('abort', abort, { once: true });
         requests.set(request.id, { initialize, resolve, reject, cleanup: () => signal.removeEventListener('abort', abort) });
