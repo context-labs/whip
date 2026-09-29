@@ -6,7 +6,7 @@ import type { LocalRuntimeStatus } from '@whip/app/platform';
 import { access, chmod, copyFile, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { manifest as protocol } from '@whip/legacy-protocol';
+import { assertValid, manifest as protocol, type HostStatus } from '@whip/protocol';
 import { providerEnvironmentNames } from './provider-environment.ts';
 
 const exec = promisify(execFile);
@@ -22,7 +22,7 @@ export interface RuntimeManifest {
   compatibility: { protocolMajor: number; protocolMinor: number; schemaVersion: number };
   files: Record<'whipcode' | 'whip-computer', { bytes: number; sha256: string }>;
 }
-export interface DaemonStatus { state: 'running' | 'stopped' | 'unhealthy'; socket: string; error?: string; pid?: number; stale_socket?: boolean; client_build?: string; daemon_build?: string; build_match?: boolean }
+export interface DaemonStatus { state: 'running' | 'stopped' | 'unhealthy'; socket: string; directory: string; log: string; process: HostStatus | null; client_build: string; error?: string }
 
 export async function run(executable: string, args: string[], env: NodeJS.ProcessEnv, signal: AbortSignal, timeout = 15_000) {
   signal.throwIfAborted();
@@ -70,14 +70,21 @@ export async function verifyRuntime(directory: string, manifest: RuntimeManifest
 }
 
 export function parseDaemonStatus(stdout: string): DaemonStatus {
-  const value = JSON.parse(stdout) as DaemonStatus;
-  if (!['running', 'stopped', 'unhealthy'].includes(value.state) || typeof value.socket !== 'string' ||
-      !path.isAbsolute(value.socket) || Buffer.byteLength(value.socket) > 103 || /[\u0000-\u001f\u007f]/.test(value.socket) ||
-      (value.pid !== undefined && (!Number.isSafeInteger(value.pid) || value.pid <= 0)) ||
-      (value.stale_socket !== undefined && typeof value.stale_socket !== 'boolean') ||
-      (value.error !== undefined && (typeof value.error !== 'string' || value.error.length > 8192)))
-    throw new Error('Whip returned an invalid runtime status');
-  return value;
+  try {
+    const value = JSON.parse(stdout) as DaemonStatus;
+    const validPath = (name: unknown, limit: number): name is string => typeof name === 'string' &&
+      path.isAbsolute(name) && Buffer.byteLength(name) <= limit && !/[\u0000-\u001f\u007f]/.test(name);
+    if (!value || !['running', 'stopped', 'unhealthy'].includes(value.state) || !validPath(value.socket, 100) ||
+        !validPath(value.directory, 2048) || !validPath(value.log, 2048) ||
+        path.normalize(value.directory) !== value.directory || path.join(value.directory, 'runtime.sock') !== value.socket ||
+        path.join(value.directory, 'runtime.log') !== value.log ||
+        typeof value.client_build !== 'string' || value.client_build.length > 256 ||
+        (value.error !== undefined && (typeof value.error !== 'string' || value.error.length > 8192)))
+      throw new TypeError('invalid status');
+    if (value.state === 'running') assertValid('HostStatus', value.process);
+    else if (value.process !== null) throw new TypeError('unexpected process identity');
+    return value;
+  } catch { throw new Error('Whip returned an invalid runtime status'); }
 }
 
 const providerEndpointEnvironmentNames = ['OPENAI_BASE_URL', 'OPENAI_API_BASE'] as const;
@@ -155,7 +162,7 @@ export class LocalRuntime {
     env.WHIPCODE_HOME = absolutePath(env.WHIPCODE_HOME || path.join(env.HOME || homedir(), '.whipcode'));
     // Desktop needs only the private socket; ordinary startup opens no web listener.
     // Explicit managed-gateway settings still pass through unchanged.
-    delete env.WHIP_COMPUTER_BIN; // The installed distribution extracts its matching embedded helper.
+    delete env.WHIP_COMPUTER_BIN; // Native helper publication is explicit host configuration.
     return env;
   }
 
@@ -223,7 +230,7 @@ export class LocalRuntime {
     return info as typeof info & { buildId: string };
   }
 
-  private async probe(env: NodeJS.ProcessEnv, executable: string | undefined, signal: AbortSignal): Promise<LocalRuntimeStatus & { socket?: string; stale?: boolean }> {
+  private async probe(env: NodeJS.ProcessEnv, executable: string | undefined, signal: AbortSignal): Promise<LocalRuntimeStatus & { socket?: string }> {
     const base = { executable, home: env.WHIPCODE_HOME!, canInstall: false };
     if (!executable || !await stat(executable).then(() => true, error => {
       if (error.code === 'ENOENT') return false;
@@ -246,28 +253,35 @@ export class LocalRuntime {
         if (status.state !== 'running') return { ...base, state: status.state, clientBuild,
           message: `The selected daemon is ${status.state}. Attach mode never starts or repairs a daemon. Start it separately, or select another --home and --executable.` };
         // Check the service itself: the selected file may be newer than its live process.
-        const { createWhipClient, unixSocket } = await import('@whip/legacy-sdk/node');
-        const client = createWhipClient({ endpoint: unixSocket(status.socket), clientId: 'desktop-dev-attach-probe', reconnect: false });
+        const { Client } = await import('@whip/sdk');
+        const { unixSocket } = await import('@whip/sdk/node');
+        const bounded = AbortSignal.any([signal, AbortSignal.timeout(5000)]);
+        let initialized = false;
         try {
-          await client.connect({ signal });
-          const info = client.getSnapshot().info!;
-          // Minor versions add optional fields/capabilities. The SDK handshake
-          // validates the major and required wire shape; features negotiate normally.
-          return { ...base, state: 'running', clientBuild, daemonBuild: info.build_id, socket: status.socket,
-            message: `Attached to the existing daemon (${info.build_id}, protocol ${info.protocol_major}.${info.protocol_minor}). Backend updates are managed separately.` };
+          const selected = status.process!;
+          const client = await Client.connect(unixSocket(status.socket), {
+            clientID: 'desktop-dev-attach-probe', expectedRuntimeID: selected.runtime_id, signal: bounded,
+          });
+          initialized = true;
+          if (client.processEpoch !== selected.process_epoch) throw new Error('The runtime restarted during inspection');
+          const live = await client.hosts.status({ signal: bounded });
+          if (live.runtime_id !== selected.runtime_id || live.process_epoch !== selected.process_epoch ||
+              live.pid !== selected.pid || live.build !== selected.build)
+            throw new Error('The live runtime identity differs from the inspected process');
+          return { ...base, state: 'running', clientBuild, daemonBuild: live.build, socket: status.socket,
+            message: `Attached to the existing daemon (${live.build}, native protocol ${protocol.major}). Backend updates are managed separately.` };
         } catch (error) {
           signal.throwIfAborted();
-          return { ...base, state: (error as { kind?: string }).kind === 'unsupported_protocol' ? 'incompatible' : 'unhealthy', clientBuild,
-            message: `Cannot attach to the running daemon: ${(error as Error).message.slice(0, 2048)}. The daemon was left unchanged.` };
-        } finally { client.close(); }
+          return { ...base, state: !initialized && error instanceof TypeError ? 'incompatible' : 'unhealthy', clientBuild,
+            message: `Cannot attach using the native protocol: ${(error as Error).message.slice(0, 2048)}. The daemon was left unchanged.` };
+        }
       }
-      const daemonBuild = typeof status.daemon_build === 'string' ? status.daemon_build.slice(0, 128) : undefined;
+      const daemonBuild = status.process?.build;
       const message = status.state === 'running'
         ? `Connected to the local daemon.${daemonBuild !== clientBuild ? ' The running daemon uses a different build; an explicit restart will use the selected executable.' : ''}`
         : status.state === 'stopped' ? 'whipcode is installed. Connect This Mac to start its daemon.'
-          : status.stale_socket ? 'The previous daemon left a stale socket. Connect This Mac to recover it.'
-            : 'The local daemon is unhealthy or incompatible. Restart it explicitly, or inspect it with whipcode daemon status.';
-      return { ...base, state: status.state, clientBuild, daemonBuild, message, socket: status.socket, stale: status.stale_socket };
+          : 'The local daemon is unhealthy or incompatible. Inspect it with whipcode daemon status before retrying.';
+      return { ...base, state: status.state, clientBuild, daemonBuild, message, socket: status.socket };
     } catch {
       signal.throwIfAborted();
       return { ...base, state: 'unhealthy', clientBuild, message: 'The daemon status check failed or timed out after 5 seconds. Inspect whipcode daemon status, then retry.' };
@@ -276,7 +290,7 @@ export class LocalRuntime {
 
   async test(signal: AbortSignal): Promise<LocalRuntimeStatus> {
     const env = await this.environment(signal);
-    const { socket: _socket, stale: _stale, ...status } = await this.probe(env, await this.selected(env), signal);
+    const { socket: _socket, ...status } = await this.probe(env, await this.selected(env), signal);
     return status;
   }
 
@@ -353,7 +367,7 @@ export class LocalRuntime {
     const env = await this.environment(signal);
     const status = await this.probe(env, await this.selected(env), signal);
     if (status.state !== 'missing') {
-      const { socket: _socket, stale: _stale, ...result } = status;
+      const { socket: _socket, ...result } = status;
       return result;
     }
     return this.install(status.executable ?? path.join(env.HOME || homedir(), '.local/bin/whipcode'), signal);
@@ -414,7 +428,7 @@ export class LocalRuntime {
       ...(saved.managed.approvedVersion !== this.options.manifest.version ? { approvedVersion: saved.managed.approvedVersion } : {}) };
     if (actual === expected) {
       const status = await this.probe(env, saved.executable, signal);
-      if (status.state === 'stopped' || status.stale || (status.state === 'running' && status.daemonBuild === this.options.manifest.buildId)) {
+      if (status.state === 'stopped' || (status.state === 'running' && status.daemonBuild === this.options.manifest.buildId)) {
         await this.save(saved.executable, signal, completed);
         return status;
       }
@@ -453,7 +467,7 @@ export class LocalRuntime {
       const executable = verified?.executable ?? await this.selected(env);
       progress('Checking the installation and contacting the daemon…');
       const status = verified ?? await this.probe(env, executable, signal);
-      if (!executable || status.state === 'missing' || status.state === 'incompatible' || (status.state === 'unhealthy' && !status.stale))
+      if (!executable || status.state === 'missing' || status.state === 'incompatible' || status.state === 'unhealthy')
         throw new Error(status.message + (status.state === 'missing' ? '' : ' Open Settings → Servers for connection diagnostics.'));
       if (this.options.mode === 'attach' && status.state !== 'running') throw new Error(status.message);
       if (!verified && this.options.mode !== 'attach') await this.save(executable, signal);
@@ -478,7 +492,7 @@ export class LocalRuntime {
       await this.metadata(executable, env, signal);
       try { await run(executable, ['daemon', 'restart'], env, signal, 25_000); }
       catch (error) { signal.throwIfAborted(); throw new Error(startupFailure(error)); }
-      const { socket: _socket, stale: _stale, ...status } = await this.probe(env, executable, signal);
+      const { socket: _socket, ...status } = await this.probe(env, executable, signal);
       return status;
     });
   }
@@ -486,6 +500,7 @@ export class LocalRuntime {
 
 function startupFailure(error: unknown): string {
   const detail = String((error as { stderr?: string }).stderr || '');
+  if (/unverified native runtime|native runtime identity/i.test(detail)) return 'The native runtime identity could not be verified. No process was stopped. Inspect whipcode daemon status and daemon logs before retrying.';
   if (/address already in use/i.test(detail)) return 'whipcode could not start because its network port is already in use. Stop the conflicting listener or choose a different WHIPCODE_LISTEN, then retry.';
   if (/permission denied/i.test(detail)) return 'whipcode could not start because access was denied. Check executable and home-directory permissions, then retry.';
   return 'whipcode could not start or restart within the allowed time. Inspect whipcode daemon status and daemon logs for this home, then retry. No alternate backend was started.';

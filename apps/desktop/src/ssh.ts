@@ -230,8 +230,8 @@ export class SSHConnection {
       // The explicit remote home applies only to this connection’s canonical runtime.
       const program = `${target.remoteHome ? `WHIPCODE_HOME=${shellQuote(target.remoteHome)} ` : ''}${shellQuote(executable)}`;
       let status = parseDaemonStatus(await remote(`${program} daemon status --json`));
-      if (status.state === 'unhealthy' && !status.stale_socket) throw new Error(`The remote runtime needs attention: ${status.error ?? 'unhealthy daemon'}`);
-      if (status.state === 'stopped' || status.stale_socket) {
+      if (status.state === 'unhealthy') throw new Error(`The remote runtime needs attention: ${status.error ?? 'unhealthy daemon'}`);
+      if (status.state === 'stopped') {
         progress('Starting the installed remote Whip daemon…');
         let failure: unknown;
         try { await remote(`${program} daemon start`, 30_000); } catch (error) { failure = error; }

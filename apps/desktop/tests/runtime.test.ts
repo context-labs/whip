@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { LocalRuntime, fileDigest, parseDaemonStatus, readRuntimeManifest, run, verifyRuntime, type RuntimeManifest } from '../src/runtime';
+import { nativeRuntimeStatus } from './native-runtime-fixture';
 
 const signal = () => new AbortController().signal;
 const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -19,16 +20,17 @@ async function fixture(t: TestContext, options: { distribution?: string; initial
   const settingsFile = path.join(directory, 'desktop', 'native-local-runtime.json');
   const state = path.join(home, 'running');
   const log = path.join(directory, 'commands.log');
-  const socket = '/tmp/whip-fixture.sock';
+  const socket = '/tmp/whip-fixture/runtime.sock';
   const env = { HOME: directory, WHIPCODE_HOME: home, WHIPCODE_NETWORK: '0', PATH: '/usr/bin:/bin' };
-  const info = { distribution: options.distribution || 'whipcode', buildId: 'local-test', protocolMajor: 5, protocolMinor: 0, schemaVersion: 11 };
-  const running = { state: 'running', socket, pid: 123, client_build: 'local-test', daemon_build: 'local-test' };
+  const info = { distribution: options.distribution || 'whipcode', buildId: 'local-test', protocolMajor: 4, protocolMinor: 0, schemaVersion: 50 };
+  const running = nativeRuntimeStatus(socket);
   await mkdir(source);
   const script = `#!/bin/sh
 case "$1 $2" in
   '_desktop-runtime-info ') printf 'info:%s\\n' "$INFERENCE_API_KEY" >> ${quote(log)}; printf '%s\\n' '${JSON.stringify(info)}' ;;
   '_desktop-runtime-sync --executable')
     printf 'sync:%s\\n' "$*" >> ${quote(log)}
+    ${((options.initial as { state?: string })?.state === 'unhealthy') ? 'echo unverified native runtime >&2; exit 1' : ''}
     case " $* " in *' --interrupt '*) approved=1 ;; *) approved=0 ;; esac
     if { [ -f ${quote(state)} ] || [ ${quote(String((options.initial as { pid?: number } | undefined)?.pid ?? ''))} != '' ]; } && [ "$approved" = 0 ]; then
       printf '%s\\n' '${JSON.stringify({ state: 'approval-required', buildId: info.buildId, executable })}'
@@ -40,8 +42,9 @@ case "$1 $2" in
   'daemon status')
     printf 'status:%s\\n' "$0" >> ${quote(log)}
     if [ -f ${quote(state)} ]; then printf '%s\\n' '${JSON.stringify(running)}'
-    else printf '%s\\n' '${JSON.stringify({ state: 'stopped', socket, ...options.initial })}'; fi ;;
+    else printf '%s\\n' '${JSON.stringify({ ...nativeRuntimeStatus(socket, 'stopped'), ...options.initial })}'; fi ;;
   'daemon start'|'daemon restart')
+    ${((options.initial as { state?: string })?.state === 'unhealthy') ? 'echo unverified native runtime >&2; exit 1' : ''}
     while [ -f ${quote(path.join(directory, 'hold-start'))} ]; do sleep 0.02; done
     printf 'start:%s:%s:%s\\n' "$0" "$WHIPCODE_HOME" "$WHIPCODE_LISTEN" >> ${quote(log)}
     ${options.runningAfterStartError ? `mkdir -p ${quote(home)}; : > ${quote(state)}` : ''}
@@ -57,7 +60,7 @@ esac
   }
   const manifest: RuntimeManifest = { schema: 1, version: '1.2.3', buildId: info.buildId, distribution: 'whipcode', architecture: 'arm64', rendererDigest: 'a'.repeat(64),
     source: { commit: 'a'.repeat(40), dirty: false, lockfile: 'b'.repeat(64) },
-    compatibility: { protocolMajor: 5, protocolMinor: 0, schemaVersion: 11 }, files };
+    compatibility: { protocolMajor: 4, protocolMinor: 0, schemaVersion: 50 }, files };
   const opts = { source, manifest, settingsFile, env, defaultExecutable: executable };
   const runtime = new LocalRuntime(opts);
   return { directory, source, executable, home, settingsFile, state, log, socket, manifest, runtime, opts };
@@ -273,13 +276,13 @@ test('cancelled copies remove temporary files without creating an installation',
   assert.deepEqual(await readdir(path.dirname(f.executable)), []);
 });
 
-test('existing unhealthy owners require explicit restart; stale unowned sockets recover', async t => {
-  const f = await fixture(t, { initial: { state: 'unhealthy', pid: 123 } });
+test('unverified owners fail closed; stale unowned sockets are reported stopped and recover', async t => {
+  const f = await fixture(t, { initial: { state: 'unhealthy', error: 'owner unavailable' } });
   await f.runtime.install(f.executable, signal());
-  await assert.rejects(f.runtime.prepare(signal(), () => {}), /update deferred/);
+  await assert.rejects(f.runtime.prepare(signal(), () => {}), /unverified/);
   assert.doesNotMatch(await readFile(f.log, 'utf8'), /start:/);
-  assert.equal((await f.runtime.restart(signal())).state, 'running');
-  const stale = await fixture(t, { initial: { state: 'unhealthy', stale_socket: true } });
+  await assert.rejects(f.runtime.restart(signal()), /identity could not be verified/);
+  const stale = await fixture(t, { initial: { state: 'stopped' } });
   await stale.runtime.install(stale.executable, signal());
   assert.equal(await stale.runtime.prepare(signal(), () => {}), stale.socket);
 });
@@ -338,9 +341,14 @@ test('bounds subprocess output and stops timed out or cancelled children', async
   await assert.rejects(run(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], f.opts.env, signal(), 50), { killed: true });
 });
 
-test('validates daemon socket and process metadata before transport attachment', () => {
-  assert.equal(parseDaemonStatus(JSON.stringify({ state: 'stopped', socket: '/tmp/test.sock' })).state, 'stopped');
-  for (const value of [{ state: 'oops', socket: '/tmp/x' }, { state: 'running', socket: 'relative' }, { state: 'running', socket: '/tmp/x', pid: -1 }])
+test('validates native runtime paths and exact process projection before attachment', () => {
+  const valid = nativeRuntimeStatus('/tmp/fixture/runtime.sock');
+  assert.equal(parseDaemonStatus(JSON.stringify(valid)).process?.process_epoch, 'epoch-fixture');
+  assert.equal(parseDaemonStatus(JSON.stringify(nativeRuntimeStatus(valid.socket, 'stopped'))).process, null);
+  for (const value of [null, { ...valid, state: 'oops' }, { ...valid, socket: 'relative' },
+    { ...valid, process: { ...valid.process, pid: -1 } }, { ...valid, process: null },
+    { ...valid, state: 'stopped' }, { ...valid, directory: '/different' }, { ...valid, log: '/different/log' },
+    { ...valid, socket: '/tmp/contains\ncontrol' }, { state: 'running', socket: valid.socket, pid: 123 }])
     assert.throws(() => parseDaemonStatus(JSON.stringify(value)), /invalid runtime status/);
 });
 

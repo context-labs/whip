@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { access, chmod, lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { connect, createServer, type Server, type Socket } from 'node:net';
 import { userInfo } from 'node:os';
 import path from 'node:path';
@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test, { type TestContext } from 'node:test';
 import { validateProfile } from '@whip/app/platform';
 import { shellQuote, sshArguments, SSHConnection } from '../src/ssh';
+import { nativeRuntimeStatus } from './native-runtime-fixture';
 
 const exec = promisify(execFile);
 const helper = process.env.WHIP_DESKTOP_SSH_TEST_EXECUTABLE;
@@ -135,7 +136,9 @@ async function fixture(t: TestContext, options: {
   const log = path.join(directory, 'remote.log');
   const whipcodeHomeLog = path.join(directory, 'whipcode-home.log');
   const state = path.join(directory, 'running');
-  const remoteSocket = path.join(directory, options.fragmentedStatus ? 'café-文.sock' : 'remote.sock');
+  const nativeDirectory = path.join(directory, options.fragmentedStatus ? 'café-文' : 'remote');
+  await mkdir(nativeDirectory);
+  const remoteSocket = path.join(nativeDirectory, 'runtime.sock');
   const inheritedSocket = path.join(directory, 'unrelated.sock');
   const remoteExecutable = path.join(directory, "whip 'fixture'");
   const marker = path.join(directory, 'must-not-exist');
@@ -151,7 +154,7 @@ async function fixture(t: TestContext, options: {
   await writeFile(knownHosts, options.unknownHost ? '' : `[127.0.0.1]:${port} ${hostPublicKey}\n`, { mode: 0o600 });
   await writeFile(path.join(directory, 'dispatch'), '#!/bin/sh\nexec /bin/sh -c "$SSH_ORIGINAL_COMMAND"\n', { mode: 0o700 });
   if (!options.stopped) await writeFile(state, 'running');
-  const runningStatus = JSON.stringify({ state: 'running', socket: remoteSocket, pid: 123 });
+  const runningStatus = JSON.stringify(nativeRuntimeStatus(remoteSocket));
   const statusScript = path.join(directory, 'status.cjs');
   if (options.fragmentedStatus) await writeFile(statusScript, `
 const output = Buffer.from(${JSON.stringify(runningStatus + '\n')});
@@ -167,7 +170,7 @@ case "$1 $2" in
     if [ -f ${fixtureQuote(state)} ]; then
       ${options.fragmentedStatus ? `${fixtureQuote(process.execPath)} ${fixtureQuote(statusScript)}` : `printf '%s\\n' '${runningStatus}'`}
     else
-      printf '%s\\n' '${JSON.stringify({ state: 'stopped', socket: remoteSocket })}'
+      printf '%s\\n' '${JSON.stringify(nativeRuntimeStatus(remoteSocket, 'stopped'))}'
     fi ;;
   'daemon start') : > ${fixtureQuote(state)} ;;
   *) exit 2 ;;
