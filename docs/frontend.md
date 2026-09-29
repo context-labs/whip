@@ -172,6 +172,11 @@ URL attachment first uses `discoverGateway`, then `browserSocket` pinned to the
 observed runtime and process epoch. Native connection resolution supplies an SDK
 `FramedConnector`; `framedTransport` verifies the runtime and captured epoch on
 every new unary connection. One host wait controller scopes all client calls.
+Each SDK browser realm admits at most four connecting WebSockets and 128 queued
+opens. FIFO admission removes cancelled or expired waits before constructing a
+socket; open/error/cancellation releases its slot exactly once. Established
+persistent peers do not retain a handshake slot. This bounds browser connection
+throttling without replay, a second data cache, or a new runtime authority.
 A caller abort stops only that read or wait; detaching aborts the whole client's
 observation lifetime. Native preparation has a separate lifetime so a dropped
 call cannot dispose the connection needed for read-only recovery.

@@ -4428,3 +4428,87 @@ live evaluation does not claim account-managed product acceptance or actual live
 provider evidence. This package now belongs to the required active gates. Python
 benchmark observation and the frozen historical study adapters are a separate
 remaining disposition; historical results have not been rewritten.
+
+
+### Client parity checkpoint: connection admission and native TUI setup
+
+Native TUI adds captured model/theme/settings and provider/account menus, serialized
+private preference edits, owner/session navigation, and exact fork/rewind receipts.
+Provider setup covers explicit route declarations, masked private keys, fixed account
+approval URLs, status/discovery, and known recovery actions. First-run recommendations
+require exact current canonical catalog membership and explicit host-default
+confirmation; existing sessions are unchanged. Visible login polling belongs to the
+joined UI lifetime. The real loopback Inference fixture proves one key mint and
+read-only recovery after a lost begin acknowledgement. No real account was touched.
+Menu foundation leaves passed focused race checks (final 8.004s), vet and pinned lint.
+The default launch route and additional mounted command/layout behavior remain a
+separate in-progress leaf; menu objects alone are not complete TUI adoption.
+
+Browser connection establishment now admits four handshakes with 128 queued opens
+per SDK realm. Cancelled/expired waiters leave before WebSocket construction, slots
+release once, and established subscriptions do not monopolize the handshake pool.
+The measured cause was Chromium connection throttling during concurrent metadata
+reads, not a virtualizer timer. SDK 187 tests, build and the actual test TypeScript
+configuration passed. A mistaken invocation of a nonexistent test-types npm script
+failed after the tests; the explicit test project typecheck then passed.
+Both browsers also passed all 13 session-tab workflows, including runtime restart
+and lost acknowledgements. With the full staged web workload, measured root-switch
+median/p95 fell from 5108/5381ms to 653/686ms; 181 preview samples were 7.6/11.1ms.
+Forty queued inputs still took 1496/1874ms; polling and memory remain open work.
+Performance traffic uses bounded per-method counters instead of retaining bodies.
+Desktop summary polls use exact root-set classification; indistinguishable tab and
+sidebar sets retain a combined 4–8 bound instead of fabricated owner attribution.
+
+The desktop file-path remeasurement exposed automation overhead in the earlier
+upload probe: constructing browser files from injected buffers caused a 404ms task.
+With identical owned files (three uploads, 9,437,346 bytes), automation typing p95
+was 177ms instead of 964ms. Native keyboard EventTiming still reached 144ms (browser
+rounding ±4ms), and peak sampled RSS remained 1,689,424KiB. These are separate
+measurements; neither the earlier automation delay nor this improvement closes
+native responsiveness or memory acceptance. All full-byte/digest/size refusal,
+scoped download, bounded observations and retained history assertions remain.
+
+Hosted run 36547856726 at renderer head d9f5b854e failed three required jobs:
+Firefox session-tab recovery after restart; desktop first hidden-page screenshot;
+and macOS runtime import-boundary inspection (`go list` exited 1). All other jobs
+passed. That head remains failed, not green. The architecture check now captures
+stderr while retaining the same boundaries; the local check passed 0.583s, but the
+hosted subprocess cause is unproven. The desktop fixture now waits for its actual
+initial document navigation and includes safe failure diagnostics. The complete
+native Electron production-browser probe passed locally, including screenshot,
+control cancellation/uncertainty, IPC security, guest lifetime and native daemon
+discovery. Its first local attempt had stale packaged renderer provenance; rebuilding
+the exact renderer restored the prerequisite. No production deadline was extended,
+mutation retried, or assertion removed. A hosted rerun remains required.
+
+Final native eval narrow lint at the final cost-source label passed with zero new
+issues using Go 1.27 and the frozen baseline. All work is in disposable checkouts;
+the original development checkout, installed runtime and real data are untouched.
+
+
+### Default native terminal route and integrated web gate
+
+The default interactive command now calls `RunNative` through the public native
+client. It creates a genuine root or resumes a canonical owner, preserves immutable
+engine/definition identity and applies explicit model/mode edits through revision
+checks. Setup/model/theme/settings menus are mounted; continued observations remain
+live while a menu is open. First-run input stays a draft until configuration is
+ready and never becomes a fabricated bootstrap session. Closing a menu joins its
+work before navigation. Mouse/thinking preferences apply from the fresh client-v4
+namespace. The CLI main path no longer imports retired config or agent definitions.
+
+The actual PTY command test passed (3.760s), including resume, engine, definition,
+initial prompt dispatch and clean observation detach. A two-turn Bubble Tea/native
+socket test passed three repeats (6.244s), proving current host instructions and
+environment reach the provider without client-composed prompts. Full leaf TUI races
+passed (62.526s); runclient/client races passed (21.342/9.716s); focused CLI, vet and
+pinned lint passed. Before this final route leaf, integrated TUI/eval races passed
+54.807/10.763s and vet passed. Sidebar/REPL/paste presentation, child controls,
+remaining retained commands, durable uncertain-input restart records, and richer
+fork/rewind selection and attachment redrafting are still open.
+
+The complete integrated product-web gate passed: 1,343 tests in 111 files, 38 UI
+tests, all support/proxy checks, theme drift and app types. Renderer artifact was
+`a00030b4ee8df51e1f213a133bda8353be18765c68bcb95db4651a98a136a34c`.
+Native file-path performance harness syntax and all three scope-classifier tests
+also passed. This draft is a tested increment, not completion of Phases 5–7.
