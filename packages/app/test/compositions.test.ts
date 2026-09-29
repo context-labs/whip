@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Session } from '@whip/legacy-sdk';
+import type { Session } from '@whip/sdk';
 import { CompositionStore, compositionKey } from '../src/compositions';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -33,18 +33,17 @@ function fixture() {
     state: 'connected',
     info: { runtime_id: 'host', generation: '1' },
   };
-  const uploaded = (id = 'content') => ({
-    asAttachment: (kind: string, name: string) => ({ kind, name, ref: id }),
+  const uploaded = (id = 'content', owner = 'child', media = 'image/png') => ({
+    id, session_id: owner, media_type: media, size: '5', digest: '0'.repeat(64), created_at: new Date().toISOString(),
   });
-  const upload = vi.fn(async (_bytes: Uint8Array, _options: unknown) =>
-    uploaded(),
-  );
-  const session = {
-    rootId: 'root',
-    client: { getSnapshot: () => state, upload },
-  } as unknown as Session;
+  const upload = vi.fn(async (_bytes: Uint8Array, options: { agentId: string; mediaType: string; referenceId: string; signal?: AbortSignal }) => uploaded(options.referenceId, options.agentId, options.mediaType));
+  const client = {
+    get runtimeID() { return state.info.runtime_id; },
+    session: (owner: string) => ({ content: { upload: (id: string, media: string, bytes: Uint8Array, options: { signal?: AbortSignal }) => upload(bytes, { agentId: owner, mediaType: media, referenceId: id, signal: options.signal }) } }),
+  };
+  const session = { id: 'root', client } as unknown as Session;
   return {
-    store: new CompositionStore(),
+    store: new CompositionStore(() => state.state === 'connected'),
     session,
     upload,
     uploaded,
@@ -70,9 +69,9 @@ describe('transient compositions', () => {
     await f.store.adopt('new:one:prompt', f.session, 'host');
     const uploaded = f.store.get('host:root:root').attachments;
     expect(uploaded.map(item => item.id)).toEqual(staged.map(item => item.id));
-    expect(uploaded[0]).toMatchObject({ previewUrl: staged[0]!.previewUrl, staged: false, value: { kind: 'image' } });
+    expect(uploaded[0]).toMatchObject({ previewUrl: staged[0]!.previewUrl, staged: false, value: { media_type: 'image/png' } });
     expect(f.store.get('new:one:prompt').attachments).toHaveLength(0);
-    expect(f.upload).toHaveBeenLastCalledWith(expect.any(Uint8Array), expect.objectContaining({ rootId: 'root', agentId: 'root' }));
+    expect(f.upload).toHaveBeenLastCalledWith(expect.any(Uint8Array), expect.objectContaining({ agentId: 'root' }));
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
     f.store.dispose();
     expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(staged[0]!.previewUrl);
@@ -106,7 +105,7 @@ describe('transient compositions', () => {
     unsubscribe();
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
     transfer.resolve(f.uploaded()); await pending;
-    expect(f.store.get(f.key).attachments[0]).toMatchObject({ previewUrl: 'blob:preview-1', value: { kind: 'image' } });
+    expect(f.store.get(f.key).attachments[0]).toMatchObject({ previewUrl: 'blob:preview-1', value: { media_type: 'image/png' } });
     expect(image.arrayBuffer).toHaveBeenCalledOnce();
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
     f.store.dispose();
@@ -144,7 +143,7 @@ describe('transient compositions', () => {
     await f.store.add(f.key, f.session, 'host', 'child', [file('shot.png')]);
     const [failed] = f.store.get(f.key).attachments;
     expect(failed).toMatchObject({ previewUrl: 'blob:preview-1', error: 'Offline' });
-    await f.store.add('host:other:child', { ...f.session, rootId: 'other' } as Session, 'host', 'child', [file('shot.png')]);
+    await f.store.add('host:other:child', { ...f.session, id: 'other' } as Session, 'host', 'child', [file('shot.png')]);
     await f.store.add(f.key, f.session, 'host', 'child', [file('shot.png')]);
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
     f.store.clear(f.key, [failed!.id]);
@@ -163,7 +162,7 @@ describe('transient compositions', () => {
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     vi.mocked(URL.createObjectURL).mockImplementationOnce(() => { throw new Error('No preview'); });
     await f.store.add(f.key, f.session, 'host', 'child', [file('shot.png')]);
-    expect(f.store.get(f.key).attachments[0]).toMatchObject({ value: { kind: 'image' } });
+    expect(f.store.get(f.key).attachments[0]).toMatchObject({ value: { media_type: 'image/png' } });
     expect(f.store.get(f.key).attachments[0]?.previewUrl).toBeUndefined();
     f.store.dispose();
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
@@ -176,10 +175,10 @@ describe('transient compositions', () => {
     expect(compositionKey('host', 'root', 'child')).toBe(f.key);
     await f.store.add(f.key, f.session, 'host', 'child', [file('normal.txt')]);
     await f.store.add(key, f.session, 'host', 'child', [file('context.txt', '改变'), file('viewport.png')], surface);
-    expect(f.store.get(key).attachments.map(item => item.value?.kind)).toEqual(['text', 'image']);
+    expect(f.store.get(key).attachments.map(item => item.value?.media_type)).toEqual(['text/plain', 'image/png']);
     expect(f.store.get(f.key).attachments.map(item => item.name)).toEqual(['normal.txt']);
     expect(Array.from(f.upload.mock.calls[1]![0])).toEqual(Array.from(new TextEncoder().encode('改变')));
-    expect(f.upload.mock.calls[1]![1]).toMatchObject({ rootId: 'root', agentId: 'child', mediaType: 'text/plain' });
+    expect(f.upload.mock.calls[1]![1]).toMatchObject({ agentId: 'child', mediaType: 'text/plain' });
     expect(f.store.hasAttachments('host', 'root')).toBe(true);
     f.store.clear(key);
     expect(f.store.get(f.key).attachments).toHaveLength(1);
@@ -209,7 +208,7 @@ describe('transient compositions', () => {
     const surface = 'design:tab';
     const key = compositionKey('host', 'root', 'child', surface);
     const otherKey = compositionKey('host', 'other', 'child', surface);
-    await f.store.add(otherKey, { ...f.session, rootId: 'other' } as Session, 'host', 'child', [file()], surface);
+    await f.store.add(otherKey, { ...f.session, id: 'other' } as Session, 'host', 'child', [file()], surface);
     const transfer = deferred<ReturnType<typeof f.uploaded>>();
     f.upload.mockImplementationOnce(() => transfer.promise);
     const pending = f.store.add(key, f.session, 'host', 'child', [file()], surface);
@@ -243,7 +242,7 @@ describe('transient compositions', () => {
 
   it('deleting one root cancels all recipient uploads and submission locks without clearing another root', async () => {
     const f = fixture();
-    const other = { ...f.session, rootId: 'other' } as Session;
+    const other = { ...f.session, id: 'other' } as Session;
     await f.store.add('host:other:child', other, 'host', 'child', [file('keep.txt')]);
     const transfer = deferred<ReturnType<typeof f.uploaded>>();
     f.upload.mockImplementationOnce(() => transfer.promise);
@@ -281,19 +280,17 @@ describe('transient compositions', () => {
     await vi.waitFor(() => expect(f.upload).toHaveBeenCalledTimes(1));
     expect(second.arrayBuffer).not.toHaveBeenCalled();
     expect(f.upload.mock.calls[0]![1]).toMatchObject({
-      rootId: 'root',
       agentId: 'child',
       mediaType: 'text/plain',
     });
     transfer.resolve(f.uploaded());
     await Promise.all([a, b]);
     expect(f.upload.mock.calls[1]![1]).toMatchObject({
-      rootId: 'root',
       agentId: 'root',
     });
     expect(f.store.get(f.key).attachments[0]).toMatchObject({
       name: 'note.txt',
-      value: { ref: 'content', kind: 'text' },
+      value: { id: 'content', session_id: 'child' },
     });
     const stable = f.store.get(f.key);
     expect(f.store.get(f.key)).toBe(stable);
