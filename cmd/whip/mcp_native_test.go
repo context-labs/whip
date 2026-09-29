@@ -252,6 +252,11 @@ func TestMCPInputFramesBoundedBeforeDecode(t *testing.T) {
 // Fault the acknowledgement only after the real private host has committed it.
 func mcpFaultProxy(t *testing.T, target string, accepted bool) (string, *atomic.Int32) {
 	t.Helper()
+	return nativeControlFaultProxy(t, target, "tool.call", accepted)
+}
+
+func nativeControlFaultProxy(t *testing.T, target, method string, accepted bool) (string, *atomic.Int32) {
+	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "whip-mcp-proxy-") //nolint:usetesting // macOS socket bound.
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +298,7 @@ func mcpFaultProxy(t *testing.T, target string, accepted bool) (string, *atomic.
 					if json.Unmarshal(incoming.Bytes(), &request) != nil {
 						return
 					}
-					drop := request.Method == "tool.call" && sends.Add(1) == 1
+					drop := request.Method == method && sends.Add(1) == 1
 					if drop && !accepted {
 						return
 					}

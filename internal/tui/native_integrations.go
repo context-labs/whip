@@ -40,6 +40,9 @@ func (m *nativeModel) lspCommand(args string) tea.Cmd {
 
 func (m *nativeModel) browserCommand(args string) tea.Cmd {
 	fields := strings.Fields(args)
+	if len(fields) > 0 && fields[0] == "external" {
+		return m.externalBrowserCommand(strings.TrimSpace(strings.TrimPrefix(args, "external")))
+	}
 	if args == "tabs" {
 		owner := m.owner.ID
 		return m.control("Browser tabs", false, func(ctx context.Context) nativeControlResult {
@@ -80,7 +83,11 @@ func (m *nativeModel) browserCommand(args string) tea.Cmd {
 		fields = fields[1:]
 	}
 	if len(fields) != 1 || fields[0] != "rod" && fields[0] != "chromedp" {
-		m.status = "usage: /browser [status|tabs|driver rod|driver chromedp]"
+		m.status = "usage: /browser [status|tabs|driver rod|driver chromedp|external status|external list]"
+		return nil
+	}
+	if m.owner.ParentID != nil {
+		m.status = "Browser controls are read-only from a child. Select the root before changing host configuration."
 		return nil
 	}
 	if !m.nativeAdmissionAvailable() {

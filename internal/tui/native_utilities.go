@@ -33,6 +33,7 @@ Goals: /goal [text|status|resume|clear] · /goal-from-context [2..100]
 Schedules: /schedule list [cursor] · /schedule @every <duration> <text> · /schedule @at <RFC3339 time> <text> · /schedule cancel <ID>
 Instructions: /me · /memory · /permissions
 Integrations: /lsp · /mcp · /browser · /computer · /pwd · /cd <path>
+External Chrome: /browser external status|list; root-only configure and exact-generation reconnect/disconnect (see status for full help).
 Agents: /agents [list|open <ID>|stop <ID>|delete <child ID>|revoke <grant ID>]
 Display: /sidebar · /panel agents|context|lsp · /dock · /repl [older|latest|turn <ID>|focus] · /tools expand|collapse · /reasoning on|off · /report
 Exit: /quit (accepted host work continues)

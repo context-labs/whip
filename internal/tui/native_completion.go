@@ -28,7 +28,7 @@ var nativeCommandChoices = []nativeCommandChoice{
 	{"/mouse", "Toggle local mouse capture", true},
 	{"/agents", "Inspect the current agent tree", true},
 	{"/attach", "Attach a client-local image", false},
-	{"/browser", "Inspect browser status", true},
+	{"/browser", "Inspect offered tabs or external Chrome status and controls", true},
 	{"/cd", "Change the host working directory", false},
 	{"/check", "Read the original uncertain receipt", true},
 	{"/clear", "Clear a stopped owner's history and REPL", false},

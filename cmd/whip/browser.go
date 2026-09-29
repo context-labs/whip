@@ -21,9 +21,11 @@ import (
 // published only by an approved native browser operation, never by installation.
 func browserCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: whipcode browser <install>")
+		return errors.New(nativeBrowserUsage)
 	}
 	switch args[0] {
+	case "status", "configure", "list", "reconnect", "disconnect":
+		return nativeBrowserCLI(args, os.Stdout)
 	case "install":
 		flags := flag.NewFlagSet("browser install", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -40,7 +42,7 @@ func browserCLI(args []string) error {
 
 		return browserInstall(*directory)
 	default:
-		return fmt.Errorf("unknown whipcode browser subcommand %q (want: install)", args[0])
+		return fmt.Errorf("unknown whipcode browser subcommand %q (want: install, status, configure, list, reconnect, disconnect)", args[0])
 	}
 }
 
