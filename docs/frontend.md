@@ -428,6 +428,13 @@ Desktop offered tabs keep their separate native owner. See
 ## Conversation and navigation patterns
 
 Conversation consumes canonical message parts and whole provisional preview values.
+The backend additionally retains optional versioned ordered presentation on
+canonical messages and failed-attempt evidence on bounded history/observation
+pages. It is display-only: exact UTF-8 text ranges, streamed reasoning and tool
+slots scoped by the owning session and source attempt. Imported source identities
+never grant local execution authority. Old messages may lack this metadata;
+canonical prose/calls remain authoritative, including when presentation truncates.
+SDK/app consumption is tracked in the [restoration record](frontend-ux-restoration-progress.md).
 Calls, results, cells and operations join by exact session/turn/message/call IDs;
 imported groups with no local turn do not invent local execution. Local authored
 previews retire only on exact admitted input identity. Mail and Design context

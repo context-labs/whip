@@ -6081,3 +6081,15 @@ in details. Native child delegation remains distinct from root-only approval.
 Seven new product assertions reproduced the regressions; 55 focused tests and
 app TypeScript pass. See the [restoration record](frontend-ux-restoration-progress.md)
 for remaining comparative gates and the explicit Remember-scope exception.
+
+
+## 2026-09-29 — retain durable ordered display presentation
+
+Schema57 adds bounded immutable assistant display metadata and imported failed
+attempt evidence. Reasoning stays separate from model-facing parts and private
+continuation; one accumulator preserves stream slots through settlement. Store,
+runner, runtime and protocol tests cover settlement, retries, restart, history,
+fork/rewind/compaction and migration rollback. A physical backup fixture verifies
+matching-binary restore after the additive migration. See the
+[implementation record](frontend-ux-restoration-progress.md); SDK projection and
+comparative UI handover are still in progress. No real runtime is migrated.
