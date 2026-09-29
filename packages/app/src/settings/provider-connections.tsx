@@ -21,6 +21,7 @@ type ProviderPreset = ProviderPresetsResult['items'][number];
 type ProviderRoute = ProviderInventory['routes'][number];
 type ProviderCredentialInput = NonNullable<ChangeProviderParams['declaration']['credential']>;
 export interface ProviderEntry { id: string; name: string; preset?: ProviderPreset; route?: ProviderRoute }
+const keySetupEndpoints: Record<string, string> = { 'inference-net': 'https://api.inference.net/v1', openrouter: 'https://openrouter.ai/api/v1' };
 export function sourceLabel(entry: ProviderEntry) {
   const source = entry.route?.credential.source;
   return source ? ({ env: 'Environment', file: 'Key file', command: 'Command', none: 'No authentication', 'inference-net': 'Inference.net account', 'openai-codex': 'ChatGPT subscription' })[source] : '';
@@ -61,7 +62,7 @@ export function ProviderConnectionRow({ entry, enabled, connect, onSelect, setup
   const action = connect ? 'Connect' : setup ? 'Use' : 'Manage';
   return <div {...stylex.props(styles.row, setup && styles.setupRow)}>
     <div {...stylex.props(styles.identity, setup && styles.setupIdentity)}><span {...stylex.props(styles.logoSlot)}><ProviderLogo id={entry.id} size={20} /></span>
-      <div {...stylex.props(styles.details)}><div {...stylex.props(styles.nameLine)}><strong {...stylex.props(styles.name)}>{entry.name}</strong>{sourceLabel(entry) && <Badge>{sourceLabel(entry)}</Badge>}{!entry.preset && <Badge>Custom</Badge>}</div>
+      <div {...stylex.props(styles.details)}><div {...stylex.props(styles.nameLine)}><strong {...stylex.props(styles.name)}>{entry.name}</strong>{setup && entry.id === 'inference-net' && entry.preset?.base_url === keySetupEndpoints[entry.id] && (!entry.route || entry.route.base_url === entry.preset.base_url && entry.route.kind === entry.preset.kind) && <Badge>Recommended</Badge>}{sourceLabel(entry) && <Badge>{sourceLabel(entry)}</Badge>}{!entry.preset && <Badge>Custom</Badge>}</div>
         <span {...stylex.props(styles.description)}>{stateLabel(entry)}{setup && hostName ? ` · ${hostName}` : ''}</span></div></div>
     <Button data-provider-choice={setup || undefined} variant={connect ? 'secondary' : 'ghost'} disabled={!enabled} aria-label={`${action} ${entry.name}`} onClick={onSelect}>{connect && <Plus size={15} />}{action}</Button>
   </div>;
@@ -73,7 +74,7 @@ export function ProviderConnectionList({ entries, enabled, hostName, onSelect, t
   useEffect(() => () => onExpandedChange?.(false), [onExpandedChange]);
   const common = entries.filter(entry => ['inference-net', 'openrouter', 'openai', 'openai-codex'].includes(entry.id) || entry.route);
   const visible = showAll ? entries : common.length ? common : entries.slice(0, 4);
-  return <>{!!visible.length && <SettingsGroup title={title} action={refresh} panelXstyle={styles.choicePanel}>{visible.map(entry => <ProviderConnectionRow key={entry.id} setup={setup} entry={entry} hostName={hostName} enabled={enabled} connect={!entry.route} onSelect={() => onSelect(entry)} />)}</SettingsGroup>}
+  return <>{!!visible.length && <SettingsGroup title={title} action={refresh} panelXstyle={styles.choicePanel}>{visible.map(entry => <ProviderConnectionRow key={entry.id} setup={setup} entry={entry} hostName={hostName} enabled={enabled} connect={setup ? !locallyAvailable(entry) : !entry.route} onSelect={() => onSelect(entry)} />)}</SettingsGroup>}
     <div {...stylex.props(styles.choiceActions)}>{actions}<Button variant="ghost" aria-expanded={showAll} onClick={() => { onExpandedChange?.(!showAll); setShowAll(!showAll); }}>{showAll ? 'Show fewer providers' : 'Show all providers'}{showAll ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</Button>{!title && showAll && refresh}</div></>;
 }
 export function ProviderConnections({ client, enabled }: { client: Client; enabled: boolean }) {
@@ -153,6 +154,8 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
     const next: AccountFlow = existing ?? (entry.id === 'inference-net' ? { provider: 'inference-net', value: await client.beginInferenceLogin({ signal }) } : { provider: 'openai-codex', value: await client.beginOpenAILogin({ signal }) });
     if (!signal.aborted) { setAutoOpen(true); await updateFlow(next); }
   });
+  const keyProvider = id === 'openrouter' || id === 'inference-net' ? id : null;
+  const validatedSetup = !!keyProvider && keySetupEndpoints[id] === url && kind === 'openai-chat' && (source === 'key' || source === 'env' && environment === entry.preset?.environments[0]);
   const save = () => void action(async signal => {
     if (revision !== base.revision) throw new Error('Review the changed host revision before saving these edits');
     let credential: ProviderCredentialInput | null = null;
@@ -166,10 +169,10 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
       credential = { source: source as ProviderCredentialInput['source'], environment: source === 'env' ? environment : '', file: source === 'file' ? file : '', command: source === 'command' ? JSON.parse(command) : null };
     }
     const params: ChangeProviderParams = { revision: base.revision, provider: id, declaration: { kind, base_url: url, credential, models: base.route?.models ?? {} }, keep_credential: source === 'keep', key: keyInput };
-    const result = entry.route ? await client.updateProvider(params, { signal }) : await client.createProvider(params, { signal });
+    const result = validatedSetup && keyProvider ? await client.setupProviderKey({ revision: base.revision, provider: keyProvider, key: keyInput, environment: source === 'env' }, { signal }) : entry.route ? await client.updateProvider(params, { signal }) : await client.createProvider(params, { signal });
     if (signal.aborted) return;
     setBase({ revision: result.revision, route: result.routes.find(route => route.id === id) }); runtime.queries.setQueryData(['provider-list', client.runtimeID], result); setKey(''); publication.current = null;
-    await changed('Provider saved. Your default model is unchanged.', signal);
+    await changed(validatedSetup ? 'Credentials checked by model discovery. Inference has not been tested. Your default model is unchanged.' : 'Provider saved. Your default model is unchanged.', signal);
   });
   const leave = () => { if (key || source === 'command') setDiscard(true); else close(); };
   return <Dialog open xstyle={loginStyles.dialog} bodyXstyle={loginStyles.body} title={<span {...stylex.props(styles.nameLine)}><ProviderLogo id={entry.id} />{entry.name}</span>} description={`Connection on ${hostName}`} onOpenChange={open => { if (!open) leave(); }}>
@@ -199,7 +202,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
         {source === 'command' && <Field label="Credential command JSON" description="Explicit executable, argument list, and environment variable names. Opening Settings does not run it."><Textarea value={command} disabled={!enabled || busy} onChange={event => setCommand(event.target.value)} /></Field>}
         {source === 'keep' && <p>{entry.route?.credential.environment || entry.route?.credential.file || sourceLabel(entry)}</p>}
         {base.revision !== revision && <p role="status">Host settings changed. Your edits are preserved. <Button disabled={busy} onClick={() => setBase({ revision, route: entry.route })}>Review current revision and keep these edits</Button></p>}
-        <Button type="submit" variant="primary" disabled={!enabled || busy || base.revision !== revision || source === 'account' || !id || !url}>Save provider</Button>
+        <Button type="submit" variant="primary" disabled={!enabled || busy || base.revision !== revision || source === 'account' || !id || !url}>{validatedSetup ? 'Connect' : 'Save provider'}</Button>
       </form>}
       {entry.route && <Button disabled={!enabled || busy} onClick={() => void action(async signal => { const result = await client.refreshProviderCatalog(entry.id, { signal }); await refresh(); if (result.failure) throw new Error(result.failure); if (!signal.aborted) setNotice(`Catalog: ${result.discovery}. Inference has not been tested.`); })}>Refresh model catalog</Button>}
       {entry.route && <Button disabled={!enabled || busy} onClick={() => setRemove(true)}>Remove configured route</Button>}

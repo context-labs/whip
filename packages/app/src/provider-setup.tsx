@@ -32,7 +32,7 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady,
   const catalog = useProviderCatalog(client, enabled && !!candidate, candidate?.id);
   function choose(entry: ProviderEntry) {
     setError(''); setPair(undefined);
-    if (!!entry.route) setSelected(entry.id);
+    if (locallyAvailable(entry)) setSelected(entry.id);
     else setConnecting(entry.id);
   }
   async function useModel() {
@@ -49,7 +49,7 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady,
   }
   const pending = entries.filter(entry => !available.includes(entry));
   const rows = (values: ProviderEntry[]) => values.map(entry => <ProviderConnectionRow key={entry.id} setup entry={entry} hostName={hostName}
-    enabled={enabled && !busy} connect={!(!!entry.route)} onSelect={() => choose(entry)} />);
+    enabled={enabled && !busy} connect={!locallyAvailable(entry)} onSelect={() => choose(entry)} />);
   const refreshButton = <Button variant="ghost" disabled={!enabled || inventory.isFetching} onClick={() => void refresh()}>Refresh</Button>;
   return <section aria-label="Provider setup" {...stylex.props(styles.panel)}>
     {inventory.isPending && <p role="status">Checking providers on {hostName}…</p>}

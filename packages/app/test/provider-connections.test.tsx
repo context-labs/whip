@@ -111,3 +111,37 @@ it('route removal is explicit, preserves credential ownership, and does not disc
   fireEvent.click(within(dialog).getByRole('button', { name: 'Remove route' })); await screen.findByText('Provider route removed. Credential files are unchanged.');
   expect(f.calls.find(call => call.method === 'providers.remove')?.params).toEqual({ revision, provider: 'openrouter', replacement: null }); expect(f.count('accounts.inference.logout')).toBe(0);
 });
+
+it('validates canonical key discovery before publication and keeps rejected keys for explicit retry', async () => {
+  const f = await providerFixture(); f.data.inventory.routes = []; f.data.inventory.defaults = null;
+  f.data.presets.items = [{ ...preset(), base_url: 'https://openrouter.ai/api/v1' }];
+  f.data.handlers['providers.setup_key'] = () => { throw new DeliveryError('Credential discovery rejected'); };
+  f.mount(<ProvidersSettings client={f.client} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
+  const dialog = await screen.findByRole('dialog', { name: 'OpenRouter' });
+  fireEvent.change(within(dialog).getByLabelText('API key'), { target: { value: 'private-key' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Connect', exact: true }));
+  await screen.findByText('Credential discovery rejected');
+  expect(f.count('providers.setup_key')).toBe(1); expect(f.count('providers.create')).toBe(0);
+  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('private-key');
+  expect(f.data.inventory.routes).toEqual([]); expect(f.data.inventory.defaults).toBeNull();
+  f.data.handlers['providers.setup_key'] = () => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [{ ...route(), base_url: 'https://openrouter.ai/api/v1' }] }; return f.data.inventory; };
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Connect', exact: true }));
+  await screen.findByText('Credentials checked by model discovery. Inference has not been tested. Your default model is unchanged.');
+  const requests = f.calls.filter(call => call.method === 'providers.setup_key');
+  expect(requests).toHaveLength(2); expect(requests[0]!.params).toEqual(requests[1]!.params);
+  expect(requests[0]!.params).toMatchObject({ revision, provider: 'openrouter', key: { id: expect.any(String), key: 'private-key' }, environment: false });
+  expect(f.count('providers.defaults')).toBe(0);
+  expect(JSON.stringify(f.queries.getQueryCache().getAll().map(query => query.state.data))).not.toContain('private-key');
+});
+it('offers Connect for configured missing credentials and limits the recommendation to the canonical preset', async () => {
+  const f = await providerFixture(); f.data.inventory.defaults = null;
+  f.data.inventory.routes = [{ ...route(), credential: { ...route().credential, state: 'missing' } }];
+  f.data.presets.items = [preset(), { ...preset('inference-net'), base_url: 'https://api.inference.net/v1' }];
+  function Setup() { const connections = useProviderConnections(f.client, true); return <ProviderSetup client={f.client} enabled hostName="Remote" connections={connections} onReady={() => {}} />; }
+  f.mount(<Setup />);
+  expect(await screen.findAllByText('Recommended', { exact: true })).toHaveLength(1);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
+  expect(await screen.findByRole('dialog', { name: 'OpenRouter' })).toBeTruthy();
+  expect(f.count('providers.defaults')).toBe(0);
+});
