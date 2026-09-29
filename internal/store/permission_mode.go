@@ -49,13 +49,21 @@ func (s *Store) PermissionModeEdit(ctx context.Context, owner session.SessionID,
 
 // SetPermissionMode resolves exact retries before live state and compare-and-set.
 // A same-value edit records the original revision without retiring any operation.
-func (s *Store) SetPermissionMode(ctx context.Context, request session.PermissionModeRequest) (result session.PermissionModeEdit, err error) {
+func (s *Store) SetPermissionMode(ctx context.Context, request session.PermissionModeRequest) (session.PermissionModeEdit, error) {
+	result, _, err := s.ApplyPermissionMode(ctx, request)
+	return result, err
+}
+
+// ApplyPermissionMode reports whether this commit newly changed live policy.
+// The flag is ephemeral: retries and same-value edits never retire newly created
+// resources merely because their original receipt describes an older change.
+func (s *Store) ApplyPermissionMode(ctx context.Context, request session.PermissionModeRequest) (result session.PermissionModeEdit, changed bool, err error) {
 	if err := session.ValidateID(string(request.ID)); err != nil {
-		return result, err
+		return result, false, err
 	}
 	digest, err := requestDigest("permission_mode", request)
 	if err != nil {
-		return result, err
+		return result, false, err
 	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		previous, previousDigest, err := scanPermissionModeEdit(tx.QueryRowContext(ctx, permissionModeEditSelect+" WHERE id=?", request.ID))
@@ -99,6 +107,7 @@ func (s *Store) SetPermissionMode(ctx context.Context, request session.Permissio
 			if err := retirePolicyOperations(ctx, tx, owner.ID); err != nil {
 				return err
 			}
+			changed = true
 		}
 		created := now()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO permission_mode_edits
@@ -110,9 +119,9 @@ func (s *Store) SetPermissionMode(ctx context.Context, request session.Permissio
 		return nil
 	})
 	if err != nil {
-		return session.PermissionModeEdit{}, err
+		return session.PermissionModeEdit{}, false, err
 	}
-	return result, nil
+	return result, changed, nil
 }
 
 // Pending human approvals become obsolete on an actual policy change. Captured

@@ -3415,10 +3415,13 @@ async function permissionModeAcceptance(runtime, client, createParams, evidence)
       const automatic = await client.wait(automaticID, deadline());
       assert.equal(automatic.turn.state, 'succeeded');
       const operations = (await client.call('turns.operations', { turn_id: automatic.turn.id, limit: 100 }, deadline())).items;
-      assert.equal(operations.length, 1);
-      assert.equal(operations[0].permission_revision, '2');
-      assert.equal(operations[0].grant_id, null);
-      assert.equal(operations[0].state, 'succeeded');
+      assert.equal(operations.length, 2, 'file write and optional diagnostics have separate operation evidence');
+      for (const operation of operations) {
+        assert.equal(operation.permission_revision, '2');
+        assert.equal(operation.grant_id, null);
+        assert.equal(operation.state, 'succeeded');
+      }
+      assert.deepEqual(operations.map(operation => operation.capability).sort(), ['files.write', 'lsp.diagnostics']);
       assert.equal(await readFile(join(runtime.directory, `${engine}-mode-automatic.txt`), 'utf8'), 'authorized');
       assert.deepEqual((await client.call('permissions.list', { session_id: root.id, limit: 100 }, deadline())).items, []);
       const sameParams = { session_id: root.id, expected_revision: '2', mode: 'automatic' };

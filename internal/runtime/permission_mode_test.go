@@ -136,8 +136,13 @@ func TestBothEnginesPermissionModeUsesSavedPolicyAndRetiresWaitingPrompt(t *test
 				t.Fatal(err)
 			}
 			operations, err := r.Operations(t.Context(), admission.Turn.ID, "", 100)
-			if err != nil || len(operations) != 1 || operations[0].PermissionRevision == nil || *operations[0].PermissionRevision != 2 || operations[0].GrantID != nil || operations[0].State != session.OperationSucceeded {
-				t.Fatal("automatic evidence missing", operations, err)
+			if err != nil || len(operations) != 2 {
+				t.Fatal("file and optional diagnostic evidence missing", operations, err)
+			}
+			for _, operation := range operations {
+				if operation.PermissionRevision == nil || *operation.PermissionRevision != 2 || operation.GrantID != nil || operation.State != session.OperationSucceeded {
+					t.Fatal("automatic evidence missing", operation)
+				}
 			}
 			if err := r.Close(); err != nil {
 				t.Fatal(err)

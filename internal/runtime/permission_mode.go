@@ -11,7 +11,11 @@ func (r *Runtime) PermissionPolicy(ctx context.Context, owner session.SessionID)
 }
 
 func (r *Runtime) SetPermissionMode(ctx context.Context, request session.PermissionModeRequest) (session.PermissionModeEdit, error) {
-	return r.store.SetPermissionMode(ctx, request)
+	result, changed, err := r.store.ApplyPermissionMode(ctx, request)
+	if err == nil && changed {
+		r.languageServers.RetireAll()
+	}
+	return result, err
 }
 
 func (r *Runtime) PermissionModeEdit(ctx context.Context, owner session.SessionID, id session.PermissionModeEditID) (session.PermissionModeEdit, error) {

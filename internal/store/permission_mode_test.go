@@ -359,3 +359,32 @@ func TestPermissionModeDoesNotOverrideIntrinsicQuestionRestrictions(t *testing.T
 		t.Fatal("question admission created approval or fake waiter")
 	}
 }
+
+func TestPermissionModeAppliedFlagDescribesOnlyNewCommittedChanges(t *testing.T) {
+	s := fresh(t)
+	_, owner := create(t, s, nil)
+	request := modeRequest(owner.ID, "enable", 1, session.PermissionAutomatic)
+	execTest(t, s, "CREATE TRIGGER mode_receipt_fault BEFORE INSERT ON permission_mode_edits BEGIN SELECT RAISE(ABORT,'injected'); END")
+	if result, changed, err := s.ApplyPermissionMode(t.Context(), request); err == nil || changed || result.ID != "" {
+		t.Fatal("rollback announced a live change", result, changed, err)
+	}
+	execTest(t, s, "DROP TRIGGER mode_receipt_fault")
+	first, changed, err := s.ApplyPermissionMode(t.Context(), request)
+	if err != nil || !changed {
+		t.Fatal("new commit not reported", first, changed, err)
+	}
+	if retry, changed, err := s.ApplyPermissionMode(t.Context(), request); err != nil || changed || retry != first {
+		t.Fatal("retry announced a new change", retry, changed, err)
+	}
+	sameRequest := modeRequest(owner.ID, "same", 2, session.PermissionAutomatic)
+	same, changed, err := s.ApplyPermissionMode(t.Context(), sameRequest)
+	if err != nil || changed || same.Policy != first.Policy {
+		t.Fatal("same value announced live change", same, changed, err)
+	}
+	setModeTest(t, s, owner.ID, "disable", 2, session.PermissionPrompt)
+	for _, request := range []session.PermissionModeRequest{request, sameRequest} {
+		if _, changed, err := s.ApplyPermissionMode(t.Context(), request); err != nil || changed {
+			t.Fatal("historical receipt retired current resources", changed, err)
+		}
+	}
+}

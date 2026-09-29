@@ -94,7 +94,7 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 }
 
 // AdmitStandingOperation admits optional diagnostics only with current standing
-// authority. A zero operation means skipped; no permission or intent is written.
+// authority, including current root automatic policy. A zero operation means skipped; no permission or intent is written.
 func (s *Store) AdmitStandingOperation(ctx context.Context, spec session.OperationSpec) (session.Operation, error) {
 	if spec.Capability != "lsp.diagnostics" {
 		return session.Operation{}, session.ErrInvalid
@@ -187,7 +187,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 				}
 			}
 		}
-		if standingOnly && grantID == nil {
+		if standingOnly && grantID == nil && permissionRevision == nil {
 			return nil
 		}
 		created := now()
