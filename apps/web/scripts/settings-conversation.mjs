@@ -173,16 +173,50 @@ for (const engine of engines) {
     await live.locator('[data-activity-content]').click();
     await expect(live.locator('[data-activity-content]')).toHaveAttribute('aria-expanded', 'false');
     fixture.release(`${key}-first`);
-    await eventually(async () => {
+    const captured = await eventually(async () => {
       const receipt = await client.recover(requestID, deadline());
       if (!receipt.turn) return false;
       const operations = (await client.session(root).turns.operations(receipt.turn.id, { limit: 100 }, deadline())).items;
-      return operations.some(operation => operation.arguments.key === `${key}-second` && operation.state === 'dispatched');
+      return operations.some(operation => operation.arguments.key === `${key}-second` && operation.state === 'dispatched') && { turn: receipt.turn, operations };
     }, { description: 'second real executor hold and stdout update' });
+    assert.equal(captured.operations.length, 2, 'The held cell must own exactly the two admitted fixture calls');
+    const first = captured.operations.find(operation => operation.arguments.key === `${key}-first`);
+    const second = captured.operations.find(operation => operation.arguments.key === `${key}-second`);
+    assert(first && second && first.id !== second.id);
+    assert.equal(first.state, 'succeeded'); assert.equal(second.state, 'dispatched');
+    assert(first.cell_id && first.cell_id === second.cell_id);
+    for (const operation of [first, second]) {
+      assert.equal(operation.origin, 'cell'); assert.equal(operation.session_id, root);
+      assert.equal(operation.turn_id, captured.turn.id);
+    }
+    const cells = (await client.session(root).turns.cells(captured.turn.id, { limit: 100 }, deadline())).items;
+    assert.equal(cells.length, 1); assert.equal(cells[0].id, first.cell_id); assert.equal(cells[0].state, 'running');
     await expect(live.locator('[data-activity-content]')).toHaveAttribute('aria-expanded', 'false');
     await live.locator('[data-activity-content]').click();
-    await expect(chat(root).getByText('Provisional stdout; the committed result will replace it.', { exact: true })).toBeVisible();
-    await expect(chat(root)).toContainText('live line 9');
+    const groupID = await live.getAttribute('data-activity-group'); assert(groupID);
+    const detail = chat(root).locator(`[data-activity-detail=${JSON.stringify(second.id)}]`);
+    await expect(detail).toHaveAttribute('data-activity-owner', groupID);
+    const hint = 'Provisional stdout; the committed result will replace it.';
+    await expect(detail.getByText(hint, { exact: true })).toBeVisible();
+    await expect(detail).toContainText('live line 9');
+    // Each operation detail intentionally includes its shared cell evidence.
+    // Check every mounted hint's exact owner, without requiring off-screen rows.
+    const ownership = await chat(root).evaluate((region, { ids, hint }) => ({
+      details: [...region.querySelectorAll('[data-activity-detail]')].filter(node => ids.includes(node.dataset.activityDetail)).map(node => ({
+        id: node.dataset.activityDetail, group: node.dataset.activityOwner,
+        hints: [...node.querySelectorAll('p')].filter(item => item.textContent === hint).length,
+      })),
+      hints: [...region.querySelectorAll('p')].filter(node => node.textContent === hint).map(node => node.closest('[data-activity-detail]')?.getAttribute('data-activity-detail') ?? null),
+    }), { ids: [first.id, second.id], hint });
+    assert(ownership.details.some(item => item.id === second.id));
+    assert(ownership.details.every(item => item.group === groupID && item.hints === 1));
+    assert.equal(new Set(ownership.details.map(item => item.id)).size, ownership.details.length);
+    assert.deepEqual([...ownership.hints].sort(), ownership.details.map(item => item.id).sort(), 'No duplicate or foreign provisional hint');
+    await writeFile(join(directory, `${engine}-repl-live-ownership.json`), JSON.stringify({
+      runtime_id: fixture.info.runtime_id, process_epoch: fixture.info.process_epoch,
+      session_id: root, turn_id: captured.turn.id, cell_id: first.cell_id,
+      operation_ids: [first.id, second.id], group_id: groupID, mounted: ownership,
+    }, null, 2));
     await live.locator('[data-activity-content]').click();
     fixture.release(`${key}-second`);
     const completed = await client.wait(requestID, deadline()); assert.equal(completed.turn.state, 'succeeded');
