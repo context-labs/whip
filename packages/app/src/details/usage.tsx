@@ -1,3 +1,5 @@
+import { useSessionView } from '@whip/sdk/react';
+import { contextUsageLines, turnUsageLines } from '../usage-presentation';
 import { useQuery } from '@tanstack/react-query';
 import type { Operations } from '@whip/sdk';
 import { Button } from '@whip/ui';
@@ -108,4 +110,35 @@ function Cost({ label, value }: { label: string; value: Usage['reported_cost'] }
       )}
     </div>
   );
+}
+
+/** One selected-session prefill read; transcript growth only marks that captured reading stale. */
+export function ContextUsage(props: InspectorProps) {
+  const observed = useSessionView(props.view);
+  const connected = props.connected && observed.status === 'live';
+  const query = useQuery({
+    queryKey: ['context-usage', props.client.runtimeID, props.client.processEpoch, props.session.id, props.selected.config_revision, observed.history.snapshot?.revision],
+    queryFn: ({ signal }) => props.session.context.usage({ signal }),
+    enabled: connected, gcTime: 0, retry: false, refetchInterval: connected ? 3000 : false,
+  });
+  const value = connected && !query.error ? query.data : undefined;
+  return <Section title="Latest context prefill" description="The selected agent’s last ordinary model request. Helper and child calls do not replace this reading.">
+    <QueryFeedback query={query} connected={connected} />
+    {value && contextUsageLines(value, props.session.id, props.selected.config_revision, observed.history.snapshot).map(line => <p key={line}>{line}</p>)}
+    <Button size="sm" variant="ghost" disabled={!connected || query.isFetching} onClick={() => void query.refetch()}>Refresh context reading</Button>
+  </Section>;
+}
+
+export function TurnUsage(props: InspectorProps & { turnID: string }) {
+  const query = useQuery({
+    queryKey: ['turn-usage', props.client.runtimeID, props.client.processEpoch, props.session.id, props.turnID],
+    queryFn: ({ signal }) => props.session.turns.usage(props.turnID, { signal }),
+    enabled: props.connected, gcTime: 0, retry: false, refetchInterval: props.connected ? 3000 : false,
+  });
+  return <Section title="Selected turn usage" description="Canonical attempts for this turn, including its helpers and compaction retries. Child turns and other turns are separate.">
+    <code>{props.turnID}</code>
+    <QueryFeedback query={query} connected={props.connected} />
+    {props.connected && !query.error && query.data && turnUsageLines(query.data).map(line => <p key={line}>{line}</p>)}
+    <Button size="sm" variant="ghost" disabled={!props.connected || query.isFetching} onClick={() => void query.refetch()}>Refresh turn usage</Button>
+  </Section>;
 }

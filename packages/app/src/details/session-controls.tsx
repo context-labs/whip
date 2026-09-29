@@ -12,7 +12,7 @@ import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
 import { ModelSelection } from '../model-selection';
-import { WholeTreeUsage } from './usage';
+import { ContextUsage, WholeTreeUsage } from './usage';
 import {
   Action,
   ContentRead,
@@ -381,7 +381,7 @@ export function ContextSettings(props: InspectorProps) {
           { value: 'compaction', label: 'Compaction' },
         ]}
       />
-      {section === 'context' && <Context {...props} />}
+      {section === 'context' && <><ContextUsage {...props} /><Context {...props} /></>}
       {section === 'model' && <ModelSettings {...props} />}
       {section === 'compaction' && <Compaction {...props} />}
     </>

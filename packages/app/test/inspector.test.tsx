@@ -30,6 +30,7 @@ import {
   Limits,
   formatBudgetAmount,
 } from '../src/details/session-controls';
+import { ContextUsage, TurnUsage } from '../src/details/usage';
 import { SessionReload } from '../src/details/session-reload';
 import { readStateBytes } from '../src/details/state-read';
 import type { InspectorProps } from '../src/details/shared';
@@ -840,4 +841,24 @@ it('selects and enables a bundled helper through separate explicit CAS operation
   await waitFor(() => expect(enable).toHaveProperty('disabled', false)); fireEvent.click(enable);
   await screen.findByRole('button', { name: 'Disable computer helper' });
   expect(f.count('computer.configure')).toBe(1); expect(f.count('computer.reconnect')).toBe(0);
+});
+
+it('reads selected-session context and exact turn accounting with honest unknown, stale and detached states', async () => {
+  const f = await fixture();
+  const context = sample<Operations['context.usage']['result']>('ContextUsage');
+  context.session_id = f.props.session.id; context.config_revision = f.props.selected.config_revision; context.history_revision = '1';
+  context.through_sequence = '0'; context.prefill!.through_sequence = '0'; context.prefill!.stale = false; context.prefill!.context_window_tokens = null;
+  f.handlers['context.usage'] = request => { expect(params(request, 'context.usage').session_id).toBe(f.props.session.id); return context; };
+  const usage = sample<Operations['usage.turn']['result']>('TurnUsage'); usage.usage.session_id = f.props.session.id;
+  f.handlers['usage.turn'] = request => { expect(params(request, 'usage.turn')).toEqual({ session_id: f.props.session.id, turn_id: usage.turn_id }); return usage; };
+  const mounted = f.render(<><ContextUsage {...f.props} /><TurnUsage {...f.props} turnID={usage.turn_id} /></>);
+  await screen.findByText('Provider-reported input: 9,007,199,254,740,993 tokens.');
+  expect(screen.getByText('Model context capacity is unknown.')).toBeDefined();
+  await screen.findByText(/1 committed compactions/);
+  expect(f.count('usage.get')).toBe(0);
+  context.unavailable_reason = 'selection_changed'; context.prefill = null;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh context reading' }));
+  await screen.findByText('Context usage is unknown after the selected context changed.');
+  mounted.rerender(f.wrap(<ContextUsage {...f.props} connected={false} />));
+  expect(screen.queryByText('Context usage is unknown after the selected context changed.')).toBeNull();
 });

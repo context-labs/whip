@@ -6,13 +6,14 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, MoreHorizontal } from 'lucide-react-native';
 import { Composer } from '../../components/composer';
 import { SessionControls } from '../../components/session-controls';
+import { ExecutionDetails } from '../../components/execution-details';
 import { SessionMenu } from '../../components/session-menu';
 import { EmptyState, IconButton, ScreenHeader, Sheet, StatusBadge, Text } from '../../ui';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { conversationRows, type ReadingBookmark, type TimelineRow } from '@whip/app/presentation';
-import { useSessionView, useExecutionView } from '@whip/sdk/react';
+import { useSessionView } from '@whip/sdk/react';
 import type { Session as SessionRecord, Tree } from '@whip/protocol';
 import type { DeepReadonly, SessionView, SessionViewSnapshot } from '@whip/sdk/state';
 import { RuntimeScope, useSessionOwner, useRuntime, useRuntimeState } from '../../runtime/context';
@@ -56,7 +57,7 @@ export function SessionScreen() {
 }
 function SessionContent({ lease, root, recipient, tree, runtimeId, showRequests }: { lease: SessionLease; root: SessionRecord; recipient: SessionRecord; tree: Tree; runtimeId: string; showRequests: boolean }) {
   const runtime = useRuntime(), state = useRuntimeState(), theme = useTheme(), insets = useSafeAreaInsets();
-  const view = lease.view, snapshot = useSessionView(view), execution = useExecutionView(lease.execution);
+  const view = lease.view, snapshot = useSessionView(view);
   const [sheet, setSheet] = useState<'agents' | 'requests' | 'details' | 'body' | 'menu' | undefined>(showRequests ? 'requests' : undefined);
   const [inspection, setInspection] = useState<TimelineRow>(); const [after, setAfter] = useState<string>();
   const agents = useQuery({ queryKey: [runtimeId, 'tree-agents', tree.id, after], enabled: sheet === 'agents' && state.active && state.ready,
@@ -80,7 +81,7 @@ function SessionContent({ lease, root, recipient, tree, runtimeId, showRequests 
           {agents.data?.items?.length === 32 && <Actions items={[{ label: 'Next recipients', onPress: () => setAfter(agents.data!.items!.at(-1)!.id) }]} />}{after && <Actions items={[{ label: 'First recipients', onPress: () => setAfter(undefined) }]} />}
         </> : <><Label muted>Directory</Label><Label selectable>{recipient.working_directory}</Label><Label muted>Model</Label><Label>{recipient.configuration.model.name} · {recipient.configuration.model.provider}</Label><Label muted>Reasoning effort</Label><Label>{recipient.configuration.model.effort || 'Default'}</Label>
           {recipient.id === root.id && <RootSettings view={view} session={recipient} />}
-          <SessionControls rootId={root.id} session={recipient} view={view} /><Label muted>Observed execution</Label><Label>{execution.turns.length} turns · {execution.cells.length} cells · {execution.operations.length} operations retained in this view</Label>{execution.error && <Notice>{execution.error.message}</Notice>}{execution.truncated && <Notice>Execution details are bounded; use the host app to inspect larger traces.</Notice>}
+          <SessionControls rootId={root.id} session={recipient} view={view} /><ExecutionDetails session={recipient} view={view} execution={lease.execution} />
           <Label muted>Root ID</Label><Label selectable>{root.id}</Label><Label muted>Recipient ID</Label><Label selectable>{recipient.id}</Label>
         </>}
       </ScrollView>}</View>

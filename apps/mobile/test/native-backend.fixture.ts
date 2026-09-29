@@ -53,7 +53,7 @@ beforeAll(async () => {
     const messages = JSON.parse(body).messages, last = messages.at(-1);
     const text = typeof last?.content === 'string' ? last.content : (last?.content ?? []).filter((part: { type: string }) => part.type === 'text').map((part: { text: string }) => part.text).join('\n');
     const quickjs = text.endsWith('quickjs-question');
-    const code = quickjs ? 'console.log(await user.ask({question:"Choose a route",options:[{label:"A"},{label:"B"}]}))' : 'print(user.ask(question="Choose a route",options=[{"label":"A"},{"label":"B"}]))';
+    const code = quickjs ? 'console.log("before question 界"); console.log(await user.ask({question:"Choose a route",options:[{label:"A"},{label:"B"}]}))' : 'print("before question 界")\nprint(user.ask(question="Choose a route",options=[{"label":"A"},{"label":"B"}]))';
     const message = !text.endsWith('-question') || last?.role === 'tool' ? { role: 'assistant', content: last?.role === 'tool' ? 'Question answered' : 'ack: ' + text } : { role: 'assistant', content: null, tool_calls: [{ id: 'ask-once', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
     response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 5, cost: 0 } }));
   });
@@ -99,7 +99,7 @@ test.each(['starlark', 'quickjs'] as const)('mobile observes %s root/child histo
   const spawned = await f.runtime.run('sessions.spawn', { identity: { client_id: client.clientID, request_id: engine + '-spawn' }, parent_id: parent.id, overrides: {}, parts: [{ type: 'text', text: 'child only' }], grant_ids: null }, { rootId: parent.id });
   const child = spawned.session!; expect(child.parent_id).toBe(parent.id); expect(child.tree_id).toBe(parent.tree_id);
   expect((await client.wait(engine + '-spawn', deadline())).turn?.state).toBe('succeeded');
-  const lease = f.runtime.acquireView(child.id, client.runtimeID);
+  let lease = f.runtime.acquireView(child.id, client.runtimeID);
   await until(() => lease.view.getSnapshot(), value => value.status === 'live' && value.history.messages.length === 2, 'child transcript');
   expect(lease.view.getSnapshot().history.messages.every(message => message.session_id === child.id)).toBe(true);
   expect(lease.view.getSnapshot().history.messages[1].parts).toEqual([{ type: 'text', text: 'ack: child only' }]);
@@ -127,13 +127,28 @@ test.each(['starlark', 'quickjs'] as const)('mobile observes %s root/child histo
   expect((await client.wait(engine + '-write', deadline())).turn?.state).toBe('succeeded'); expect(await readFile(join(directory, engine + '.txt'), 'utf8')).toBe('approved once');
   const beforeAsk = await client.session(parent.id).get(deadline()); await client.session(parent.id).configure(beforeAsk.config_revision, { model: { provider: 'questions', name: 'questions', effort: '' } }, deadline());
   await f.runtime.run('sessions.submit', { session_id: parent.id, identity: { client_id: client.clientID, request_id: engine + '-ask' }, source: 'user', parts: [{ type: 'text', text: engine + '-question' }] }, { rootId: parent.id });
+  lease.release();
+  const rootLease = f.runtime.acquireView(parent.id, client.runtimeID);
   const questions = await until(async () => {
     const value = await client.session(parent.id).questions.list({ pending_only: true, limit: 16 }, deadline());
     if (!value.items.length) { const state = await client.recover(engine + '-ask', deadline()); if (state.turn?.finished_at) throw new Error('Question finished before response: ' + JSON.stringify(state.turn)); }
     return value;
   }, value => value.items.length === 1, 'user question'), question = questions.items[0];
+  const liveOutput = await until(async () => { await rootLease.view.refresh(); await rootLease.execution.refresh(); return rootLease.execution.getSnapshot(); }, value => value.output?.cell_id === question.cell_id, 'native stdout before human answer');
+  expect(liveOutput.output?.text).toBe('before question 界\n');
+  expect(liveOutput.output?.session_id).toBe(parent.id);
+  const prefill = await client.session(parent.id).context.usage(deadline());
+  expect(prefill.prefill).toMatchObject({ input_tokens: '5', input_source: 'reported', stale: true });
+  expect(prefill.prefill?.context_window_tokens).toBeNull();
   await f.runtime.decisions.answer(parent.id, parent.id, question.operation_id, [{ answer: ['B'], dismissed: false }], {}, question.request);
-  expect((await client.wait(engine + '-ask', deadline())).turn?.state).toBe('succeeded'); expect((await client.session(parent.id).questions.get(question.operation_id, deadline())).answers).toEqual([{ answer: ['B'], dismissed: false }]);
+  const answered = await client.wait(engine + '-ask', deadline());
+  expect(answered.turn?.state).toBe('succeeded');
+  await rootLease.view.refresh(); await rootLease.execution.refresh(); expect(rootLease.execution.getSnapshot().output).toBeNull();
+  const turnUsage = await client.session(parent.id).turns.usage(question.turn_id, deadline());
+  expect(turnUsage.usage.attempts.settled).toBe('2'); expect(turnUsage.compactions).toBe('0'); expect(turnUsage.usage.input_tokens.value).toBe('10');
+  rootLease.release(); lease = f.runtime.acquireView(child.id, client.runtimeID);
+  await until(() => lease.view.getSnapshot(), value => value.status === 'live', 'child reselected');
+  expect((await client.session(parent.id).questions.get(question.operation_id, deadline())).answers).toEqual([{ answer: ['B'], dismissed: false }]);
   const trace = createTraceView(client, parent.id, { maxBytes: 256 << 10, maxRows: 64, maxRoots: 16 });
   try { await trace.start(); expect(trace.getSnapshot().roots.length).toBeGreaterThan(0); expect(trace.getSnapshot().retainedBytes).toBeLessThanOrEqual(256 << 10); } finally { await trace.dispose(); }
   const policy = await client.session(parent.id).permissions.policy(deadline()); await f.runtime.run('permissions.set_mode', { session_id: parent.id, edit_id: engine + '-mode', expected_revision: policy.revision, mode: 'automatic' }, { rootId: parent.id });

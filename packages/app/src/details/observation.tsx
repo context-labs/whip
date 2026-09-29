@@ -9,6 +9,7 @@ import { layout } from '../styles';
 import { ExecutionCellCard } from '../repl-view';
 import { ErrorNotice } from '../error-feedback';
 import { StateRead } from './state-read';
+import { TurnUsage } from './usage';
 import {
   Action,
   ContentRead,
@@ -326,6 +327,7 @@ export function Executions(props: InspectorProps) {
           void (id ? props.execution.focus(id) : props.execution.latest());
         }}
       />
+      {(focused || evidence.turns[0]?.id) && <TurnUsage {...props} turnID={focused || evidence.turns[0]!.id} />}
       {rows.map((row, index) => (
         <ExecutionCellCard
           key={row.cell.id}
