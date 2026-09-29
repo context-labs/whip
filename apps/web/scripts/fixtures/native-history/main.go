@@ -57,6 +57,9 @@ func main() {
 }
 
 func seed(ctx context.Context, directory string, rootID session.SessionID, nonce string) (result evidence, err error) {
+	progress := newSeedProgress(os.Stderr)
+	progress.begin("ownership", 1)
+	defer func() { progress.finish(err) }()
 	// This helper cannot be pointed at an installed or user runtime by accident.
 	parent, relative := filepath.Dir(directory), "state"
 	if filepath.Base(directory) == "runtime-v4" {
@@ -84,11 +87,24 @@ func seed(ctx context.Context, directory string, rootID session.SessionID, nonce
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		return result, errors.New("fixture runtime must be stopped before seeding")
 	}
+	progress.advance(1, 1)
+	progress.begin("open_store", 1)
 	db, err := store.Open(ctx, filepath.Join(directory, "state.db"))
 	if err != nil {
 		return result, err
 	}
-	defer func() { err = errors.Join(err, db.Close()) }()
+	defer func() {
+		// Preserve the failing stage/count; close is included in total elapsed.
+		if err == nil {
+			progress.begin("close_store", 1)
+		}
+		err = errors.Join(err, db.Close())
+		if err == nil {
+			progress.advance(1, 1)
+		}
+	}()
+	progress.advance(1, 1)
+	progress.begin("validate_root", 1)
 	root, err := db.Session(ctx, rootID)
 	if err != nil {
 		return result, err
@@ -106,6 +122,8 @@ func seed(ctx context.Context, directory string, rootID session.SessionID, nonce
 	if err := owned.Remove(marker); err != nil {
 		return result, err
 	}
+	progress.advance(1, 1)
+	progress.begin("content", 1)
 	result = evidence{RootID: root.ID, RootMessages: 10000, Children: []child{}, ChildMessages: 100, LargeContent: "fixture-large-content", LargeContentBytes: 1400000, CellID: "fixture-history-cell", Operations: 128, Compaction: "fixture-history-summary"}
 	bodies, err := content.New(directory)
 	if err != nil {
@@ -118,6 +136,8 @@ func seed(ctx context.Context, directory string, rootID session.SessionID, nonce
 	if _, err := db.RegisterContent(ctx, session.ContentReference{ID: result.LargeContent, SessionID: root.ID, Digest: body.Digest, Size: body.Size, MediaType: "text/plain"}); err != nil {
 		return result, err
 	}
+	progress.advance(1, 1)
+	progress.begin("root_pairs", 4998)
 	// 4,998 genuine admitted user/assistant pairs, then one four-message cell turn.
 	for index := range 4998 {
 		turn, err := prompt(ctx, db, root.ID, fmt.Sprintf("root-%05d", index), rootText(index*2+1))
@@ -131,10 +151,14 @@ func seed(ctx context.Context, directory string, rootID session.SessionID, nonce
 		if _, err := db.Finish(ctx, turn.ID, session.Succeeded, nil, []session.MessageDraft{draft}); err != nil {
 			return result, err
 		}
+		progress.advance(index+1, 500)
 	}
+	progress.begin("cell_history", 1)
 	if err := cellHistory(ctx, db, root.ID, result.CellID); err != nil {
 		return result, err
 	}
+	progress.advance(1, 1)
+	progress.begin("children", 100)
 	for index := range 100 {
 		name := fmt.Sprintf("perf-child-%03d", index)
 		def, err := db.RegisterDefinition(ctx, session.DefinitionDocument{ID: name, Name: name, Defaults: session.ConfigPatch{ReportMode: new(session.ReportMessage)}})
@@ -161,7 +185,9 @@ func seed(ctx context.Context, directory string, rootID session.SessionID, nonce
 			return result, err
 		}
 		result.Children = append(result.Children, child{ID: childID, Name: name})
+		progress.advance(index+1, 10)
 	}
+	progress.begin("verify_history", 1)
 	snapshot, err = db.HistorySnapshot(ctx, root.ID)
 	if err != nil {
 		return result, err
@@ -169,6 +195,7 @@ func seed(ctx context.Context, directory string, rootID session.SessionID, nonce
 	if snapshot.MessageCount != int64(result.RootMessages) {
 		return result, fmt.Errorf("root message count %d", snapshot.MessageCount)
 	}
+	progress.advance(1, 1)
 	return result, nil
 }
 

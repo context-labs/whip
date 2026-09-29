@@ -12,9 +12,6 @@ func TestPromptMetadataPreservesKeysAfterBlocksWithoutReadingBody(t *testing.T) 
 		if err != nil || skill.Name != "preserved" || !skill.DisableModelInvocation || !strings.Contains(skill.Description, "second line") {
 			t.Fatalf("header=%s metadata=%+v err=%v", header, skill, err)
 		}
-		if PromptBlock([]Skill{skill}) != "" {
-			t.Fatal("disabled skill became visible after block scalar")
-		}
 	}
 	data := []byte("---\nname: okay\ndescription: >-\n  instruction metadata\n---\nname: body-must-not-override\n")
 	skill, err := parseMetadata("relative/SKILL.md", strings.NewReader(string(data)))

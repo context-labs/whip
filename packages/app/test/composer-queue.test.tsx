@@ -114,3 +114,18 @@ it('retains the queue and draft when delivery fails', async () => {
   expect(screen.getByRole('alert').closest('[data-composer-queue]')).toBeTruthy(); expect(screen.getByRole('region', { name: 'Queued messages' })).toBeTruthy();
   expect((screen.getByLabelText('Current draft') as HTMLTextAreaElement).value).toBe('Do not overwrite this');
 });
+
+it('restores keyboard focus after authoritative removal commits later than the refresh promise', async () => {
+  const f = await fixture(); const rendered = f.mount(f.app());
+  const remove = screen.getByRole('button', { name: /^Remove queued/ });
+  remove.focus(); fireEvent.click(remove);
+  await f.finish('cancelled');
+  // A query refresh can settle before its notification reaches React. Give the
+  // browser a paint while the old row remains, then publish canonical removal.
+  await act(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  expect(document.activeElement).toBe(remove);
+  rendered.rerender(f.wrap(f.app([])));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Current draft')));
+  expect((screen.getByLabelText('Current draft') as HTMLTextAreaElement).value).toBe('Do not overwrite this');
+  expect(f.count('inputs.cancel')).toBe(1);
+});

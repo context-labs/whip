@@ -111,21 +111,21 @@ func TestManagerConnectAndCall(t *testing.T) {
 	m.Start(context.Background())
 	waitReady(t, m)
 
-	ts := m.Tools()
+	ts := listTestTools(t, m, "docs")
 	if len(ts) != 4 {
-		t.Fatalf("expected 4 tools, got %d: %v", len(ts), toolNames(ts))
+		t.Fatalf("expected 4 tools, got %d: %v", len(ts), ts)
 	}
-	out := callTestHandler(t, ts, "mcp__docs__greet", json.RawMessage(`{"name":"whip"}`))
+	out := callTestTool(t, m, "docs", "greet", json.RawMessage(`{"name":"whip"}`))
 	if out != "hi whip" {
 		t.Errorf("greet = %q", out)
 	}
 	listed, err := m.ListTools("docs")
 	if err != nil || len(listed) != 4 || listed[1].Name != "greet" {
-		t.Fatalf("RLM tool metadata = %+v, %v", listed, err)
+		t.Fatalf("native tool metadata = %+v, %v", listed, err)
 	}
-	direct, err := m.Call(context.Background(), "docs", "greet", json.RawMessage(`{"name":"runtime"}`))
-	if err != nil || direct != "hi runtime" {
-		t.Fatalf("RLM direct call = %q, %v", direct, err)
+	direct, err := testCall(t.Context(), m, "docs", "greet", json.RawMessage(`{"name":"runtime"}`))
+	if err != nil || direct.Text != "hi runtime" {
+		t.Fatalf("native checked call = %+v, %v", direct, err)
 	}
 
 	st := m.Statuses()
@@ -138,9 +138,9 @@ func TestManagerToolFailuresPreserveError(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
 	m.Start(context.Background())
 	waitReady(t, m)
-	out, err := findTestHandler(t, m.Tools(), "mcp__docs__fail").Run(t.Context(), nil)
-	if err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Errorf("fail = %q, %v", out, err)
+	out, err := testCall(t.Context(), m, "docs", "fail", nil)
+	if err == nil || !strings.Contains(err.Error(), "boom") || !strings.Contains(out.Text, "boom") {
+		t.Errorf("fail = %+v, %v", out, err)
 	}
 }
 
@@ -148,14 +148,13 @@ func TestManagerStructuredAndMedia(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
 	m.Start(context.Background())
 	waitReady(t, m)
-	ts := m.Tools()
-	out := callTestHandler(t, ts, "mcp__docs__structured", nil)
+	out := callTestTool(t, m, "docs", "structured", nil)
 	if !strings.Contains(out, `"answer": 42`) {
 		t.Errorf("structured = %q", out)
 	}
-	out = callTestHandler(t, ts, "mcp__docs__media", nil)
-	if !strings.Contains(out, "here you go") || !strings.Contains(out, "[image 1: image/png, 3 bytes]") {
-		t.Errorf("media = %q", out)
+	result, err := testCall(t.Context(), m, "docs", "media", nil)
+	if err != nil || !strings.Contains(result.Text, "here you go") || !strings.Contains(result.Text, "[image 1: image/png, 3 bytes]") || len(result.Attachments) != 1 || result.Attachments[0].MIME != "image/png" || string(result.Attachments[0].Data) != "\x01\x02\x03" {
+		t.Errorf("media = %+v, %v", result, err)
 	}
 }
 
@@ -173,13 +172,12 @@ func TestManagerFailedServerDegradesToErrorString(t *testing.T) {
 	if st[0].Status != StatusFailed || st[0].Err == "" {
 		t.Fatalf("status = %+v", st)
 	}
-	if n := len(m.Tools()); n != 0 {
-		t.Fatalf("failed server contributed %d tools", n)
+	if tools, err := m.ListTools("ghost"); err == nil || len(tools) != 0 {
+		t.Fatalf("failed server metadata = %v, %v", tools, err)
 	}
 	// A direct call against a tool name for the dead server is an error
 	// string, not a hang or panic.
-	s := m.servers["ghost"]
-	_, err := s.call(context.Background(), "anything", nil)
+	_, err := m.ResolveTool("ghost", "anything")
 	if err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Errorf("call err = %v", err)
 	}
@@ -215,7 +213,7 @@ func TestManagerReconnect(t *testing.T) {
 	if st := m.Statuses(); st[0].Status != StatusReady {
 		t.Fatalf("after reconnect: %+v", st[0])
 	}
-	out := callTestHandler(t, m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"back"}`))
+	out := callTestTool(t, m, "docs", "greet", json.RawMessage(`{"name":"back"}`))
 	if out != "hi back" {
 		t.Errorf("greet after reconnect = %q", out)
 	}
@@ -229,17 +227,16 @@ func TestManagerParallelCallsRaceClean(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"a": testCfg("a"), "b": testCfg("b")})
 	m.Start(context.Background())
 	waitReady(t, m)
-	ts := m.Tools()
 
 	done := make(chan struct{}, 32)
 	for i := range 32 {
 		go func(i int) {
 			defer func() { done <- struct{}{} }()
-			name := "mcp__a__greet"
+			name := "a"
 			if i%2 == 1 {
-				name = "mcp__b__greet"
+				name = "b"
 			}
-			out := callTestHandler(t, ts, name, json.RawMessage(`{"name":"x"}`))
+			out := callTestTool(t, m, name, "greet", json.RawMessage(`{"name":"x"}`))
 			if out == "hi x" {
 				calls.Add(1)
 			}
@@ -254,27 +251,25 @@ func TestManagerParallelCallsRaceClean(t *testing.T) {
 }
 
 func TestManagerCallRespectsCancel(t *testing.T) {
-	m := NewManager(map[string]ServerConfig{"slowpoke": testCfg("slowpoke")})
-	// Server that never settles its connect: transport that blocks forever.
-	m.connectTransport = func(_ context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
-		return &hangTransport{}, nil
+	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
+	m.Start(t.Context())
+	waitReady(t, m)
+	call, err := m.ResolveTool("docs", "greet")
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(m.Close)
-	m.Start(context.Background())
-
-	s := m.servers["slowpoke"]
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
 	start := time.Now()
-	_, err := s.call(ctx, "greet", nil)
-	if err == nil || time.Since(start) > time.Second {
-		t.Errorf("call should respect ctx cancel while connecting, err=%v after %s", err, time.Since(start))
+	_, err = m.CallChecked(ctx, call, nil)
+	if !errors.Is(err, context.Canceled) || time.Since(start) > time.Second {
+		t.Errorf("checked call should respect cancellation: %v after %s", err, time.Since(start))
 	}
 }
 
 // TestManagerCallFailFast: a tool call to a failed or disabled server returns
-// immediately with an actionable message; a still-connecting server gets only
-// the short grace, not the full startup timeout.
+// immediately with an actionable message; an unready catalog cannot produce
+// an admissible descriptor and never waits for the startup timeout.
 func TestManagerCallFailFast(t *testing.T) {
 	m := NewManager(map[string]ServerConfig{
 		"dead":   {Command: []string{"nope-not-a-binary"}, StartupTimeout: 2},
@@ -293,7 +288,7 @@ func TestManagerCallFailFast(t *testing.T) {
 	// Failed server: instant, names the error and the reconnect command.
 	<-m.servers["dead"].ready
 	start := time.Now()
-	_, err := m.servers["dead"].call(context.Background(), "x", nil)
+	_, err := m.ResolveTool("dead", "x")
 	if err == nil || !strings.Contains(err.Error(), "unavailable") || !strings.Contains(err.Error(), "/mcp dead reconnect") {
 		t.Errorf("failed-server call err = %v", err)
 	}
@@ -302,19 +297,19 @@ func TestManagerCallFailFast(t *testing.T) {
 	}
 
 	// Disabled server: instant, names the enable command.
-	_, err = m.servers["off"].call(context.Background(), "x", nil)
+	_, err = m.ResolveTool("off", "x")
 	if err == nil || !strings.Contains(err.Error(), "disabled") || !strings.Contains(err.Error(), "/mcp off enable") {
 		t.Errorf("disabled-server call err = %v", err)
 	}
 
-	// Connecting server: capped at connectGrace, then "still connecting".
+	// Connecting server: immediate refusal; it must be resolved after connection.
 	start = time.Now()
-	_, err = m.servers["wedged"].call(context.Background(), "x", nil)
-	if err == nil || !strings.Contains(err.Error(), "still connecting") {
+	_, err = m.ResolveTool("wedged", "x")
+	if err == nil || !strings.Contains(err.Error(), "is connecting") {
 		t.Errorf("connecting-server call err = %v", err)
 	}
-	if d := time.Since(start); d < connectGrace-500*time.Millisecond || d > connectGrace+2*time.Second {
-		t.Errorf("connecting-server grace = %s, want ~%s", d, connectGrace)
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("unready resolution blocked %s", d)
 	}
 }
 
@@ -354,7 +349,7 @@ func TestManagerAutoReconnect(t *testing.T) {
 	if !recovered {
 		t.Fatalf("auto-reconnect did not recover: %+v", m.Statuses()[0])
 	}
-	out := callTestHandler(t, m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"auto"}`))
+	out := callTestTool(t, m, "docs", "greet", json.RawMessage(`{"name":"auto"}`))
 	if out != "hi auto" {
 		t.Errorf("call after auto-reconnect = %q", out)
 	}
@@ -466,48 +461,31 @@ func (hangTransport) Connect(ctx context.Context) (sdkmcp.Connection, error) {
 	return nil, ctx.Err()
 }
 
-func toolNames(ts []Handler) []string {
-	var out []string
-	for _, t := range ts {
-		out = append(out, t.Def.Function.Name)
-	}
-	return out
-}
-
-func TestNormalizeSchema(t *testing.T) {
-	got := normalizeSchema(nil)
-	if got != `{"type":"object","properties":{}}` {
-		t.Errorf("nil schema = %s", got)
-	}
-	got = normalizeSchema(map[string]any{"title": "x"})
-	var m map[string]any
-	if err := json.Unmarshal([]byte(got), &m); err != nil {
+// The checked path validates the advertised schema without injecting fields
+// or modifying nested caller-owned schema maps.
+func TestToolArgumentsPreservesSharedSchema(t *testing.T) {
+	shared := map[string]any{"title": "tool", "properties": map[string]any{"name": map[string]any{"type": "string"}}}
+	before, err := json.Marshal(shared)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if m["type"] != "object" || m["properties"] == nil || m["title"] != "x" {
-		t.Errorf("coerced schema = %v", m)
-	}
-}
-
-// normalizeSchema must not mutate its input: d.InputSchema is shared across
-// every Manager.Tools() call, and concurrent writes to it crashed the race
-// detector (fatal error: concurrent map writes). Hammering a shared map from
-// many goroutines proves it stays read-only.
-func TestNormalizeSchemaDoesNotMutateSharedInput(t *testing.T) {
-	shared := map[string]any{"title": "tool", "properties": map[string]any{"a": 1}}
-	// A sentinel key the normalizer must never add to the input: its own
-	// mutation (type:"object") would be detectable here.
 	var wg sync.WaitGroup
 	for range 32 {
 		wg.Go(func() {
 			for range 200 {
-				_ = normalizeSchema(shared)
+				raw := json.RawMessage(`{"name":"exact"}`)
+				got, err := toolArguments(shared, raw)
+				if err != nil || string(got) != string(raw) {
+					t.Errorf("validated arguments = %q, %v", got, err)
+					return
+				}
 			}
 		})
 	}
 	wg.Wait()
-	if _, mutated := shared["type"]; mutated {
-		t.Fatalf("normalizeSchema mutated the shared input map: %v", shared)
+	after, err := json.Marshal(shared)
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("schema changed: %s => %s (%v)", before, after, err)
 	}
 }
 

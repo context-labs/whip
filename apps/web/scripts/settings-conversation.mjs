@@ -17,7 +17,11 @@ const results = {};
 async function scenario(engine, mode, run) {
   if (process.env.WHIP_SETTINGS_CONVERSATION_MODE && process.env.WHIP_SETTINGS_CONVERSATION_MODE !== mode) return;
   const manifest = JSON.parse(await readFile(new URL('../renderer-manifest.json', import.meta.url), 'utf8'));
+  const started = performance.now();
+  const lifecycle = (stage, extra = {}) => console.error(JSON.stringify({ event: 'settings-conversation-lifecycle', engine, mode, stage, elapsed_ms: Math.round(performance.now() - started), ...extra }));
+  lifecycle('starting-fixture');
   const fixture = await (mode === 'body' ? startHistoryFixture : startFixture)({ lifetimeMs: 600_000, executeCode: true });
+  lifecycle('fixture-ready', { process_epoch: fixture.info.process_epoch });
   let browser;
   try {
     browser = await ({ chromium, firefox }[engine]).launch();
@@ -133,7 +137,17 @@ async function scenario(engine, mode, run) {
       await writeFile(join(directory, `${engine}-${mode}-failure.txt`), `${error.stack}\nCompleted checks: ${JSON.stringify(checks)}\nPage errors: ${JSON.stringify(errors)}\n${await page.locator('body').innerText().catch(() => '')}`);
       throw error;
     }
-  } finally { try { await browser?.close(); } finally { await fixture.close(); } }
+  } finally {
+    try {
+      await browser?.close();
+      lifecycle('browser-closed', { connected: browser?.isConnected() ?? false });
+    } finally {
+      const exited = fixture.exited;
+      await fixture.close();
+      const [exit_code, signal] = await exited;
+      lifecycle('runtime-closed', { exit_code, signal });
+    }
+  }
 }
 
 for (const engine of engines) {

@@ -92,10 +92,9 @@ execution evidence; neither executes user-entered code or inspects raw VM global
 All JavaScript packages are private ESM npm workspaces with one root lockfile.
 Use Node 24 and the versions in the manifests. The supported renderer, mobile,
 agent examples and client examples consume native `@whip/sdk` and generated
-`@whip/protocol` v4 directly. Retired packages still present during cutover are
-not an API for new work. Their final deletion and remaining client acceptance
-are tracked in [the redesign plan](backend-redesign-plan.md), not inferred from
-this guide. No source change upgrades an installed application or runtime.
+`@whip/protocol` v4 directly. Retired SDK/protocol packages have been removed.
+Remaining compatibility cleanup and client acceptance are tracked in
+[the redesign plan](backend-redesign-plan.md), not inferred from this guide. No source change upgrades an installed application or runtime.
 
 | Package | Owns | May depend on |
 | --- | --- | --- |
@@ -394,6 +393,17 @@ conflicted, interrupted and unavailable receipts remain in the existing journal.
 Browser driver edits use host CAS; a live environment pin is visible and disables
 editing. Computer-helper bundle publication, enabled configuration and live
 connection are separate explicit actions.
+
+External Chrome settings use the existing host-scoped Query owner and explicit
+revision CAS. The shared form retains its reviewed revision and draft; stale or
+uncertain writes require an explicit read/discard before another write. It never
+replays a mutation after reconnect. The root-only browser inspector shows bounded
+name/generation/resource metadata and captures the exact generation for reconnect
+or disconnect. Children can inspect but cannot mutate root connection lifetimes.
+These controls do not launch Chrome, open an extension relay or grant operations;
+Desktop offered tabs keep their separate native owner. See
+[the form](../packages/app/src/settings/external-browser.tsx) and
+[the inspector](../packages/app/src/details/external-browser.tsx).
 
 ## Conversation and navigation patterns
 
@@ -1123,8 +1133,9 @@ executor, shell, computer, desktop discovery and browser-provider fixtures.
 `npm run test:browser` builds the production renderer and runs Chromium/Firefox
 acceptance. `npm run test:package` installs packed native archives into an isolated
 consumer, checks public imports/types and browser bundling, then submits a real
-input to its own disposable native runtime. Retained legacy reference fixtures
-remain explicitly named in the transition Taskfile until their final disposition.
+input to its own disposable native runtime. The normal product gate discovers
+all remaining Go packages; retired core and legacy SDK/protocol fixtures have
+been removed with their [behavior disposition](backend-native-core-retirement.md).
 
 `task check:product-web` checks shared app/UI and assets.
 `task check:product-browser` uses disposable native hosts and production assets.

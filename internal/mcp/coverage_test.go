@@ -24,10 +24,10 @@ func TestEnableDisableCycle(t *testing.T) {
 	if st := m.Statuses()[0]; st.Status != StatusDisabled {
 		t.Fatalf("after disable: %+v", st)
 	}
-	if len(m.Tools()) != 0 {
-		t.Error("disabled server contributes no tools")
+	if tools, err := m.ListTools("docs"); len(tools) != 0 || err == nil {
+		t.Errorf("disabled metadata = %+v, %v", tools, err)
 	}
-	if _, err := m.servers["docs"].call(context.Background(), "greet", nil); err == nil || !strings.Contains(err.Error(), "disabled") {
+	if _, err := m.ResolveTool("docs", "greet"); err == nil || !strings.Contains(err.Error(), "disabled") {
 		t.Errorf("call to disabled server: %v", err)
 	}
 
@@ -44,12 +44,7 @@ func TestEnableDisableCycle(t *testing.T) {
 	if st := m.Statuses()[0]; st.Status != StatusReady {
 		t.Fatalf("after enable: %+v", st)
 	}
-	out := ""
-	for _, tool := range m.Tools() {
-		if tool.Def.Function.Name == "mcp__docs__greet" {
-			out, _ = tool.Run(context.Background(), nil)
-		}
-	}
+	out := callTestTool(t, m, "docs", "greet", nil)
 	if out == "" {
 		t.Error("re-enabled server's tools should work")
 	}
@@ -111,13 +106,13 @@ func TestRingBuffer(t *testing.T) {
 	}
 }
 
-func TestFromConfigMap(t *testing.T) {
+func TestNativeConfigs(t *testing.T) {
 	t.Setenv("FROMCFG_KEY", "v1")
 	in := map[string]mcpconfig.Server{
 		"docs": {Command: []string{"npx", "-y"}, Env: map[string]string{"K": "$FROMCFG_KEY"}, StartupTimeout: 3},
 		"web":  {URL: "https://x", Headers: map[string]string{"A": "b"}},
 	}
-	out := FromConfigMap(in)
+	out := NativeConfigs(in, "/fixture/runtime-v4/host.json")
 	// env references stay references through config load — resolution happens
 	// at spawn time (secretref.ResolveEnvMap), so a var set between launches
 	// still resolves and resolved secrets never sit in the config file
@@ -127,7 +122,7 @@ func TestFromConfigMap(t *testing.T) {
 	if !out["web"].Remote() || out["web"].Headers["A"] != "b" {
 		t.Errorf("web = %+v", out["web"])
 	}
-	if FromConfigMap(nil) != nil {
+	if NativeConfigs(nil, "/fixture/runtime-v4/host.json") != nil {
 		t.Error("nil in, nil out")
 	}
 }

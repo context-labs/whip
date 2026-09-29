@@ -5332,3 +5332,268 @@ reclassified as passing evidence. Phases 5–7 remain open for external Chrome
 ownership, specialized client probes, performance/platform evidence, final core
 removal and comprehensive final-revision gates. No installed runtime, real
 account, original checkout, merge or deployment was changed.
+
+
+### Native core removal and normal product gates — 2026-09-29
+
+The isolated `codex/backend-redesign-core-removal` tree starts from draft #275
+(`c9db05507`). It removes the eleven retired Go roots, old contract generator,
+legacy SDK/protocol and old process fixture. The initial deletion is 825 files,
+including 325 tests. Later cleanup removes the unused old capability dispatcher,
+permission rule/cache and Desktop broker DTOs; the native Desktop error type and
+filesystem/process/PTY/MCP leaves remain. The [permanent family disposition](backend-native-core-retirement.md)
+links replacement guarantees and distinguishes obsolete implementation tests.
+No package allowlist conceals surviving retired targets.
+
+The increment reuses released leaves rather than reconstructing them: MCP
+`6311e4398`, normal gates `24db285d6`, Chrome foundations `e47bfef2f`,
+`ddf7ff0c5`, `617f0adee`, bounded retirement fix `eb802f3a7`, REPL fixtures/port
+`945d6b44f`, `e0dd2fb82`, `002ca52b2`, native skills setup `f1e5c4998`,
+welcome drafting `b80c793cf`, slash/skills acceptance `4bcfd6ef3`, client recovery
+`20210f8a5`, native chat polish `b6e01774c`, image context repair `c0999eef9`,
+and the native feature/goal guide leaves `1bc6ddfa1` and `b90173cec`.
+The original checkout and designated observation-integration checkpoint remain
+separate; no installed runtime, account, merge or deployment is changed.
+
+The normal `ci.yml` now owns the complete required product graph. The redesign
+workflow calls it and keeps the stable aggregate. Dynamic Go discovery and
+complementary heavy-suite partitions replace temporary active-target lists;
+normal pre-commit behavior is branch-neutral. The accepted plan's diagnostic
+coverage replaces its temporary global floor. Pinned lint remains v2.13.1 with
+baseline `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Required UI packed-consumer,
+Storybook/docs, integration CLI/SSH, native MCP self-host and packaged worker
+checks are restored alongside existing clients/platform/distribution gates.
+
+The dependency lock removes only the retired workspaces and their orphaned
+entries, with no dependency version upgrades. `npm ci` passes. The isolated
+installed UI/app consumer passes all four production/development cases using
+only native protocol/SDK packages. Production dependency audit passes its high
+severity gate (zero high/critical; fourteen existing moderate findings). Its first
+request was rejected for potentially private metadata; a read-only repository
+check confirmed this repository is public and the pruned lock introduced no new
+private dependency names, after which the same audit was approved and passed.
+
+Two previously hosted client failures now have concrete corrections. Queue
+removal focus waits for canonical removal to commit in React; the regression
+fails before and passes after the fix. The history-recovery test now loads actual
+execution evidence before testing retention across an injected failure. Both
+Chromium and Firefox pass the focused history/queue probes and the sidebar check
+uses a 1/64 CSS-pixel bound for layout roundoff. It still rejects actual drift.
+The terminal entry fixture now waits for distinct UI admission acknowledgements
+and submits explicit `/quit` with completion closed; the host can settle before
+its observer sees idle. One race run passed2.927s and ten repeats passed13.160s.
+An intermediate `/quit` attempt without closing completion failed; that result
+is not passing evidence or a reason to weaken active-turn Ctrl+C semantics.
+
+Native skills import, immutable publication, default selection and an explicit
+root/session grant are separate shipped commands. A first ungranted invocation
+preserves an unavailable `$name` literally without capturing skill metadata/body;
+an explicit grant and new invocation capture the real body. Existing sessions,
+custom definitions and unrelated grants remain unchanged. Actual Chromium and
+Firefox slash/skills probes pass fourteen workflow groups each. REPL probes pass
+ten groups each using actual executions, 180 root cells, 80 child cells, exact
+opaque pages, canonical content and crash recovery. The explicit no-provider
+drafting action preserves setup and disables Send until a route is ready.
+
+Chat polish now uses actual native child mail, execution and provider streams.
+Its browser assertions caught a missing agent-updates label in mixed work and a
+stretched Open in REPL button. Both are corrected; Chromium and Firefox pass
+four workflow groups each, including 530/390/320px spacing, touch44px targets,
+6000+ character reasoning, child/root separation and completion-only copy
+footers. Renderer digest:
+`3d17e57542f5d46b311e810f39b64aaad2407a76ba0f95c6db4137b68bfd98c8`.
+
+The context retirement audit identified a concrete replacement gap: metadata-only
+selection could exceed the image hydration budget before compaction. The new
+metadata preflight and incremental whole-exchange helper bounds preserve raw
+history, pins, exact attempts and already committed tool effects. The regression
+failed before any provider dispatch, then passes with bounded folding; indivisible
+current inputs still fail before body reads. The released leaf passes full runner
+race26.717s, focused actual runtime/SQLite/blob race19.818s, store rollback2.936s,
+and final image-pin race5.621s, with vet/build/pinned lint. This replaces old age
+rewrites without claiming the same24k hot window or provider token costs.
+
+MCP import discovery now preserves its explicit owning host source; the revised
+provenance test reproduced the retired-path overwrite before the fix. Its full
+race suite passed16.317s. Shared capability/tool races passed29.044/15.618s;
+remaining skill/parser and native instruction races passed1.284/4.611s. All Go
+test packages compile after extracting the Desktop error type from deleted DTOs.
+The official protocol generator and validation pass after combining skills with
+host config21. The assembled tree passes pinned lint with zero issues, all204
+SDK tests, all1375 app/Desktop-renderer tests across113 files, and app types.
+These are checkpoint results, not a claim that the final complete gate passed.
+
+Hosted draft #274 at `9bc05d632` completed with both native terminal entry
+fixtures failing detach and a tiny sidebar bounding-box roundoff failure; other
+required jobs passed. Draft #275 run36572405711 completed with the same terminal
+fixture failures, Firefox attachment confirmation reading its immutable preview
+twice, and the 120-second canonical history seed timing out in workspace-layout.
+Other required jobs passed. The terminal and sidebar have tested fixes above;
+attachment retention and slow setup were investigated as recorded below.
+
+The released native Chrome leaf `0f3e0461b` is integrated on the existing four
+foundation commits. It exposes explicit host configuration and named root
+generation controls through five public operations and SDK helpers. Dispatch
+rechecks current configuration, owner and SQL operation authority. Uploads use a
+separate exact workspace/path-set grant and immutable bounded private snapshots;
+generic browser authority does not authorize local-file disclosure. Actual
+disposable Chrome passes upload/screenshot/detach under both drivers (race4.252s)
+and both worker-engine restart scenarios (8.527s). Existing offered Desktop
+both-driver/both-engine coverage remains passing (14.454s). Real user profiles
+and installed extensions were not touched. Shared/mobile/CLI/TUI controls and
+unused old browser-wrapper removal remain the next increment.
+
+Safari leaves `e0bb264f2` and `f30f0a407` move the actual Safari entrypoint onto
+the native host. Three owned-driver lifecycle tests pass, including bounded
+failed-start/hung-delete cleanup. The shared Chromium rehearsal passes five
+workflow groups with no strict window errors or CSP violations. Its stricter
+error observation exposed a real ResizeObserver loop; using the virtualizer's
+existing animation-frame measurement option fixes it. Seventy-three reading and
+timeline tests and both-browser native history recovery pass. Actual Safari
+refuses before starting a runtime because Remote Automation is disabled. A
+separate machine-setting permission request is pending; rehearsal is not Safari
+acceptance and no setting has been changed.
+
+Attachment leaf `f7f603373` makes immutable attachment queries statically fresh,
+so runtime-wide completion invalidation does not reread their successful or
+failed preview. New regressions first failed with duplicate reads, then pass
+alongside explicit Retry and existing ownership/cleanup checks (20 tests).
+The strengthened actual Chromium/Firefox probe holds canonical completion and
+receipt recovery until the preview opens, then observes command retirement:
+exactly one upload, one preview read, zero metadata rereads, stable dialog and
+zero browser errors. Renderer digest:
+`506ad7b4cb180f3f1dcf157fad80f06f66f333a5f79bf9b4a005d657d8dd3fe6`.
+
+The unchanged full history seed passes macOS/arm64 in15.253s and a constrained
+Ubuntu24.04/Linux-arm64 container in45.508s. The actual stopped-owner helper,
+runtime restart and post-seed execution acceptance passes18.417s with all10000
+root messages,100children×100messages and128operation assertions. Compilation
+precedes the helper's120second deadline. Profiling shows SQL compilation and
+FULL-synchronous durability cost, but does not reproduce the hosted Ubuntu/amd64
+timeout. A temporary cache experiment offered no material win and was discarded.
+No workload, durability, deadline, retry or production API changed. The next
+hosted run must establish whether the slowdown recurs; this is not a claimed fix.
+
+After integrating Chrome and the Safari/attachment leaves, official protocol
+regeneration resolves their generated-validator overlap and every remaining Go
+test package compiles. The complete normal gates are pending at this commit;
+earlier checkpoint passes above are not relabeled as final-revision evidence.
+
+Phases5–7 remain open: external Chrome client controls and obsolete wrapper
+retirement, actual Safari automation permission and execution, hosted history
+followthrough, corrected quiet Desktop50ms/RSS targets,
+applicable manual platform/live-provider evidence and final comprehensive gates.
+No passing local subset substitutes for those outstanding requirements.
+
+Draft #276 publishes the native-core deletion at `d90668cc3`. Its first restored
+normal build exposed a real Taskfile error: multiline package discovery was
+interpolated directly into a shell `for` header. Checked command substitution
+now preserves complete package discovery while producing valid shell syntax in
+both fast and complementary-race groups. The repaired full `check:build` passes
+formatting, all fast packages, the complete runtime suite, all test compilation,
+vet and the UI-lock analyzer. Full-module pinned lint reports zero issues;
+reachable-vulnerability analysis reports zero affected calls/imported packages
+(two vulnerabilities occur only in uncalled required modules), and tidy is clean.
+Protocol17, SDK205 and example5 tests pass at that checkpoint. The subsequent
+strict external-browser inventory and discoverable host-tool schema fixes are
+released as `481d05acc` and `c0e4d5b30` with focused evidence; final hosted gates
+remain pending. Failed hosted run36577739713 is not passing evidence.
+
+#### Required-gate follow-through and platform evidence (2026-09-29)
+
+Draft #276's first exact-head run36577739713 at `d90668cc3` failed. Both build
+and complementary-race jobs exposed the package-list shell interpolation fixed
+above. Distribution jobs exposed stale workflow/native-readiness assertions;
+the offline eval harness still wrote host configuration20 while this runtime
+requires21. The conversation probe read a slash-command receipt before actual
+admission acknowledgement, and the independent UI job had no Storybook assets.
+The settings job completed both-provider controls and Chromium REPL history,
+then timed out seeding the Chromium body-history scenario. That last failure is
+not a Firefox result and is not fixed merely by the earlier local seed passes.
+
+The eval fixture version repair has actual offline Linux/arm64 evidence: both
+engines fail before the repair (30.838s), and all six isolation/accounting/export
+checks pass afterward (13.788s). The container used only synthetic credentials
+and no network. A separate timeout-fixture repair waits for an admitted provider
+turn before exercising the unchanged500ms CLI recovery timeout, proving exact
+input cancellation without counting worker startup against that assertion;
+ten race/shuffle repetitions pass16.865s.
+
+The independent UI gate now builds its own Storybook assets. That reaches and
+passes all66 theme/14 interaction checks, strict-CSP/highlighting/portals under
+Chromium, Firefox and Playwright WebKit, four packed consumers, workspace tabs
+and theme accessibility. WebKit is not actual Safari acceptance. The subsequent
+workspace-layout probe exposes drag-preview and reading-position failures under
+investigation; the full UI gate is not claimed passing.
+
+[Native mobile readiness](backend-native-mobile-readiness.md) records exact
+`d90668cc3` artifacts and limitations: mobile types,219 tests, actual lifecycle
+fixtures, Expo Doctor21/21 and both Hermes exports pass. Xcode26.6 builds the
+Release arm64 simulator application with its normal simulator signing. An owned
+then-deleted iOS26.5 simulator starts and relaunches it, preserving encrypted
+SQLCipher files that reject plaintext reads. The Android arm64 Release APK
+build passes with the repository's debug test signing; no Android device was
+available. Desktop types,156 tests,116 distribution checks and ten actual
+loopback-SSH transport checks pass. These do not claim connected-device UI,
+physical-device accessibility, production signing or real-account acceptance.
+
+
+External Chrome controls are now integrated across shared Web/Desktop, mobile,
+CLI and TUI (`1d2cdee79`, `9c08e9dc3`, `f9aad8311`). Host changes require the
+explicit displayed revision and a complete declaration; session controls capture
+root/name/generation and children are read-only. Lost acknowledgements preserve
+uncertainty and drafts rather than silently refreshing or replaying. The shared
+browser probe passes four workflow groups in Chromium and Firefox and now runs
+in the normal settings gate. Focused shared tests38, mobile226 tests/35 suites,
+mobile types/both Hermes exports and actual lifecycle checks pass. CLI/TUI socket
+and navigation race checks pass7.839/4.481s with build, vet and pinned lint0.
+These focused checks precede final integrated validation.
+
+Strict connection inventories remain non-null and bounded to four; external and
+Desktop host-tool schemas are discoverable. The MCP SDK requires top-level
+`type: object` even when `oneOf` defines the alternatives; `5caf16e2d` retains
+that requirement and passes actual MCP endpoint tests. The complete local race
+run before that repair passed store222.255/111.235s, runtime301.413/130.863s and
+all complementary packages, then failed in MCP CLI registration as expected.
+No full-race success is inferred from those package passes.
+
+The obsolete computer helper lifecycle is removed (`f567bb709`): unused ambient
+binary discovery, automatic retry/restart, extraction and private wrapper tests.
+[Its disposition](backend-native-computer-retirement.md) retains screenshot
+protocol values and verifies the actual owned connection's missing/rejected/wrong
+handshake and joined child process. Complete computer race6.513s, architecture
+boundary, compilation/vet and pinned lint0 pass. Native Controller/Connection
+ownership is unchanged; the driver guide now describes the explicit native path.
+
+Native gate repairs (`7ffcfd31c`, `449f9f08e`) restore Swift's real XCTest target
+(13 safe tests plus release build), require actual disposable Chrome tests on
+both CI operating systems, retain immutable checkout refs and validate the new
+readiness identity. Distribution checks preserve aggregate failure/cancellation/
+skip/missing-result rejection (36 workflow and five readiness tests pass).
+The exact slash-command acknowledgement fix (`30a472f51`) fails before the change
+and passes three focused tests plus14 groups each in Chromium and Firefox with
+zero errors/CSP violations. Receipt lookup waits for admission and never resends.
+
+
+Hosted runtime diagnosis is recorded in [the gate audit](native-runtime-gate-diagnosis.md).
+The timed test was only one second old; the600second alarm belonged to the whole
+partition. A separately proven fixture leak retained MCP server sessions after
+HTTP teardown; its new regression fails before cleanup and the full MCP family
+passes race14.012s afterward. This does not prove that leak caused the hosted
+alarm. First/middle/rest now partition234 real test names82/70/82 with all race,
+coverage, shuffle and original10minute flags preserved. Executed shell membership
+also checks nine future/example/fuzz boundaries; CI includes all three on both OSes.
+
+History diagnostics (`bff967547`) preserve the full durable workload and original
+120/125second deadlines. At most64 bounded stderr records expose seed stages,
+counts, elapsed/self CPU and OS block output; settings reports exact browser/mode
+and joined cleanup. All four Settings browser scenarios pass locally with zero
+page/CSP errors and previous runtime exit0 before the next scenario. The hosted
+seed timeout remains open until the next run supplies equivalent evidence.
+
+The integrated revision `1fa8dbfb2` passes protocol18 with generated drift checks,
+SDK build, shared app types and1382 tests across114 files, plus mobile types and
+226 tests across35 suites. Full CLI/TUI validation and the unchanged staged
+Desktop packaging/acceptance gate are running on that source revision. The
+original development checkout remains untouched and the designated handoff
+worktree remains clean at `239f761522`.

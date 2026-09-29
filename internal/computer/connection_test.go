@@ -248,6 +248,34 @@ func TestOwnedHelperOpenRequiresExplicitPathAndMatchingVersion(t *testing.T) {
 	}
 }
 
+func TestOwnedHelperRejectsIncompleteHandshake(t *testing.T) {
+	for _, tc := range []struct{ name, script string }{
+		{"missing announcement", "exit 0\n"},
+		{"handshake rejection", "printf 'whip-computer/1\\n'\nread request\nprintf '{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":1,\"message\":\"no\"}}\\n'\nsleep 60\n"},
+		{"handshake version", "printf 'whip-computer/1\\n'\nread request\nprintf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"version\":\"wrong\"}}\\n'\nsleep 60\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			directory := t.TempDir()
+			binary := filepath.Join(directory, "helper")
+			if err := os.WriteFile(binary, []byte("#!/bin/sh\n"+tc.script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			manager := capability.NewProcessManager()
+			defer func() { _ = manager.Close() }()
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			connection, err := OpenConnection(ctx, ConnectionOptions{Processes: manager, Owner: "root", Executable: binary, Directory: directory})
+			if connection != nil {
+				connection.Close()
+				t.Fatal("incomplete handshake returned a live connection")
+			}
+			if err == nil || ctx.Err() != nil {
+				t.Fatalf("handshake must reject and join promptly: %v", err)
+			}
+		})
+	}
+}
+
 func TestOwnedHelperIdleExitRevokesGenerationAndCloseJoins(t *testing.T) {
 	connection := ownedConnection(t, ownedHelperBinary(t), nil)
 	if err := connection.process.Kill(); err != nil {

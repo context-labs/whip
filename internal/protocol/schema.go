@@ -45,6 +45,9 @@ func Operations() []Operation {
 		{"host.attention", reflect.TypeFor[HostAttentionParams](), reflect.TypeFor[HostAttentionResult]()},
 		{"host.directories.list", reflect.TypeFor[HostDirectoriesParams](), reflect.TypeFor[HostDirectoriesResult]()},
 		{"host.directory.pick", reflect.TypeFor[HostDirectoryPickParams](), reflect.TypeFor[HostDirectoryPickResult]()},
+		{"host.skills.roots", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostSkillRoots]()},
+		{"host.skills.publish", reflect.TypeFor[PublishSkillRootParams](), reflect.TypeFor[HostSkillRoots]()},
+		{"host.skills.set_defaults", reflect.TypeFor[SetDefaultSkillRootsParams](), reflect.TypeFor[HostSkillRoots]()},
 		{"host.skills.complete", reflect.TypeFor[HostSkillsParams](), reflect.TypeFor[HostSkillsResult]()},
 		{"host.standing.read", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostStandingInstructions]()},
 		{"host.standing.write", reflect.TypeFor[WriteHostStandingInstructionsParams](), reflect.TypeFor[HostStandingInstructions]()},
@@ -190,6 +193,11 @@ func Operations() []Operation {
 		{"permissions.denial_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionDenialEdit]()},
 		{"permissions.mode_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"host.profiles", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostProfiles]()},
+		{"host.external_browser", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ExternalBrowserStatus]()},
+		{"host.set_external_browser", reflect.TypeFor[ConfigureExternalBrowserParams](), reflect.TypeFor[ExternalBrowserStatus]()},
+		{"browser.external_sessions", reflect.TypeFor[SessionParams](), reflect.TypeFor[ExternalBrowserSessions]()},
+		{"browser.reconnect_external", reflect.TypeFor[ExternalBrowserConnectionParams](), reflect.TypeFor[ExternalBrowserSession]()},
+		{"browser.disconnect_external", reflect.TypeFor[ExternalBrowserConnectionParams](), reflect.TypeFor[ExternalBrowserSession]()},
 		{"host.browser_driver", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostBrowserDriver]()},
 		{"host.set_browser_driver", reflect.TypeFor[SetBrowserDriverParams](), reflect.TypeFor[HostBrowserDriver]()},
 		{"host.execution_defaults", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostExecutionDefaults]()},
@@ -356,6 +364,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		if t == reflect.TypeFor[HostProfile]() {
 			schema.Properties["url"].MaxLength = new(2048)
 		}
+		skillRootSchema(schema, t)
 		accountSchema(schema, t)
 		if t == reflect.TypeFor[WorkspaceSnapshotsResult]() {
 			schema.Properties["items"].Type = "array"
@@ -370,6 +379,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		languageServerSchema(schema, t)
 		mcpSchema(schema, t)
 		computerSchema(schema, t)
+		externalBrowserSchema(schema, t)
 		terminalSchema(schema, t)
 		hostOperationSchema(schema, t)
 		if t == reflect.TypeFor[MatchReceiptParams]() {

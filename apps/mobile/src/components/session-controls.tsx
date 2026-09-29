@@ -11,6 +11,7 @@ import { useRuntime, useRuntimeState } from '../runtime/context';
 import { historyBoundaries, historyCut } from '../features/history-actions';
 import { Actions, Field, Label, Loading, Notice, Stack } from './primitives';
 import { ReloadControls } from './reload-controls';
+import { ExternalBrowserConnections } from './external-browser-connections';
 
 /** Controls borrow the selected transcript; they never own a second history or work queue. */
 export function SessionControls({ rootId, session, view }: { rootId: string; session: SessionRecord; view: SessionView }) {
@@ -89,6 +90,7 @@ export function SessionControls({ rootId, session, view }: { rootId: string; ses
         Alert.alert(deny ? 'Deny interactive requests?' : 'Allow interactive requests?', deny ? 'Pending tool approvals and future effects without explicit authority will be denied. Existing grants and user questions remain available. Ask or Full access remains unchanged.' : 'Tool effects return to the current Ask or Full access policy. This creates no additional grants.', [{ text: 'Keep current policy', style: 'cancel' }, { text: deny ? 'Deny requests' : 'Allow requests', onPress: () => { void change(deny ? 'deny' : 'permit'); } }]);
       } }]} />
     <ReloadControls rootId={rootId} session={session} view={view} online={online} />
+    <ExternalBrowserConnections rootId={rootId} session={{ ...session, lifecycle }} online={online}/>
     <Label muted>History actions for {session.id === rootId ? 'the root agent' : 'this child agent'}</Label><Notice>These actions use the exact observed history. A lost response stays in Drafts &amp; recovery; reconnecting does not retry it.</Notice>
     <Notice>Stop this recipient before rewinding. Choose the end of a whole completed message group. Use 0 to keep no messages. Boundaries on this page: {boundaries.slice(-8).join(', ')}{boundaries.length > 8 ? ' (latest 8 shown)' : ''}.</Notice>
     <Field label="Keep through message sequence" value={keep} placeholder={observed.history.snapshot?.through_sequence ?? '0'} onChangeText={setKeep} maxLength={19} editable={!historyDisabled} keyboardType="number-pad" />

@@ -220,6 +220,14 @@ func (r *Runtime) instructionRoots(ctx context.Context, cwd string, policy sessi
 	if err := policy.Validate(); err != nil {
 		return nil, nil, err
 	}
+	var skillRoots map[string]string
+	if len(policy.SkillRoots) > 0 {
+		current, err := r.configuration.Snapshot(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		skillRoots = current.Host.SkillRoots
+	}
 	var roots []instruction.Root
 	closeRoots := func() {
 		for _, root := range roots {
@@ -242,7 +250,7 @@ func (r *Runtime) instructionRoots(ctx context.Context, cwd string, policy sessi
 		return nil
 	}
 	for _, id := range policy.SkillRoots {
-		path, ok := r.host.SkillRoots[id]
+		path, ok := skillRoots[id]
 		if !ok {
 			closeRoots()
 			return nil, nil, fmt.Errorf("%w: unknown host skill root %q", session.ErrInvalid, id)

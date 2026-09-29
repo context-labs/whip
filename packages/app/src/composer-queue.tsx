@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { RemoteError, type Session } from '@whip/sdk';
@@ -25,6 +25,7 @@ export const ComposerQueue = memo(function ComposerQueue({ rows, session, rootId
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>();
+  const [removedFocus, setRemovedFocus] = useState<{ row: string; element: HTMLElement | null; index: number; session: Session; rootId: string; runtimeId: string }>();
   const pending = useRef(new Set<string>());
   const strip = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLOListElement>(null);
@@ -35,14 +36,16 @@ export const ComposerQueue = memo(function ComposerQueue({ rows, session, rootId
   const agentId = session.id;
   const owner = useRef<object>({});
   useEffect(() => { owner.current = {}; setPreview(undefined); return () => { owner.current = {}; }; }, [session, rootId, runtimeId]);
-  const focusAfterRemoval = (element: HTMLElement | null, index: number) => {
-    requestAnimationFrame(() => {
-      if (document.activeElement !== document.body && document.activeElement !== element) return;
-      const actions = strip.current?.querySelectorAll<HTMLButtonElement>('[data-queue-action]:not(:disabled)');
-      const next = actions?.[Math.min(index, actions.length - 1)] ?? strip.current?.closest('form')?.querySelector<HTMLTextAreaElement>('[data-whip-composer]');
-      next?.focus({ preventScroll: true });
-    });
-  };
+  useLayoutEffect(() => {
+    if (!removedFocus) return;
+    if (removedFocus.session !== session || removedFocus.rootId !== rootId || removedFocus.runtimeId !== runtimeId) { setRemovedFocus(undefined); return; }
+    if (rows.some(row => row.id === removedFocus.row)) return;
+    setRemovedFocus(undefined);
+    if (document.activeElement !== document.body && document.activeElement !== removedFocus.element) return;
+    const actions = strip.current?.querySelectorAll<HTMLButtonElement>('[data-queue-action]:not(:disabled)');
+    const next = actions?.[Math.min(removedFocus.index, actions.length - 1)] ?? strip.current?.closest('form')?.querySelector<HTMLTextAreaElement>('[data-whip-composer]');
+    next?.focus({ preventScroll: true });
+  }, [rows, removedFocus, session, rootId, runtimeId]);
   async function control(row: QueuedInputRow, remove: boolean) {
     if (!row.item || row.item.session_id !== session.id || row.stale || !connected || !remove && !activeTurn || pending.current.has(row.id)) return;
     pending.current.add(row.id);
@@ -57,6 +60,7 @@ export const ComposerQueue = memo(function ComposerQueue({ rows, session, rootId
         const result = await session.inputs.cancel(row.item.id, { signal });
         if (owner.current !== origin) return;
         setNotice(result.state === 'claimed' ? 'That message has already started.' : 'Queued message removed.');
+        if (result.state === 'cancelled' && actionIndex >= 0) setRemovedFocus({ row: row.id, element: focused, index: actionIndex, session, rootId, runtimeId });
       } else {
         const command = session.inputs.promotion(row.item.id, activeTurn!, crypto.randomUUID(), { journal: runtime.recovery });
         const result = await runtime.run(command, 'Steer queued message', undefined, `${runtimeId}:${rootId}:queue:${agentId}:${row.item.id}`);
@@ -64,7 +68,6 @@ export const ComposerQueue = memo(function ComposerQueue({ rows, session, rootId
         setNotice(result.deleted ? 'The session was deleted.' : result.input?.steering?.consumed ? 'Message consumed by its target turn.' : 'Message will steer at the next available boundary.');
       }
       await refresh();
-      if (owner.current === origin && remove && actionIndex >= 0) focusAfterRemoval(focused, actionIndex);
     } catch (failure) {
       if (owner.current !== origin) return;
       if (!remove && failure instanceof RemoteError && failure.kind === 'CONFLICT') {

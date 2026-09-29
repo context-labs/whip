@@ -234,3 +234,11 @@ test('workspace completion preserves empty/dir descriptions and bounded candidat
  assert.equal(validate('WorkspaceCompletionResult',{...result,candidates:Array.from({length:65},()=>({text:'@file',description:''}))}),false);
  assert.equal(validate('WorkspaceCompletionResult',{...result,candidates:[{text:'@file',description:'body'}]}),false);
 });
+
+test('external browser sessions distinguish an empty bounded inventory from null', () => {
+  assert.equal(validate('ExternalBrowserSessions', { items: [] }), true);
+  assert.equal(validate('ExternalBrowserSessions', { items: null }), false);
+  const item = { root_id: 'root', name: 'default', mode: 'headless', driver: 'rod', generation: 'generation', resource: 'browser-external:' + 'a'.repeat(64), state: 'prepared' };
+  assert.equal(validate('ExternalBrowserSessions', { items: Array.from({ length: 4 }, () => item) }), true);
+  assert.equal(validate('ExternalBrowserSessions', { items: Array.from({ length: 5 }, () => item) }), false);
+});

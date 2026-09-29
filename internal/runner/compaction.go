@@ -296,6 +296,9 @@ func (r *Runner) prepareContext(ctx context.Context, turn session.Turn, configur
 		if err == nil && correction != nil {
 			err = appendContext(request, session.System, correction, &size)
 		}
+		if err == nil {
+			_, err = r.contentBudget(ctx, request)
+		}
 		if !errors.Is(err, errContextLimit) {
 			return size, err
 		}
@@ -329,7 +332,7 @@ func (r *Runner) compactTurn(ctx context.Context, turn session.Turn, configurati
 	if _, err := r.foldHistory(ctx, turn, configuration, selection, 4, &folds); err != nil {
 		return Failure(err), nil
 	}
-	request := model.Request{}
+	request := model.Request{SessionID: turn.SessionID}
 	if _, err := r.prepareContext(ctx, turn, configuration, &request, &folds, nil); err != nil {
 		return Failure(err), nil
 	}
@@ -414,13 +417,18 @@ func (r *Runner) foldToBoundary(ctx context.Context, turn session.Turn, configur
 			return selection, err
 		}
 		pinBytes := 0
+		var pinContent contentBudget
 		for _, message := range pins {
 			raw, err := json.Marshal(message.Parts)
 			if err != nil {
 				return selection, err
 			}
 			pinBytes += len(raw)
+			if err := r.addContent(ctx, turn.SessionID, &pinContent, message.Parts); err != nil {
+				return selection, err
+			}
 		}
+		pinBytes += pinContent.bytes
 		minimum, err := json.Marshal(quoteSummary(&session.Compaction{ThroughSequence: through, Text: "x"}))
 		if err != nil {
 			return selection, err
@@ -455,7 +463,11 @@ func (r *Runner) compactionPrefix(ctx context.Context, owner session.SessionID, 
 		return 0, 0, err
 	}
 	through, after := selection.through(), selection.through()
-	sourceBytes := size - len(request.Instructions)
+	content, err := r.contentBudget(ctx, request)
+	if err != nil {
+		return 0, 0, err
+	}
+	sourceBytes := size - len(request.Instructions) + content.bytes
 	var batch []session.Message
 	batchBytes := 0
 	pending := map[string]bool{}
@@ -504,11 +516,26 @@ func (r *Runner) compactionPrefix(ctx context.Context, owner session.SessionID, 
 				return through, sourceBytes, nil
 			}
 			if len(pending) == 0 {
+				previousContent := content.bytes
+				for _, item := range batch {
+					if err := r.addContent(ctx, owner, &content, item.Parts); err != nil {
+						if errors.Is(err, errContextLimit) && through > selection.through() {
+							return through, sourceBytes, nil
+						}
+						return 0, 0, err
+					}
+				}
+				if size+batchBytes+content.bytes > maxContextBytes {
+					if through > selection.through() {
+						return through, sourceBytes, nil
+					}
+					return 0, 0, errContextLimit
+				}
 				for _, item := range batch {
 					request.Messages = append(request.Messages, model.Message{Role: item.Role, Parts: item.Parts})
 				}
 				size += batchBytes
-				sourceBytes += batchBytes
+				sourceBytes += batchBytes + content.bytes - previousContent
 				through = message.Sequence
 				batch, batchBytes = nil, 0
 			}

@@ -18,6 +18,29 @@ A native development build is required. Expo Go cannot provide the encrypted
 storage/native UI modules. Native projects are generated from `app.config.ts`;
 `modules/whip-storage` contains the small backup-exclusion bridge.
 
+## External Chrome controls
+
+Settings → Hosts → Browser automation edits the selected execution host's saved
+driver and explicit external Chrome mode. Existing Chrome uses a named loopback
+endpoint or profile; dedicated/headless uses an absolute executable on that host.
+Saving is a reviewed revision CAS, not browser launch or consent. Process driver
+pins remain visible. Conflicts, lost replies and leaving the foreground preserve
+the edited form and require an explicit current-settings read before another
+write; reconnection never resends the change.
+
+Conversation controls list at most four root-owned connections with exact
+mode/driver/state/generation/resource metadata. Only the root recipient can
+reconnect or disconnect a reviewed generation. Children see metadata without
+connection actions and still require delegated authority. Reconnect prepares a
+new generation but does not open Chrome, restore grants, or repeat failed work.
+Paths refer to the execution host, never the phone filesystem.
+
+The native component tests cover exact review, late confirmations, foreground
+cancellation, child/foreign-owner refusal and uncertain acknowledgments. The
+compiled backend fixture covers real gateway CAS, lost replies, pending consent,
+generation changes and restart without browser launch. Hermes export validates
+the JavaScript bundles; it does not establish device or actual Chrome acceptance.
+
 ## Manual acceptance fixture
 
 Use the native production runtime and loopback fake-provider fixture for local phone/web comparison. From

@@ -74,27 +74,11 @@ func TestSpecDescriptionLimit(t *testing.T) {
 	}
 }
 
-func TestSpecPromptBlockFormat(t *testing.T) {
+func TestSpecDisabledSkillMetadata(t *testing.T) {
 	dir := t.TempDir()
 	writeSpecSkill(t, dir, "xml-skill", "---\nname: xml-skill\ndescription: uses <angle> & \"quotes\"\n---\n")
 	writeSpecSkill(t, dir, "hidden", "---\nname: hidden\ndescription: not in the catalog\ndisable-model-invocation: true\n---\n")
 	sk := Scan(dir)
-	block := PromptBlock(sk)
-	for _, want := range []string{
-		"<available_skills>",
-		"  <skill>\n    <name>xml-skill</name>",
-		"<description>uses &lt;angle&gt; &amp; &quot;quotes&quot;</description>",
-		"<location>",
-		"</available_skills>",
-	} {
-		if !strings.Contains(block, want) {
-			t.Errorf("block missing %q:\n%s", want, block)
-		}
-	}
-	if strings.Contains(block, "hidden") {
-		t.Error("disable-model-invocation skill must not appear in the catalog")
-	}
-	// …but it must still be invocable explicitly ($hidden works off Scan).
 	var found bool
 	for _, s := range sk {
 		if s.Name == "hidden" && s.DisableModelInvocation {

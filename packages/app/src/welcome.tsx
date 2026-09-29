@@ -89,6 +89,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const { sending: busy, attachments } = useSyncExternalStore(runtime.compositions.subscribe, () => runtime.compositions.get(key));
   const [error, setError] = useState('');
   const [showProviders, setShowProviders] = useState(false);
+  const [draftingRuntime, setDraftingRuntime] = useState<string>();
   const [showOptions, setShowOptions] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
@@ -156,7 +157,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const disabled = !connected || busy;
   // While the inventory is pending, the device's last answer for this host picks the layout; unknown keeps the composer's footprint.
   const knownReady = providers.inventory.isPending ? providers.lastKnownReady : ready;
-  const setupVisible = knownReady === false || showProviders;
+  const setupVisible = (knownReady === false && draftingRuntime !== runtimeId) || showProviders;
   // Once a provider works, a host that has MCP servers configured for other
   // agents gets one offer to bring them in. Native MCP configuration records whether this host
   // has answered, so an answered host never reads the other agents' files again.
@@ -207,7 +208,8 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
           onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data, provider), model).includes(effort) ? effort : 'off' })}
           onSessionOptions={() => setShowOptions(true)} />
           : providers.inventory.isPending ? <PickerSkeletons count={2} />
-          : <Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>}
+          : <><Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>
+            <Button variant="ghost" disabled={disabled} onClick={() => setShowOptions(true)}>Session options</Button></>}
         {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
         <Button type="submit" variant="primary" aria-label="Send first message" xstyle={styles.send} loading={busy}
           disabled={disabled || !permissionAvailable || !!unresolved || !definitionAvailable || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}>{!busy && <ArrowUp size={16} />}</Button>
@@ -251,9 +253,11 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
       </>} />}
     {error && !unresolved && <ErrorNotice type="submission" owner={key} error={error} action={error.includes('saved session creation') ? <Button onClick={() => void navigate({ to: '/settings', search: { section: 'general', setting: 'commandRecovery' } })}>Review saved commands</Button> : undefined} />}
     {!connected && <p role="status" {...stylex.props(styles.note)}>Reconnecting to {host.name}. Your draft stays here and will not be sent automatically.</p>}
-    {setupVisible && <ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers} onExpandedChange={onProviderExpandedChange}
+    {setupVisible && <><ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers} onExpandedChange={onProviderExpandedChange}
       actions={host.local ? <Button variant="ghost" disabled={busy} onClick={() => onConnectRemote ? onConnectRemote() : void navigate({ to: '/settings', search: { section: 'connections' } })}><Monitor size={14} />Connect Remote</Button> : showProviders ? hostControl : undefined}
-      onReady={() => { updateSetup({ model: undefined, provider: undefined, effort: undefined }); focusComposer(); }} />}
+      onReady={() => { updateSetup({ model: undefined, provider: undefined, effort: undefined }); focusComposer(); }} />
+      <Button variant="ghost" disabled={disabled} onClick={() => { setDraftingRuntime(runtimeId); focusComposer(); }}>Draft before connecting</Button>
+    </>}
   </div></>;
 }
 

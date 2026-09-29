@@ -85,7 +85,11 @@ func (r *Runtime) prepareSkillRead(ctx context.Context, current session.Session,
 			return tool.Prepared{}, fmt.Errorf("%w: skill root is not selected by this turn", session.ErrInvalid)
 		}
 		var registered bool
-		path, registered = r.host.SkillRoots[rootID]
+		currentHost, err := r.configuration.Snapshot(ctx)
+		if err != nil {
+			return tool.Prepared{}, err
+		}
+		path, registered = currentHost.Host.SkillRoots[rootID]
 		if !registered {
 			return tool.Prepared{}, fmt.Errorf("%w: unknown skill root", session.ErrInvalid)
 		}

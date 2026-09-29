@@ -26,6 +26,13 @@ func (e imageExecutor) Execute(_ context.Context, _ session.Turn, _ session.Mess
 
 type imageReader struct{ reads int }
 
+func (*imageReader) ContentReference(_ context.Context, owner session.SessionID, id string) (session.ContentReference, error) {
+	if owner != "owner" || id != "owned-image" {
+		return session.ContentReference{}, errors.New("wrong content authority")
+	}
+	return session.ContentReference{ID: id, SessionID: owner, MediaType: "image/jpeg", Size: 5}, nil
+}
+
 func (r *imageReader) ReadContent(_ context.Context, owner session.SessionID, id string, limit int64) (session.ContentReference, []byte, error) {
 	r.reads++
 	if owner != "owner" || id != "owned-image" || limit < 5 {

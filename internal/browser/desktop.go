@@ -16,6 +16,13 @@ import (
 	"golang.org/x/image/draw"
 )
 
+type DesktopError struct {
+	Kind    string `json:"kind"`
+	Message string `json:"message"`
+}
+
+func (e *DesktopError) Error() string { return e.Kind + ": " + e.Message }
+
 // NewDesktopBackend attaches Rod to an already-authorized, one-target client.
 // It never launches a browser, discovers endpoints, changes emulation, or owns
 // the native guest. The caller must cancel the transport on grant revocation.

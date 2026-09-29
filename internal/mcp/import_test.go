@@ -57,7 +57,7 @@ func at(cands []Candidate, name string) Candidate {
 
 func TestCandidatesStatesAndOrder(t *testing.T) {
 	dir := importFixture(t)
-	native := FromConfigMap(map[string]mcpconfig.Server{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}})
+	native := NativeConfigs(map[string]mcpconfig.Server{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}}, "/fixture/runtime-v4/host.json")
 	policy := everySource()
 	policy.Codex.Exclude = map[string]bool{"node_repl": true}
 	cands, errs := Candidates(dir, native, policy)
@@ -124,7 +124,7 @@ func TestCandidatesStatesAndOrder(t *testing.T) {
 
 func TestApplyWritesNativeEntries(t *testing.T) {
 	dir := importFixture(t)
-	native := FromConfigMap(map[string]mcpconfig.Server{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}})
+	native := NativeConfigs(map[string]mcpconfig.Server{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}}, "/fixture/runtime-v4/host.json")
 	policy := everySource()
 	policy.Codex.Exclude = map[string]bool{"node_repl": true}
 	cands, _ := Candidates(dir, native, policy)
@@ -149,7 +149,7 @@ func TestApplyWritesNativeEntries(t *testing.T) {
 		if entry.Enabled != nil {
 			t.Errorf("%s must import enabled (ticking it is the choice), got %v", name, *entry.Enabled)
 		}
-		if !FromConfigMap(servers)[name].Trusted {
+		if !NativeConfigs(servers, "/fixture/runtime-v4/host.json")[name].Trusted {
 			t.Errorf("%s must be trusted once native", name)
 		}
 	}

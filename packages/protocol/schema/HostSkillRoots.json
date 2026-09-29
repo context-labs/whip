@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^[^\\x00]+$"
+          }
+        },
+        "required": [
+          "id",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 16,
+      "uniqueItems": true
+    },
+    "defaults": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+      },
+      "maxItems": 16,
+      "uniqueItems": true
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostSkillRoots",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostSkillRoots",
+  "required": [
+    "revision",
+    "roots",
+    "defaults"
+  ],
+  "additionalProperties": false
+}

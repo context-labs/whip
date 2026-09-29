@@ -1,12 +1,9 @@
 // swift-tools-version: 5.10
 import PackageDescription
 
-// NOTE: tests require full Xcode (XCTest isn't in Command Line Tools).
-// On a CLT-only Mac, `swift build` works and `swift test` is a no-op stub —
-// the testTarget is excluded below. On machines with Xcode, re-add the
-// testTarget (see Tests/WhipComputerTests).
-
-var targets: [Target] = [
+// Building the helper does not build tests. Running the XCTest target requires
+// full Xcode; the existing tests do not request TCC access or control any apps.
+let targets: [Target] = [
     .target(
         name: "WhipComputerCore",
         path: "Sources/WhipComputerCore"
@@ -16,11 +13,12 @@ var targets: [Target] = [
         dependencies: ["WhipComputerCore"],
         path: "Sources/WhipComputer"
     ),
+    .testTarget(
+        name: "WhipComputerTests",
+        dependencies: ["WhipComputerCore"],
+        path: "Tests/WhipComputerTests"
+    ),
 ]
-
-// XCTest ships only with full Xcode. `task driver-test` swaps in
-// Package+tests.swift on Xcode machines; the default manifest stays
-// CLT-buildable.
 
 let package = Package(
     name: "whip-computer",

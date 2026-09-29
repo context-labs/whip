@@ -85,6 +85,7 @@ func browserResult(attached browserhost.Attachment) BrowserResult {
 
 type browserArguments struct {
 	browserhost.Arguments
+	Session string  `json:"session,omitempty"`
 	Code    string  `json:"code,omitempty"`
 	Timeout float64 `json:"timeout,omitempty"`
 }
@@ -120,6 +121,9 @@ func (r *Runtime) prepareBrowser(ctx context.Context, current session.Session, c
 	}
 	if math.IsNaN(args.Timeout) || math.IsInf(args.Timeout, 0) || args.Timeout < 0 || args.Timeout > 120 || (args.Timeout > 0 && args.Timeout < 0.001) {
 		return tool.Prepared{}, session.ErrInvalid
+	}
+	if args.Session != "" {
+		return r.prepareExternalBrowser(ctx, current, call, args)
 	}
 	if call.Name == "open" {
 		if err := browser.ValidateNavigationURL(args.URL); err != nil {
@@ -265,6 +269,13 @@ func browserFailure(err error) error {
 }
 
 func (r *Runtime) cleanupBrowserOwners(ctx context.Context) error {
+	for _, entry := range r.externalBrowser.List("") {
+		if _, err := r.store.Session(ctx, session.SessionID(entry.RootID)); errors.Is(err, store.ErrNotFound) {
+			r.externalBrowser.RevokeOwner(entry.RootID, entry.RootID)
+		} else if err != nil {
+			return err
+		}
+	}
 	for _, identity := range r.browser.Owners() {
 		if _, err := r.store.Session(ctx, session.SessionID(identity.AgentID)); errors.Is(err, store.ErrNotFound) {
 			if identity.AgentID == identity.RootID {

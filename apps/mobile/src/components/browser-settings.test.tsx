@@ -5,6 +5,7 @@ import { assertValid, type HostBrowserDriver } from '@whip/protocol';
 import { BrowserSettings } from './browser-settings';
 let mockRuntime: ReturnType<typeof fixture>['runtime'], mockFocused = true;
 jest.mock('../runtime/context', () => ({ useRuntime: () => mockRuntime, useRuntimeState: () => mockRuntime.getSnapshot() }));
+jest.mock('./external-browser-settings', () => ({ ExternalBrowserSettings: () => null }));
 jest.mock('expo-router', () => ({ useIsFocused: () => mockFocused }));
 jest.mock('@expo/ui', () => {
   const React = require('react'), { View, Text, Pressable } = require('react-native');

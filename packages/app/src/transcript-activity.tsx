@@ -300,7 +300,7 @@ function ExecutionDetails({
         </p>
       )}
       {onOpenRepl && (
-        <Button size="sm" variant="ghost" onClick={onOpenRepl}>
+        <Button size="sm" variant="ghost" xstyle={styles.replAction} onClick={onOpenRepl}>
           Open in REPL <ArrowUpRight size={13} />
         </Button>
       )}
@@ -552,6 +552,7 @@ const styles = stylex.create({
     fontSize: typography.size12,
     minWidth: 0,
   },
+  replAction: { alignSelf: 'flex-start' },
   stack: { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 },
   reasoning: {
     whiteSpace: 'pre-wrap',

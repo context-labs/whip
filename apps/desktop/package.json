@@ -6,7 +6,6 @@
   "description": "Whip desktop host for the shared web application",
   "dependencies": {
     "@whip/app": "0.1.0",
-    "@whip/legacy-sdk": "0.1.0",
     "@whip/ui": "0.1.0",
     "@whip/sdk": "4.0.0",
     "@whip/protocol": "4.0.0"

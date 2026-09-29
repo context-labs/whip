@@ -336,7 +336,7 @@ def process_sample():
     return rss, cpu
 
 
-HOST_VERSION = 20
+HOST_VERSION = 21
 
 
 def write_config(home, engine, max_output, base_url="https://api.inference.net/v1", native_defaults=False, model="kimi-k3"):

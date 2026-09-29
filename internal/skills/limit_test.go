@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -18,17 +17,4 @@ func TestRepoSkillsSpecClean(t *testing.T) {
 			t.Errorf("%s: %s", s.Name, s.Warning)
 		}
 	}
-}
-
-// The block total should stay sane: with ~50 skills at ≤300 chars each the
-// prompt block is ≲4k tokens. If someone adds 50 more skills this fails and
-// forces a conversation about the budget.
-func TestSkillBlockBudget(t *testing.T) {
-	sk := Scan("../../.agents/skills")
-	block := PromptBlock(sk)
-	const budget = 30_000 // ≈7.5k tokens
-	if len(block) > budget {
-		t.Errorf("skills block = %d chars (budget %d)", len(block), budget)
-	}
-	fmt.Printf("skills block: %d chars across %d skills\n", len(block), len(sk))
 }

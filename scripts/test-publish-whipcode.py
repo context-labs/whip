@@ -422,9 +422,10 @@ class WorkflowTests(unittest.TestCase):
         self.desktop = (self.workflows / 'desktop-release.yml').read_text()
         self.ci = (self.workflows / 'ci.yml').read_text()
         self.security = (self.workflows / 'security.yml').read_text()
+        self.tasks = (SCRIPT.parent.parent / 'Taskfile.yaml').read_text()
 
     def job(self, workflow, name):
-        match = re.search(r'(?ms)^  ' + re.escape(name) + r':\n(.*?)(?=^  [a-zA-Z_-]+:|\Z)', workflow)
+        match = re.search(r'(?ms)^  ' + re.escape(name) + r':\n(.*?)(?=^  [a-zA-Z0-9_:-]+:|\Z)', workflow)
         self.assertIsNotNone(match, name)
         return match.group(1)
 
@@ -547,12 +548,23 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue((root / 'assembled').exists())
 
     def test_distribution_installer_dependencies_precede_execution(self):
-        distribution = self.job(self.ci, 'distribution')
-        self.assertLess(distribution.index('uses: actions/setup-node@'), distribution.index('run: npm ci'))
-        self.assertEqual(distribution.count('run: npm ci'), 1)
+        products = self.job(self.ci, 'products')
+        for platform in ['ubuntu-latest', 'macos-15']:
+            self.assertIn('{os: ' + platform + ', gate: product-distributions}', products)
+        execution = products.index('run: task check:${{ matrix.gate }}')
+        self.assertLess(products.index('uses: actions/setup-node@'), products.index('run: npm ci'))
+        self.assertLess(products.index('uses: actions/setup-go@'), products.index('run: go install'))
+        self.assertEqual(products.count('run: npm ci'), 1)
+        for prerequisite in ['run: npm ci', 'run: go install github.com/go-task/task/',
+                             'run: npx playwright install --with-deps chromium firefox']:
+            self.assertLess(products.index(prerequisite), execution)
+        browser_install = products.split('run: npx playwright install --with-deps chromium firefox')[0]
+        self.assertIn("matrix.gate == 'product-distributions'", browser_install.split('      - if:')[-1])
+        distribution = self.job(self.tasks, 'check:product-distributions')
         for command in ['python3 scripts/test-install-whipcode.py', 'python3 scripts/test-publish-whipcode.py',
-                        'node --test scripts/build-installers.test.mjs']:
-            self.assertLess(distribution.index('run: npm ci'), distribution.index(command))
+                        'node --test scripts/build-installers.test.mjs',
+                        'python3 scripts/test-distributions.py --browser']:
+            self.assertLess(distribution.index('- task: web-assets'), distribution.index(command))
 
     def test_all_checkouts_explicit_immutable_source(self):
         for text in [self.release, self.desktop, self.ci, self.security,
@@ -570,9 +582,29 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('  pull_request:\n    branches: [main, development]\n', workflow)
             self.assertIn('  push:\n    branches: [main, development]\n', workflow)
             self.assertNotIn('continue-on-error:', workflow)
-        for name in ['lint', 'test', 'build', 'runtime', 'driver', 'sdk', 'distribution', 'desktop', 'mobile']:
-            self.assertIn('${{ needs.' + name + '.result }}" = success', self.job(self.ci, 'go'))
-        self.assertIn('if: always()', self.job(self.ci, 'go'))
+        aggregate = self.job(self.ci, 'go')
+        self.assertIn('if: always()', aggregate)
+        jobs = set(re.findall(r'^  ([a-zA-Z0-9_-]+):$', self.ci.split('\njobs:\n', 1)[1], re.M))
+        jobs.remove('go')
+        self.assertEqual(jobs, {'checks', 'products', 'analysis', 'build', 'driver', 'desktop', 'mobile'})
+        needs = re.search(r'^    needs: \[([^\]]+)\]$', aggregate, re.M)
+        self.assertIsNotNone(needs)
+        self.assertEqual(set(needs.group(1).replace(' ', '').split(',')), jobs)
+        bindings = dict(re.findall(r'^          ([A-Z_]+): \$\{\{ needs\.([a-zA-Z0-9_-]+)\.result \}\}$', aggregate, re.M))
+        self.assertEqual(set(bindings.values()), jobs)
+        command = '\n'.join(line[10:] for line in aggregate.split('        run: |\n', 1)[1].splitlines()
+                            if line.startswith('          '))
+        success = {key: 'success' for key in bindings}
+        result = subprocess.run(['bash', '-e', '-c', command], env={**os.environ, **success},
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for key, job in bindings.items():
+            for state in ['failure', 'cancelled', 'skipped', '']:
+                with self.subTest(job=job, state=state):
+                    result = subprocess.run(['bash', '-e', '-c', command],
+                                            env={**os.environ, **success, key: state},
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0, 'Required gate was ignored')
         self.assertNotIn('contents: write', self.security)
         self.assertNotIn('secrets.', self.security)
         self.assertNotIn('pull_request_target:', self.release + self.security)

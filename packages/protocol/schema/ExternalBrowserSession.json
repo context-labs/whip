@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "live",
+        "dedicated",
+        "headless",
+        "extension"
+      ]
+    },
+    "driver": {
+      "type": "string",
+      "enum": [
+        "rod",
+        "chromedp"
+      ]
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "resource": {
+      "type": "string",
+      "pattern": "^browser-external:[a-f0-9]{64}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "prepared",
+        "connected",
+        "ended"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ExternalBrowserSession",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExternalBrowserSession",
+  "required": [
+    "root_id",
+    "name",
+    "mode",
+    "driver",
+    "generation",
+    "resource",
+    "state"
+  ],
+  "additionalProperties": false
+}

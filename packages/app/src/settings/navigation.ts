@@ -19,6 +19,7 @@ export interface SettingsSearch { section?: SettingsSection; host?: string; sett
 export interface SettingEntry { id: string; section: SettingsSection; label: string; keywords: string; desktopOnly?: boolean }
 export const settingEntries: readonly SettingEntry[] = [
   { id: 'commandRecovery', section: 'general', label: 'Saved commands', keywords: 'delivery recovery lost acknowledgement check retry forget' },
+  { id: 'external_browser_mode', section: 'execution', label: 'External browser mode', keywords: 'chrome live headless dedicated extension automation' },
   { id: 'default_execution_engine', section: 'execution', label: 'Execution language', keywords: 'javascript quickjs starlark future roots' },
   { id: 'browserRecovery', section: 'general', label: 'Saved Browser addresses', keywords: 'browser tabs recovery restore upgrade downgrade' },
   { id: 'browserForget', section: 'general', label: 'Forget closed Browser addresses', keywords: 'browser history privacy data clear' },

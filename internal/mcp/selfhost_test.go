@@ -13,11 +13,12 @@ import (
 	"github.com/context-labs/whip/internal/localruntime"
 )
 
-// TestServeSelfHost builds `whipcode mcp serve` and connects to it as a real
+// newSelfHostManager builds `whipcode mcp serve` and connects to it as a real
 // stdio MCP server — the full loop: config → manager → CommandTransport →
 // subprocess → served tools. Gated on WHIP_TEST_SELFHOST since it shells
 // out to `go build`.
-func TestServeSelfHost(t *testing.T) {
+func newSelfHostManager(t *testing.T) (context.Context, *Manager, string) {
+	t.Helper()
 	if os.Getenv("WHIP_TEST_SELFHOST") == "" {
 		t.Skip("builds the whipcode binary; set WHIP_TEST_SELFHOST=1 to run")
 	}
@@ -43,7 +44,7 @@ func TestServeSelfHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 	m := NewManager(map[string]ServerConfig{"self": {
 		Command: []string{bin, "mcp", "serve"}, Cwd: workspace, StartupTimeout: 15, ToolTimeout: 15,
 		Env: map[string]string{"HOME": home, "WHIPCODE_HOME": filepath.Join(home, ".whipcode"), "WHIPCODE_NETWORK": "false", "WHIPCODE_NETWORK_TERMINALS": "false"},
@@ -73,19 +74,24 @@ func TestServeSelfHost(t *testing.T) {
 	if st.Tools != 10 {
 		t.Fatalf("expected the native endpoint's 10 tools, got %d", st.Tools)
 	}
-	out, err := s.call(ctx, "read", json.RawMessage(`{"path":"fixture.txt"}`))
+	return ctx, m, workspace
+}
+
+func TestServeSelfHost(t *testing.T) {
+	ctx, m, workspace := newSelfHostManager(t)
+	out, err := testCall(ctx, m, "self", "read", json.RawMessage(`{"path":"fixture.txt"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "selfhost-ok") {
-		t.Fatalf("read via MCP: %q", out)
+	if !strings.Contains(out.Text, "selfhost-ok") {
+		t.Fatalf("read via MCP: %+v", out)
 	}
 	for _, call := range []struct{ name, arguments string }{
 		{"write", `{"path":"fixture.txt","content":"changed"}`},
 		{"bash", `{"command":"touch denied-marker"}`},
 	} {
-		if out, err := s.call(ctx, call.name, json.RawMessage(call.arguments)); err == nil || !strings.Contains(err.Error(), "tree policy denies interactive tool permissions") {
-			t.Fatalf("native endpoint did not deny unapproved %s through policy: %q, %v", call.name, out, err)
+		if out, err := testCall(ctx, m, "self", call.name, json.RawMessage(call.arguments)); err == nil || !strings.Contains(err.Error(), "tree policy denies interactive tool permissions") {
+			t.Fatalf("native endpoint did not deny unapproved %s through policy: %+v, %v", call.name, out, err)
 		}
 	}
 	if body, err := os.ReadFile(filepath.Join(workspace, "fixture.txt")); err != nil || string(body) != "selfhost-ok" {

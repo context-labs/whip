@@ -85,6 +85,13 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
     const draft = 'Keep this draft while reading earlier history.';
     const composer = page.getByRole('textbox', { name: 'Message WHIP', exact: true });
     await composer.fill(draft);
+    // Retention can only be asserted for evidence that this observer loaded.
+    // Execution metadata reads are independent of the first transcript paint.
+    const notebook = page.getByRole('region', { name: 'REPL executions', exact: true });
+    await page.getByRole('button', { name: 'REPL', exact: true }).click();
+    await expect(notebook.locator(`[data-repl-cell="${fixture.history.cell_id}"]`)).toBeVisible();
+    await page.goBack(); await expect(reading).toBeVisible();
+    await expect(composer).toHaveValue(draft);
     await top(); mode = 'hold';
     await earlier.focus(); await page.keyboard.press('Enter');
     await eventually(() => release, { description: 'actual older history reply held' });
@@ -103,7 +110,6 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
     await expect(error).toBeVisible(); assert.equal(requests.length, 2);
     const failed = requests[1];
     await page.getByRole('button', { name: 'REPL', exact: true }).click();
-    const notebook = page.getByRole('region', { name: 'REPL executions', exact: true });
     await expect(notebook.locator(`[data-repl-cell="${fixture.history.cell_id}"]`)).toBeVisible();
     await expect(error).toBeVisible(); await page.goBack();
     await expect(reading).toBeVisible(); await expect(error).toBeVisible();

@@ -140,7 +140,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(await edge.evaluate(node => getComputedStyle(node).opacity), '0');
     await saved().evaluate(node => { node.scrollTop = 80; });
     await eventually(() => edge.evaluate(node => getComputedStyle(node).opacity === '1'));
-    assert.deepEqual(await header.boundingBox(), headerBefore, 'New session must remain pinned');
+    const headerAfter = await header.boundingBox();
+    assert(headerBefore && headerAfter, 'Pinned header must remain measurable');
+    // Layout coordinates can differ by floating-point roundoff after scrolling.
+    // A single layout quantum still catches actual subpixel displacement.
+    for (const key of ['x', 'y', 'width', 'height']) {
+      assert(Math.abs(headerAfter[key] - headerBefore[key]) <= 1 / 64, `New session must remain pinned (${key}: ${headerBefore[key]} → ${headerAfter[key]})`);
+    }
     assert.ok((await sidebar().getByRole('button', { name: 'Search sessions', exact: true }).boundingBox()).y < searchBefore.y, 'Secondary navigation must scroll');
     await saved().evaluate(node => { node.scrollTop = 0; });
     await eventually(() => edge.evaluate(node => getComputedStyle(node).opacity === '0'));

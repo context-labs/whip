@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -26,6 +27,9 @@ func skillReadFixture(t *testing.T) (*Runtime, session.Session, session.Cell, st
 	owner := createTest(t, r)
 	hostRoot := t.TempDir()
 	r.host.SkillRoots = map[string]string{"shared": hostRoot, "other": t.TempDir()}
+	if err := config.Save(r.directory, r.host); err != nil {
+		t.Fatal(err)
+	}
 	policy := session.Instructions{SkillRoots: []string{"shared", "unregistered"}}
 	owner, err := r.UpdateConfiguration(t.Context(), owner.ID, owner.ConfigRevision, session.ConfigPatch{Instructions: &policy})
 	if err != nil {

@@ -514,3 +514,15 @@ it('motion stops when hidden and reduced, and turn elapsed labels distinguish ob
   working.unmount();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it('names retained agent messages in a mixed execution summary', () => {
+  const cell = cellRow();
+  const rows: TimelineRow[] = [
+    { id: 'mail', role: 'mailbox', text: 'Exact child findings', turnId: cell.cell.turn_id },
+    tool(cell),
+  ];
+  const groups = conversationActivityRows(rows, [cell]).filter(isActivityGroup);
+  expect(groups).toHaveLength(1);
+  expect(groups[0]!.updates?.map(row => row.text)).toEqual(['Exact child findings']);
+  expect(activitySummary(groups[0]!)).toBe('1 execution · agent updates');
+});

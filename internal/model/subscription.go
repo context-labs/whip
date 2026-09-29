@@ -21,9 +21,8 @@ type SubscriptionAuth interface {
 	RefreshCaptured(context.Context, openaiauth.CapturedCredentials) (openaiauth.CapturedCredentials, error)
 }
 
-// SubscriptionOutputLimit is the pinned natural ceiling used by the retained
-// internal/llm/subscription.go adapter, whose model-documentation sources were
-// checked on 2026-09-08. This package does not depend on that retired client.
+// SubscriptionOutputLimit is the reviewed natural ceiling from model
+// documentation checked on 2026-09-08.
 // The subscription endpoint has no wire output cap; unknown models fail closed.
 func SubscriptionOutputLimit(model string) int64 {
 	switch model {

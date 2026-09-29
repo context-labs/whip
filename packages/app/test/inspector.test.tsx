@@ -167,6 +167,12 @@ async function fixture() {
         case 'permissions.policy':
           result = data.policy;
           break;
+        case 'host.external_browser':
+          result = sample<Operations['host.external_browser']['result']>('ExternalBrowserStatus');
+          break;
+        case 'browser.external_sessions':
+          result = { items: [] };
+          break;
         case 'mcp.configuration':
           result = {
             revision: hash,

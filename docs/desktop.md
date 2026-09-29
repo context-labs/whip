@@ -106,8 +106,11 @@ credentials. An invalid recovered endpoint override prevents automatic use of
 its OpenAI key. OpenCode-specific shell markers, config-path probes and credential
 imports are removed. Existing inherited XDG values remain ordinary environment
 values; they are no longer recovered for OpenCode lookup.
-Declared `providerKeySources` files resolve inside the local daemon using its
-own configuration. Desktop never reads those values into renderer state.
+Explicit native `runtime-v4/host.json` provider routes resolve environment,
+file, command or managed-account credentials in the host. Inspecting Settings
+does not run a credential command or infer a configured route from a recovered
+key. Desktop never reads credential-file values into renderer state. See
+[provider configuration](models-providers.md).
 The fixed allowlist, three-second timeout and output limits keep this bounded;
 explicit inherited values win, including an intentionally empty value. Shell
 output and recovered keys are not persisted or logged. SSH setup retains its

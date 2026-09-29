@@ -151,7 +151,6 @@ func main() {
 		return
 	}
 
-	// `whipcode browser ...` — browser tooling (install the drive-my-tab extension).
 	// `whipcode sessions` — list stored sessions (the scriptable companion to run).
 	if flag.NArg() > 0 && flag.Arg(0) == "sessions" {
 		if err := sessionsCLI(); err != nil {
@@ -161,6 +160,7 @@ func main() {
 		return
 	}
 
+	// `whipcode browser ...` — explicit extension setup and native browser controls.
 	if flag.NArg() > 0 && flag.Arg(0) == "browser" {
 		if err := browserCLI(flag.Args()[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "whipcode:", err)

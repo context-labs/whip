@@ -1,107 +1,49 @@
 # `/goal-from-context`
 
-Turn the tail of your conversation into a goal, then let whip work on it
-until it's verifiably done — without you writing the goal statement yourself.
+Use `/goal-from-context` to formulate a goal from the selected session's recent
+conversation. The default window is eight raw messages; an explicit window can
+contain 2–100 messages:
 
-Type it mid-conversation:
-
-```
+```text
 /goal-from-context
-```
-
-whip reads the last 8 messages, distills them into a concrete goal, sets it
-(exactly like `/goal <text>`), and starts the goal loop immediately.
-
-## The 30-second version
-
-1. Chat with whip until the task is clear in the transcript ("that test is
-   flaky, here's the failure…").
-2. Type `/goal-from-context` — whip shows `◎ formulating goal from the last
-   8 messages…`, then `◎ goal set: …` with what it distilled.
-3. whip keeps working — running tools, verifying — until the model declares
-   `GOAL_MET`. Walk away.
-
-## Examples
-
-**From a bug discussion to a fix, hands-free:**
-
-```
-you>  TestSamePathEditsSerialize flakes under -race, here's the output…
-whip> The semaphore acquire happens before the canonical-path lookup…
-you>  /goal-from-context
-
-◎ formulating goal from the last 4 messages…
-◎ goal set: Fix the flaky TestSamePathEditsSerialize under -race.
-  - root cause: semaphore acquired before canonical-path resolution
-  - internal/agent/filelocks.go must pass go test -race -count=20
-  - no regression in TestToolCallsRunInParallel
-```
-
-The loop takes it from there — whip edits, runs the race tests, checks the
-criteria, and stops only when verified.
-
-**Bigger window when the task spread over a long conversation:**
-
-```
 /goal-from-context 20
 ```
 
-distills the last 20 messages instead of the default 8.
+The native host captures the source history revision and window at admission.
+It queues a maintenance input using an exact recoverable request identity. The
+captured main model proposes a goal without running conversation tools or
+starting a second agent loop. Acceptance of the request does not mean the goal
+has been formulated or activated.
 
-## How it works
+A valid candidate becomes the current goal only if the captured goal and history
+conditions still match. A later goal change or history edit cannot be overwritten
+by an older candidate. Candidate text, rejection and billed model evidence remain
+inspectable. Uncertain or interrupted provider work is not automatically repeated.
 
-1. **Window.** `agent.GoalFromContextMessages` takes the last *n*
-   conversation messages (default 8, clamped to history; fewer than 2 →
-   error "chat a bit first"). The system prompt is skipped.
-2. **Distill.** One non-streaming `Complete` call on the **current model**
-   (the compact-model override is deliberately ignored — this goal is for
-   the model you're talking to). The prompt
-   (`agent.BuildGoalFromContextPrompt`) asks for exactly one thing: a first
-   line stating the concrete outcome, then bullets of checkable completion
-   criteria — files to change, commands that must pass, behavior to confirm.
-   Long fields are truncated (2000 chars text, 500 for tool bits), so the
-   call is cheap.
-3. **Set + submit.** On success the TUI calls `setGoal(goal)` (persisted via
-   `store.SetGoal`, so it survives `/resume`) and `submit(goal)` — identical
-   UX to typing `/goal <text>` yourself. The goal loop then re-prompts after
-   every turn until the model replies with the literal token `GOAL_MET`
-   (details: `internal/tui/goal.go`), capped at the goal-rounds limit
-   (`/goal rounds`).
-4. **Safety.** While a turn is in flight the command refuses with a note
-   instead of queueing — by the time the turn ends, the context (and the
-   right goal) has changed. Esc cancels the formulation call. A failed or
-   empty formulation lands as a transcript note; nothing aborts, no goal is
-   touched. `/resume` and `/clear` refuse while a formulation is in flight.
+The terminal requests activation when formulation succeeds. Additional goal
+continuations use the configured bound captured at admission; stopping the
+terminal observer does not cancel accepted host work. Inspect or control the
+current goal with:
 
-## When to use it
+```text
+/goal status
+/goal resume
+/goal clear
+```
 
-- **The conversation already contains the spec.** You've been debugging or
-  designing in chat; the what and the done-criteria are on screen. Re-typing
-  them as a `/goal` line is friction — let the model do the distilling.
-- **You want the goal to stand alone.** The distilled goal carries file
-  paths, function names, and error messages forward even as compaction folds
-  old turns away.
-- **You're stepping away.** `/goal-from-context` + the loop = whip verifies
-  its own work instead of stopping at "looks right."
+`/goal clear` cancels the goal. Explicit `/stop` stops the selected session's work.
+A model completes a native goal through `goals.complete`; the host does not scan
+ordinary prose for `GOAL_MET`. Resuming names the current goal revision rather
+than silently adopting a replacement.
 
-When *not* to use it: you already know the exact one-line goal — just type
-`/goal <text>`; formulating from zero context (fewer than 2 messages) — the
-command will tell you to chat first.
+Empty history, disabled goals, an oversized source window or an invalid model
+response fails visibly. Pending and uncertain command delivery stays in the
+native recovery journal; inspect it before deliberately retrying the original
+request. Closing the client is not an execution-cancellation command.
 
-## Why it exists
-
-`/goal` is whip's "work until done" mode, but writing a *good* goal
-statement — concrete outcome plus verifiable criteria — is the hard part,
-and the information is almost always already in the transcript. So the
-command moves the work from your keyboard to the model that has the context:
-read the tail, write the goal, start the loop. One keystroke from "we just
-figured it out" to "it's being finished."
-
-## Where it lives
-
-| piece | file |
-| --- | --- |
-| window + prompt (pure, tested) | `internal/agent/agent.go` — `GoalFromContextMessages`, `BuildGoalFromContextPrompt` |
-| command + goroutine + Update handler | `internal/tui/tui.go` — `case "/goal-from-context"`, `goalFromContextMsg` |
-| goal loop | `internal/tui/goal.go` |
-| tests | `internal/tui/goal_test.go` (`TestGoalFromContext*`) |
+The SDK exposes the same session goal services and durable formulation command.
+See [the SDK guide](../packages/sdk/README.md),
+[goal formulation values](../internal/session/goal_formulation.go),
+[atomic admission and settlement](../internal/store/goal_formulation.go),
+[native runtime](../internal/runtime/goal_formulation.go), and
+[terminal controls](../internal/tui/native_goals.go).

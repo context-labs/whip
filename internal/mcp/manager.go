@@ -838,31 +838,6 @@ func (s *server) setStateLocked(st Status, errMsg string) {
 	}
 }
 
-// Tools returns one tool per listed MCP tool on every ready server, for
-// discovery and execution through the daemon host.
-func (m *Manager) Tools() []Handler {
-	m.mu.Lock()
-	servers := make([]*server, 0, len(m.servers))
-	for _, s := range m.servers {
-		servers = append(servers, s)
-	}
-	m.mu.Unlock()
-	var out []Handler
-	for _, s := range servers {
-		s.mu.Lock()
-		defs, sess := s.defs, s.sess
-		s.mu.Unlock()
-		if sess == nil {
-			continue
-		}
-		for _, d := range defs {
-			out = append(out, s.bridge(d))
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Def.Function.Name < out[j].Def.Function.Name })
-	return out
-}
-
 // ListTools returns one server's current tool metadata without widening the
 // model-facing JSON tool surface.
 func (m *Manager) ListTools(serverName string) ([]Tool, error) {
@@ -890,80 +865,6 @@ func (m *Manager) ListTools(serverName string) ([]Tool, error) {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result, nil
-}
-
-// Call invokes a named tool on a named server. The server retains its normal
-// connection, timeout, and per-server serialization behavior.
-func (m *Manager) Call(ctx context.Context, serverName, toolName string, arguments json.RawMessage) (string, error) {
-	call, err := m.ResolveTool(serverName, toolName)
-	if err != nil {
-		return "", err
-	}
-	call.Arguments = arguments
-	result, err := m.CallChecked(ctx, call, nil)
-	return result.Text, err
-}
-
-// bridge converts one listed MCP tool into the agent-loop Handler. The
-// name follows claude-code's mcp__server__tool convention; the schema passes
-// through verbatim with the object-typed shape providers require (opencode
-// forces type:object + properties, catalog.ts convertTool).
-func (s *server) bridge(d *sdkmcp.Tool) Handler {
-	name := ToolName(s.name, d.Name)
-	schema := normalizeSchema(d.InputSchema)
-	desc := d.Description
-	if d.Title != "" && desc == "" {
-		desc = d.Title
-	}
-	s.mu.Lock()
-	call, _, resolveErr := s.descriptorLocked(d.Name)
-	s.mu.Unlock()
-	return Handler{
-		Def: newDefinition(name, fmt.Sprintf("[MCP %s] %s", s.name, desc), schema),
-		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
-			if resolveErr != nil {
-				return "", resolveErr
-			}
-			call := call
-			call.Arguments = args
-			result, err := s.owner.CallChecked(ctx, call, nil)
-			return result.Text, err
-		},
-	}
-}
-
-// call runs one tool call against the session, serialized per server and
-// bounded by the configured tool timeout. Errors become error strings for
-// the model via tools.Execute — never loop-aborting (opencode throws and
-// converts to an output-error tool part; whip's "Error: …" convention is
-// the same shape).
-// connectGrace caps how long a tool call waits for a still-connecting server
-// before reporting back. A call should never park the turn for the full
-// startup timeout — the model can retry, and the server may still land.
-const connectGrace = 5 * time.Second
-
-func (s *server) call(ctx context.Context, tool string, args json.RawMessage) (string, error) {
-	s.mu.Lock()
-	settled := s.settled
-	s.mu.Unlock()
-	if !settled {
-		grace, cancel := context.WithTimeout(ctx, connectGrace)
-		defer cancel()
-		select {
-		case <-s.ready:
-		case <-grace.Done():
-			if ctx.Err() != nil {
-				return "", ctx.Err()
-			}
-			return "", fmt.Errorf("mcp server %q is still connecting — retry in a moment (/mcp shows status)", s.name)
-		}
-	}
-	if s.owner == nil {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return "", s.unavailableLocked()
-	}
-	return s.owner.Call(ctx, s.name, tool, args)
 }
 
 // flattenResult renders a CallToolResult for host storage (pure). Text parts
@@ -1024,32 +925,6 @@ func flattenResult(res *sdkmcp.CallToolResult) capability.MCPResult {
 		out = "Error: " + out
 	}
 	return capability.MCPResult{Text: out, Attachments: attachments}
-}
-
-// normalizeSchema passes the server's input schema through as a JSON string,
-// coercing it into the object shape providers require (opencode forces
-// type:object + properties:{} + additionalProperties:false).
-// normalizeSchema renders an MCP tool's input schema as a JSON object with
-// type:"object" and a properties key (some servers omit one or both). The
-// input map is COPIED, never mutated: d.InputSchema is shared across every
-// Manager.Tools() call, and the race detector caught concurrent writes to it
-// (fatal error: concurrent map writes) when two settles interleaved.
-func normalizeSchema(schema any) string {
-	src, ok := schema.(map[string]any)
-	if !ok || src == nil {
-		return `{"type":"object","properties":{}}`
-	}
-	m := make(map[string]any, len(src)+2)
-	maps.Copy(m, src)
-	m["type"] = "object"
-	if _, ok := m["properties"]; !ok {
-		m["properties"] = map[string]any{}
-	}
-	data, err := json.Marshal(m)
-	if err != nil {
-		return `{"type":"object","properties":{}}`
-	}
-	return string(data)
 }
 
 // Config returns a server's normalized config (the live definition, including
@@ -1127,7 +1002,7 @@ func (m *Manager) Enable(name string) bool {
 type ProbeResult struct {
 	Server
 	Elapsed   time.Duration
-	ToolNames []string // agent-facing names (mcp__name__tool), first 5 + "…"
+	ToolNames []string // diagnostic names (mcp__name__tool), first 5 + "…" when more remain
 }
 
 func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
@@ -1147,12 +1022,20 @@ func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
 	}
 	st := m.Statuses()[0]
 	res := ProbeResult{Server: st, Elapsed: time.Since(start)}
-	for _, t := range m.Tools() {
-		res.ToolNames = append(res.ToolNames, t.Def.Function.Name)
-		if len(res.ToolNames) == 5 {
+	if st.Status != StatusReady {
+		return res
+	}
+	listed, err := m.ListTools(name)
+	if err != nil {
+		res.Status, res.Err = StatusFailed, err.Error()
+		return res
+	}
+	for i, tool := range listed {
+		if i == 5 {
 			res.ToolNames = append(res.ToolNames, "…")
 			break
 		}
+		res.ToolNames = append(res.ToolNames, ToolName(name, tool.Name))
 	}
 	return res
 }

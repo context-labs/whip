@@ -1,50 +1,15 @@
 #!/bin/sh
-# pre-commit: format, vet, test — and golangci-lint when it's installed —
-# must all pass before a commit lands (the CI lint gate fails otherwise).
-# Enabled via `git config core.hooksPath scripts/git-hooks` (see Taskfile
-# `hooks` task). Bypass in an emergency with `git commit --no-verify`.
+# All branches use the same lightweight whole-module check. Complete race,
+# product and platform suites remain explicit CI gates, not commit side effects.
 set -e
 
 cd "$(git rev-parse --show-toplevel)"
+task check:fast
 
-# Keep the replacement branch's checkpoint loop scoped to its active packages.
-# Main/development and unrelated feature branches retain the existing gate.
-case "$(git symbolic-ref --quiet --short HEAD || true)" in
-  codex/backend-redesign|codex/backend-redesign-*)
-    exec task check:fast
-    ;;
-esac
-
-echo "pre-commit: gofmt -s …"
-unformatted=$(gofmt -s -l .)
-if [ -n "$unformatted" ]; then
-	echo "pre-commit: these files need gofmt -s:" >&2
-	echo "$unformatted" >&2
-	echo "run: task fmt  (or gofmt -s -w .)" >&2
-	exit 1
-fi
-
-echo "pre-commit: go vet …"
-go vet ./...
-
-# The CI lint gate (golangci-lint with the repo's .golangci.yml) catches
-# things vet doesn't (modernize, perfsprint, gosec). Run it when installed —
-# `go vet` alone let an errorsastype finding through to CI once.
-# --new-from-rev limits findings to code changed since origin/main: a
-# whole-repo run blocks unrelated commits on pre-existing findings whenever
-# the local golangci-lint differs from CI's pinned version (embed_darwin.go
-# gosec/perfsprint findings appear on a dev clone but not in CI).
+# Keep local lint optional, but use CI's pinned tool and frozen baseline whenever
+# the contributor has opted into lint tooling. Never move the baseline by branch.
 if command -v golangci-lint >/dev/null 2>&1; then
-	echo "pre-commit: golangci-lint (new findings) …"
-	golangci-lint run --new-from-rev origin/main ./...
+	task lint
 else
 	echo "pre-commit: golangci-lint not installed — skipping (CI will run it)" >&2
 fi
-
-# One environment flake, skipped only for the hook's run (CI runs it):
-# TestPortProbeSquatterTriggersFallback fails when the machine's real Chrome
-# holds a probe port (9223).
-echo "pre-commit: go test …"
-WHIP_SKIP_PORT_SQUATTER_TEST=1 go test ./...
-
-echo "pre-commit: OK"

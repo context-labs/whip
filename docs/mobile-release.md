@@ -6,12 +6,23 @@ This is the runbook for producing and accepting Whip mobile artifacts. See
 The initial release is iOS first, with Android following. Manual Tailscale HTTPS
 connection remains the scope; app authentication, QR and notifications are deferred.
 
-The redesigned mobile UI is now installed on the owner's iPhone 16 Pro
-(iOS 26.6.1). The current signed preview is
+The following device and signed-build evidence is historical, from before the
+native protocol-v4 backend cutover. It does not validate this redesign. Native
+backend/export checks are recorded in the [development log](backend-redesign-development.md);
+new physical-device and signed-distribution acceptance remains required.
+At native checkpoint `d90668cc3`, a normally signed iOS Release simulator build
+launches and reopens encrypted storage, and an Android arm64 Release APK compiles
+with local test signing. [Exact native evidence and limits](backend-native-mobile-readiness.md)
+record both artifacts, disposable simulator cleanup and separate backend tests.
+These results do not validate a physical phone, connected native UI workflows or
+later external-browser controls.
+
+On 2026-09-11 the earlier mobile UI was installed on the owner's iPhone 16 Pro
+(iOS 26.6.1). That signed preview was
 [`24d9cfee-e5e7-407a-9ddd-c00674115249`](https://expo.dev/accounts/inference/projects/whipcode/builds/24d9cfee-e5e7-407a-9ddd-c00674115249),
 built from `6b6e2175a`. Its signature, registered-device profile and embedded
 bundle were verified; direct installation and launch succeeded on 2026-09-11,
-and the Whip process remained running afterward. This build supersedes the
+and the Whip process remained running afterward. That build superseded the
 earlier previews discussed below. Full physical-device workflow acceptance
 and TestFlight remain separate. See the [current UI evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md).
 
@@ -23,7 +34,9 @@ The replacement signed phone build is ready and its signature/provisioning were
 verified. The owner reports the app running on the selected iPhone. The private
 `gpu-4090-sam` host now passes HTTPS/WSS and mobile-facing API reads from the Mac;
 provider login, physical-device workflow acceptance and TestFlight remain separate
-gates in the evidence log. See the [configured host instructions](mobile.md#configured-development-host-gpu-4090-sam).
+gates in the historical evidence log. These observations do not establish the
+host's current state or compatibility with protocol v4. See the
+[configured host instructions](mobile.md#configured-development-host-gpu-4090-sam).
 
 The connection-diagnostics update adds inline modal errors and Test Connection.
 Its source passes 144 mobile tests, 231 SDK tests, production exports and the
@@ -36,8 +49,8 @@ direct installation, so installation is still pending. Use the
 on the phone. The prior preview does not gain these changes automatically.
 Detailed artifact and installation results are in the evidence record.
 
-Local Xcode was upgraded to 26.6 on 2026-09-11. The current mobile UI now compiles
-and launches as a Release app on the iOS 26.5 simulator, including encrypted
+Local Xcode was upgraded to 26.6 on 2026-09-11. The then-current mobile UI compiled
+and launched as a Release app on the iOS 26.5 simulator, including encrypted
 storage initialization. Keep normal simulator signing enabled: explicitly
 disabling signing can omit the application entitlement required by SecureStore.
 The current UI's signed phone installation and interactive acceptance remain
@@ -99,9 +112,9 @@ See [Expo's local development commands](https://docs.expo.dev/more/expo-cli/).
 ## EAS profiles and reproducibility
 
 [eas.json](../apps/mobile/eas.json) pins EAS CLI 23.2.0 and Node 24.14.1. Always run
-EAS from `apps/mobile`. The app's `eas-build-post-install` hook builds `@whip/legacy-sdk`
+EAS from `apps/mobile`. The app's `eas-build-post-install` hook builds `@whip/sdk`
 before Metro uses its generated exports; a clean cloud checkout has no local
-`packages/legacy-sdk/dist`. Preserve the root lockfile and this workspace build step.
+`packages/sdk/dist`. Preserve the root lockfile and this workspace build step.
 See [monorepo setup](https://docs.expo.dev/build-reference/build-with-monorepos/)
 and [build lifecycle hooks](https://docs.expo.dev/build-reference/npm-hooks/).
 

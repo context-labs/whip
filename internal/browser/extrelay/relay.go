@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha1" //nolint:gosec // G505: WebSocket handshake hash per RFC 6455, not a security primitive
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -30,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
@@ -46,14 +48,32 @@ type frame struct {
 }
 
 // Relay bridges one extension connection and one rod (CDP) connection.
+const (
+	maxMessageBytes = 12 << 20
+	maxHandlers     = 16
+	maxLogs         = 64
+	maxLogBytes     = 2048
+)
+
+var ErrClosed = errors.New("extension relay is closed")
+
 type Relay struct {
-	token   string
-	ln      net.Listener
-	mu      sync.Mutex
-	ext     *conn    // the extension's /ext socket (nil until attached)
-	cdpConn *conn    // rod's /cdp socket
-	tabInfo tabInfo  // the pinned tab's identity, reported by the extension
-	swlogs  []string // diagnostic SW step logs (/swlog, test/debug)
+	token     string
+	ln        net.Listener
+	mu        sync.Mutex
+	ext       *conn    // the extension's /ext socket (nil until attached)
+	cdpConn   *conn    // rod's /cdp socket
+	tabInfo   tabInfo  // the pinned tab's identity, reported by the extension
+	swlogs    []string // bounded diagnostic SW step logs (/swlog, test/debug)
+	server    *http.Server
+	done      chan struct{}
+	closed    bool
+	active    int
+	peers     sync.WaitGroup
+	closeOnce sync.Once
+	closeErr  error
+	httpConns map[net.Conn]struct{}
+	httpMu    sync.Mutex
 }
 
 // conn is one WebSocket. Reads run on the handshake's buffered reader;
@@ -77,6 +97,8 @@ type lockedWriter struct {
 func (w *lockedWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	_ = w.nc.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = w.nc.SetWriteDeadline(time.Time{}) }()
 	return w.nc.Write(p)
 }
 
@@ -90,14 +112,55 @@ func NewRelay() (*Relay, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &Relay{token: tok, ln: ln}
+	r := &Relay{token: tok, ln: ln, done: make(chan struct{}), httpConns: make(map[net.Conn]struct{})}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ext", r.handleExt)
-	mux.HandleFunc("/cdp", r.handleCDP)
-	mux.HandleFunc("/swlog", r.handleSWLog) // diagnostic: SW step logging (test/debug)
-	//nolint:gosec // G114: loopback-only relay for the local browser extension; long-lived CDP websockets make timeouts wrong
-	go func() { _ = http.Serve(ln, mux) }()
+	mux.HandleFunc("/ext", r.owned(r.handleExt))
+	mux.HandleFunc("/cdp", r.owned(r.handleCDP))
+	mux.HandleFunc("/swlog", r.owned(r.handleSWLog)) // diagnostic: SW step logging (test/debug)
+	r.server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192, ConnState: r.connectionState}
+	go func() { defer close(r.done); _ = r.server.Serve(ln) }()
 	return r, nil
+}
+
+// owned bounds concurrent handlers, including hijacked peers. Admission and
+// Close share the same lock so Wait cannot race a late Add.
+func (r *Relay) owned(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		r.mu.Lock()
+		if r.closed || r.active >= maxHandlers {
+			r.mu.Unlock()
+			http.Error(w, "relay unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		r.active++
+		r.peers.Add(1)
+		r.mu.Unlock()
+		defer func() { r.mu.Lock(); r.active--; r.mu.Unlock(); r.peers.Done() }()
+		handler(w, req)
+	}
+}
+
+func (r *Relay) connectionState(c net.Conn, state http.ConnState) {
+	r.httpMu.Lock()
+	defer r.httpMu.Unlock()
+	switch state {
+	case http.StateClosed, http.StateHijacked:
+		delete(r.httpConns, c)
+	case http.StateNew:
+		if len(r.httpConns) >= maxHandlers {
+			_ = c.Close()
+			return
+		}
+		r.httpConns[c] = struct{}{}
+	}
+}
+
+func (r *Relay) authorized(w http.ResponseWriter, req *http.Request) bool {
+	if subtle.ConstantTimeCompare([]byte(req.URL.Query().Get("token")), []byte(r.token)) != 1 || r.token == "" {
+		http.Error(w, "bad token", http.StatusUnauthorized)
+		return false
+	}
+	return true
 }
 
 // SWLogs returns the service worker's step logs posted to /swlog.
@@ -112,12 +175,23 @@ func (r *Relay) SWLogs() []string {
 // the SW's console is otherwise hard to capture (it runs and suspends before
 // a debugger can attach to it).
 func (r *Relay) handleSWLog(w http.ResponseWriter, req *http.Request) {
-	if req.URL.Query().Get("token") != r.token {
-		http.Error(w, "bad token", http.StatusUnauthorized)
+	if !r.authorized(w, req) {
 		return
 	}
-	body, _ := io.ReadAll(io.LimitReader(req.Body, 1<<16))
+	if req.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(req.Body, maxLogBytes+1))
+	if err != nil || len(body) > maxLogBytes || !utf8.Valid(body) {
+		http.Error(w, "log exceeds bounds", http.StatusRequestEntityTooLarge)
+		return
+	}
 	r.mu.Lock()
+	if len(r.swlogs) == maxLogs {
+		copy(r.swlogs, r.swlogs[1:])
+		r.swlogs = r.swlogs[:maxLogs-1]
+	}
 	r.swlogs = append(r.swlogs, string(body))
 	r.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
@@ -130,16 +204,34 @@ func (r *Relay) Addr() string { return r.ln.Addr().String() }
 func (r *Relay) Token() string { return r.token }
 
 // Close shuts the relay down.
-func (r *Relay) Close() error { return r.ln.Close() }
+func (r *Relay) Close() error {
+	r.closeOnce.Do(func() {
+		r.mu.Lock()
+		r.closed = true
+		ext, cdp := r.ext, r.cdpConn
+		r.ext, r.cdpConn, r.tabInfo = nil, nil, tabInfo{}
+		r.mu.Unlock()
+		if ext != nil {
+			ext.close()
+		}
+		if cdp != nil {
+			cdp.close()
+		}
+		r.closeErr = r.server.Close()
+		<-r.done
+		r.peers.Wait()
+	})
+	return r.closeErr
+}
 
 // CDPURL is the ws:// URL rod should dial to drive the attached tab.
-func (r *Relay) CDPURL() string { return "ws://" + r.ln.Addr().String() + "/cdp" }
+func (r *Relay) CDPURL() string { return "ws://" + r.ln.Addr().String() + "/cdp?token=" + r.token }
 
 // Attached reports whether the extension is currently connected.
 func (r *Relay) Attached() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.ext != nil
+	return !r.closed && r.ext != nil
 }
 
 func genToken() (string, error) {
@@ -152,22 +244,31 @@ func genToken() (string, error) {
 
 // handleExt is the extension's control+data socket. The token gates it.
 func (r *Relay) handleExt(w http.ResponseWriter, req *http.Request) {
-	if req.URL.Query().Get("token") != r.token {
-		http.Error(w, "bad token", http.StatusUnauthorized)
+	if !r.authorized(w, req) {
 		return
 	}
 	// HTTP 101 can reach the extension before upgrade returns. Keep observers
 	// and the CDP forwarder behind publication, so an immediately sent command
 	// cannot mistake this acknowledged connection for an absent extension.
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		http.Error(w, "relay closed", http.StatusServiceUnavailable)
+		return
+	}
 	c, err := upgrade(w, req)
 	if err != nil {
 		r.mu.Unlock()
 		return
 	}
 	if r.ext != nil {
-		r.ext.close() // one extension at a time; newest wins
+		r.ext.close() // replacement retires the prior controller as well
 	}
+	if r.cdpConn != nil {
+		r.cdpConn.close()
+		r.cdpConn = nil
+	}
+	r.tabInfo = tabInfo{}
 	r.ext = c
 	r.mu.Unlock()
 	r.serveExt(c)
@@ -175,10 +276,30 @@ func (r *Relay) handleExt(w http.ResponseWriter, req *http.Request) {
 
 // handleCDP is rod's socket: a browser-level CDP endpoint over the tunnel.
 func (r *Relay) handleCDP(w http.ResponseWriter, req *http.Request) {
-	c, err := upgrade(w, req)
-	if err != nil {
+	if !r.authorized(w, req) {
 		return
 	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		http.Error(w, "relay closed", http.StatusServiceUnavailable)
+		return
+	}
+	c, err := upgrade(w, req)
+	if err != nil {
+		r.mu.Unlock()
+		return
+	}
+	if r.cdpConn != nil {
+		r.cdpConn.close()
+		if r.ext != nil {
+			r.ext.close()
+			r.ext = nil
+			r.tabInfo = tabInfo{}
+		}
+	}
+	r.cdpConn = c
+	r.mu.Unlock()
 	r.serveCDP(c)
 }
 
@@ -203,6 +324,7 @@ func upgrade(w http.ResponseWriter, req *http.Request) (*conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	_ = nc.SetDeadline(time.Now().Add(5 * time.Second))
 	key := req.Header.Get("Sec-WebSocket-Key")
 	accept := wsAccept(key)
 	if _, err := fmt.Fprintf(rw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", accept); err != nil {
@@ -213,6 +335,7 @@ func upgrade(w http.ResponseWriter, req *http.Request) (*conn, error) {
 		_ = nc.Close()
 		return nil, err
 	}
+	_ = nc.SetDeadline(time.Time{})
 	c := &conn{nc: nc, r: rw.Reader}
 	c.w = &lockedWriter{nc: nc, mu: &c.wm}
 	return c, nil
@@ -228,31 +351,50 @@ func wsAccept(key string) string {
 
 func (c *conn) close() { _ = c.nc.Close() }
 
-// splitRW adapts a separate reader (the handshake's buffered reader) and
-// writer (the raw socket) into the io.ReadWriter wsutil wants. They never
-// share a buffer, so a write's flush can't corrupt an in-flight read the way
-// a single bufio.ReadWriter would.
-// wsRW is the io.ReadWriter wsutil wants: reads from the handshake's
-// buffered reader, writes through the locked writer (so control replies are
-// serialized with data frames).
-type wsRW struct {
-	c *conn
-}
-
-func (s wsRW) Read(p []byte) (int, error)  { return s.c.r.Read(p) }
-func (s wsRW) Write(p []byte) (int, error) { return s.c.w.Write(p) }
-
-// writeText flushes a server frame. The locked writer inside wsRW serializes
-// against any control reply emitted from the read loop.
+// writeText serializes the whole frame against read-loop control replies.
 func (c *conn) writeText(b []byte) error {
-	return wsutil.WriteServerMessage(wsRW{c}, ws.OpText, b)
+	if len(b) > maxMessageBytes {
+		return errors.New("relay message exceeds bounds")
+	}
+	c.wm.Lock()
+	defer c.wm.Unlock()
+	_ = c.nc.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = c.nc.SetWriteDeadline(time.Time{}) }()
+	return wsutil.WriteServerMessage(c.nc, ws.OpText, b)
 }
 
 // readText is the blocking read used by the serve loops. gobwas's control
-// handler may write pong/close replies to the rw — those go through wsRW's
-// locked writer, staying serialized with data frames.
+// handler writes bounded control replies through the same write lock.
 func (c *conn) readText() ([]byte, error) {
-	return wsutil.ReadClientText(wsRW{c})
+	control := wsutil.ControlFrameHandler(c.w, ws.StateServerSide)
+	fragments := 0
+	reader := wsutil.Reader{Source: c.r, State: ws.StateServerSide, CheckUTF8: true, MaxFrameSize: maxMessageBytes, OnIntermediate: control, OnContinuation: func(ws.Header, io.Reader) error {
+		fragments++
+		if fragments > 256 {
+			return errors.New("relay message fragments exceed bounds")
+		}
+		return nil
+	}}
+	for {
+		h, err := reader.NextFrame()
+		if err != nil {
+			return nil, err
+		}
+		if h.OpCode.IsControl() {
+			if err := control(h, &reader); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if h.OpCode != ws.OpText {
+			return nil, errors.New("relay requires text messages")
+		}
+		data, err := io.ReadAll(io.LimitReader(&reader, maxMessageBytes+1))
+		if len(data) > maxMessageBytes {
+			return nil, errors.New("relay message exceeds bounds")
+		}
+		return data, err
+	}
 }
 
 // serveExt pumps extension → rod: CDP responses/events for the tab, plus
@@ -262,6 +404,11 @@ func (r *Relay) serveExt(c *conn) {
 		r.mu.Lock()
 		if r.ext == c {
 			r.ext = nil
+			r.tabInfo = tabInfo{}
+			if r.cdpConn != nil {
+				r.cdpConn.close()
+				r.cdpConn = nil
+			}
 		}
 		r.mu.Unlock()
 		c.close()
@@ -273,11 +420,15 @@ func (r *Relay) serveExt(c *conn) {
 		}
 		// Control frames are ours ("whip.*"); everything else is CDP for rod.
 		if isControl(msg) {
-			r.handleControl(msg)
+			r.handleControl(c, msg)
 			continue
 		}
 		r.mu.Lock()
 		cdp := r.cdpLocked()
+		if r.ext != c {
+			r.mu.Unlock()
+			return
+		}
 		r.mu.Unlock()
 		if cdp != nil {
 			_ = cdp.writeText(msg)
@@ -289,15 +440,24 @@ func (r *Relay) serveExt(c *conn) {
 // answers the single-tab debugger can't provide. Blocks until disconnect.
 func (r *Relay) serveCDP(c *conn) {
 	r.mu.Lock()
-	if old := r.cdpConn; old != nil && old != c {
-		old.close() // one rod client at a time; newest wins, don't leak the stale socket
-	}
-	r.setCDPLocked(c)
+	current := !r.closed && r.cdpConn == c
 	r.mu.Unlock()
+	if !current {
+		c.close()
+		return
+	}
+
 	defer func() {
 		r.mu.Lock()
 		if r.cdpConn == c {
 			r.setCDPLocked(nil)
+			// Outstanding replies belong to this controller. A later controller
+			// requires a fresh human pin, never a reused stream of old request IDs.
+			if r.ext != nil {
+				r.ext.close()
+				r.ext = nil
+				r.tabInfo = tabInfo{}
+			}
 		}
 		r.mu.Unlock()
 		c.close()
@@ -312,6 +472,10 @@ func (r *Relay) serveCDP(c *conn) {
 		}
 		r.mu.Lock()
 		ext := r.ext
+		if r.cdpConn != c {
+			r.mu.Unlock()
+			return
+		}
 		r.mu.Unlock()
 		if ext == nil {
 			r.replyErr(c, msg, "no browser tab attached — click the whipcode extension icon on a tab")
@@ -430,7 +594,7 @@ type tabInfo struct{ ID, Title, URL string }
 
 // handleControl processes "whip.*" frames: the extension reports the pinned
 // tab's identity on attach so Target.getTargets can describe it.
-func (r *Relay) handleControl(msg []byte) {
+func (r *Relay) handleControl(c *conn, msg []byte) {
 	var f frame
 	if json.Unmarshal(msg, &f) != nil || !strings.HasPrefix(f.Method, "whip.") {
 		return
@@ -441,10 +605,27 @@ func (r *Relay) handleControl(msg []byte) {
 			Title string `json:"title"`
 			URL   string `json:"url"`
 		}
-		_ = json.Unmarshal(f.Params, &p)
+		if json.Unmarshal(f.Params, &p) != nil || p.TabID < 0 || len(p.Title) > 4096 || len(p.URL) > 8192 {
+			c.close()
+			return
+		}
 		r.mu.Lock()
-		r.tabInfo = tabInfo{ID: fmt.Sprintf("tab-%d", p.TabID), Title: p.Title, URL: p.URL}
-		r.mu.Unlock()
+		defer r.mu.Unlock()
+		if r.ext != c {
+			return
+		}
+		id := fmt.Sprintf("tab-%d", p.TabID)
+		if r.tabInfo.ID != "" && r.tabInfo.ID != id {
+			if r.cdpConn != nil {
+				r.cdpConn.close()
+				r.cdpConn = nil
+			}
+			c.close()
+			r.ext = nil
+			r.tabInfo = tabInfo{}
+			return
+		}
+		r.tabInfo = tabInfo{ID: id, Title: p.Title, URL: p.URL}
 	}
 }
 
@@ -459,12 +640,18 @@ func (r *Relay) WaitAttached(ctx context.Context) error {
 	t := time.NewTicker(100 * time.Millisecond)
 	defer t.Stop()
 	for {
-		if r.Attached() {
+		r.mu.Lock()
+		closed, pinned := r.closed, r.ext != nil && r.tabInfo.ID != ""
+		r.mu.Unlock()
+		if closed {
+			return ErrClosed
+		}
+		if pinned {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
-			return errors.New("no tab attached: click the whipcode extension icon on the tab to drive")
+			return fmt.Errorf("no tab attached: click the whipcode extension icon on the tab to drive: %w", ctx.Err())
 		case <-t.C:
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/browserconfig"
 	"github.com/context-labs/whip/internal/computerconfig"
 	"github.com/context-labs/whip/internal/lspconfig"
 	"github.com/context-labs/whip/internal/mcpconfig"
@@ -17,7 +18,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 20
+	Version  = 21
 )
 
 type Provider struct {
@@ -80,6 +81,8 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 }
 
 type Host struct {
+	// ExternalBrowser is separate from human-offered Desktop Browser tabs.
+	ExternalBrowser browserconfig.Config `json:"external_browser"`
 	// BrowserDriver chooses a batch interpreter, never a browser endpoint or authority.
 	BrowserDriver string `json:"browser_driver"`
 	// Nil uses 100 additional goal continuations; an explicit zero disables them.
@@ -116,6 +119,9 @@ func Default() Host {
 }
 
 func (h Host) Validate() error {
+	if _, err := h.ExternalBrowser.Normalize(); err != nil {
+		return fmt.Errorf("%w: %w", session.ErrInvalid, err)
+	}
 	if _, err := ResolveBrowserDriver(h.BrowserDriver); err != nil {
 		return err
 	}

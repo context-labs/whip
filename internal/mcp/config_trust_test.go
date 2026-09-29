@@ -22,12 +22,12 @@ func TestConfigTrustPreservesOriginThroughImportPersistence(t *testing.T) {
 	if err := json.Unmarshal(data, &saved); err != nil {
 		t.Fatal(err)
 	}
-	restored := FromConfigMap(map[string]mcpconfig.Server{"imported": saved})["imported"]
+	restored := NativeConfigs(map[string]mcpconfig.Server{"imported": saved}, "/fixture/runtime-v4/host.json")["imported"]
 	if restored.Trusted || restored.Origin != "claude" || restored.Source != source {
 		t.Fatalf("import acquired native trust after save: %+v", restored)
 	}
-	native := FromConfigMap(map[string]mcpconfig.Server{"native": {Command: []string{"native"}}})["native"]
-	if !native.Trusted || native.Origin != "whip" || native.Source != whipConfigPath() {
+	native := NativeConfigs(map[string]mcpconfig.Server{"native": {Command: []string{"native"}}}, "/fixture/runtime-v4/host.json")["native"]
+	if !native.Trusted || native.Origin != "whip" || native.Source != "/fixture/runtime-v4/host.json" {
 		t.Fatalf("native discovery did not establish provenance: %+v", native)
 	}
 	data, err = json.Marshal(native)
@@ -73,9 +73,9 @@ func TestConfigDiscoveryReportsWinningProvenance(t *testing.T) {
 	ClaudeGlobalPath = func() string { return filepath.Join(dir, "missing-global.json") }
 	t.Cleanup(func() { CodexPath, ClaudeGlobalPath = oldCodex, oldClaude })
 	on := true
-	native := FromConfigMap(map[string]mcpconfig.Server{"shared": {Command: []string{"native"}}})
+	native := NativeConfigs(map[string]mcpconfig.Server{"shared": {Command: []string{"native"}}}, "/fixture/runtime-v4/host.json")
 	merged := LoadMergedFiltered(dir, native, ImportPolicyFrom(&mcpconfig.Import{Project: &mcpconfig.ImportSource{Enabled: &on}}))
-	if merged.Sources["shared"] != "whip" || !merged.Merged["shared"].Trusted || merged.Merged["shared"].Source != whipConfigPath() || merged.Merged["shared"].Command[0] != "native" {
+	if merged.Sources["shared"] != "whip" || !merged.Merged["shared"].Trusted || merged.Merged["shared"].Source != "/fixture/runtime-v4/host.json" || merged.Merged["shared"].Command[0] != "native" {
 		t.Fatalf("winning native provenance overwritten: %+v", merged)
 	}
 	if merged.Merged["project"].Trusted || merged.Merged["project"].Origin != "claude" || merged.Merged["project"].Source != project {

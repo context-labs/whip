@@ -61,6 +61,35 @@ it('keeps an in-flight exact scoped preview alive while its input is confirmed',
   expect(screen.getByRole('dialog', { name: 'Attachment 1' })).toBe(dialog);
   expect(f.count('content.read')).toBe(1);
 });
+it('does not refetch immutable attachment evidence when a completed command invalidates host queries', async () => {
+  const f = await fixture(); const mounted = f.mount(f.app([f.local]));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Attachment 1' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Attachment 1' });
+  await within(dialog).findByText(f.bytes.toString());
+  // AppRuntime.run refreshes host queries at turn completion, independently of
+  // when observation confirms the authored input in the transcript.
+  await act(async () => { await f.queries.invalidateQueries({ predicate: query => query.queryKey[1] === f.client.runtimeID }); });
+  mounted.rerender(f.wrap(f.app([f.committed])));
+  await act(async () => { await f.queries.invalidateQueries({ predicate: query => query.queryKey[1] === f.client.runtimeID }); });
+  expect(screen.getByRole('dialog', { name: 'Attachment 1' })).toBe(dialog);
+  expect(within(dialog).getByText(f.bytes.toString())).toBeTruthy();
+  expect(f.count('content.read')).toBe(1);
+  expect(f.count('content.get')).toBe(0);
+});
+it('still explicitly retries a failed preview after ordinary command invalidation', async () => {
+  const f = await fixture();
+  f.data.handlers['content.read'] = () => { throw new Error('Synthetic unavailable bytes'); };
+  f.mount(f.app([f.local]));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Attachment 1' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Attachment 1' });
+  await within(dialog).findByText('Synthetic unavailable bytes');
+  await act(async () => { await f.queries.invalidateQueries({ predicate: query => query.queryKey[1] === f.client.runtimeID }); });
+  expect(f.count('content.read')).toBe(1);
+  f.data.handlers['content.read'] = () => ({ reference: f.reference, data_base64: f.bytes.toString('base64') });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Retry', exact: true }));
+  await within(dialog).findByText(f.bytes.toString());
+  expect(f.count('content.read')).toBe(2);
+});
 it.each(['owner', 'reference', 'client', 'retired'] as const)('closes an explicit preview on %s replacement instead of transferring it to another scope', async change => {
   const f = await fixture(); const mounted = f.mount(f.app([f.local]));
   fireEvent.click(screen.getByRole('button', { name: 'Preview Attachment 1' }));

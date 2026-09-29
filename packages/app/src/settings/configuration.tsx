@@ -10,6 +10,7 @@ import { layout } from '../styles';
 import { SettingsGroup, SettingRow, settingsSection } from './section-layout';
 import { useSettingsEdits } from './unsaved';
 import { ProviderDefaultsSettings } from './provider-defaults';
+import { ExternalBrowserSettings } from './external-browser';
 
 type Values = Omit<HostExecutionDefaults, 'revision'>;
 function values({ revision: _revision, ...value }: HostExecutionDefaults): Values { return value; }
@@ -18,7 +19,7 @@ export function ExecutionSettings({ client, enabled = true }: { client: Client; 
   return <><ErrorNotice type="resource" owner={`${client.runtimeID}:execution-defaults`} title="Could not load execution defaults" error={query.error} />
     {query.isPending && <p role="status">Loading host defaults…</p>}
     {query.data && <ExecutionForm key={client.runtimeID} client={client} enabled={enabled} current={query.data} />}
-    <ProviderDefaultsSettings client={client} enabled={enabled} compaction /></>;
+    <ProviderDefaultsSettings client={client} enabled={enabled} compaction /><ExternalBrowserSettings client={client} enabled={enabled}/></>;
 }
 function ExecutionForm({ client, enabled, current }: { client: Client; enabled: boolean; current: HostExecutionDefaults }) {
   const runtime = useRuntime();

@@ -68,6 +68,15 @@ export class Hosts {
   stop(processEpoch: string, options: CallOptions = {}) {
     return this.client.call('host.stop', { runtime_id: this.client.runtimeID, process_epoch: processEpoch }, options);
   }
+  externalBrowser(options: CallOptions = {}) { return this.client.call('host.external_browser', {}, options); }
+  /** Host availability CAS only. Never launches a browser or retries an uncertain write. */
+  setExternalBrowser(expectedRevision: string, configuration: Params<'host.set_external_browser'>['configuration'], options: CallOptions = {}) {
+    return this.client.call('host.set_external_browser', { expected_revision: expectedRevision, configuration }, options);
+  }
+  externalBrowserSessions(sessionID: string, options: CallOptions = {}) { return this.client.call('browser.external_sessions', { session_id: sessionID }, options); }
+  /** Creates a new prepared generation; a subsequent browser operation still needs permission. */
+  reconnectExternalBrowser(rootID: string, name: string, generation: string, options: CallOptions = {}) { return this.client.call('browser.reconnect_external', { root_id: rootID, name, generation }, options); }
+  disconnectExternalBrowser(rootID: string, name: string, generation: string, options: CallOptions = {}) { return this.client.call('browser.disconnect_external', { root_id: rootID, name, generation }, options); }
   browserDriver(options: CallOptions = {}) { return this.client.call('host.browser_driver', {}, options); }
   /** Changes future batches only. Reread after uncertain delivery; process environment pins may reject an edit. */
   setBrowserDriver(expectedRevision: string, driver: Params<'host.set_browser_driver'>['driver'], options: CallOptions = {}) {
@@ -78,6 +87,15 @@ export class Hosts {
   /** Raw text CAS. After uncertain delivery, read and reconcile; never replay automatically. */
   writeStandingInstructions(expectedRevision: string, text: string, options: CallOptions = {}) {
     return this.client.call('host.standing.write', { expected_revision: expectedRevision, text }, options);
+  }
+  skillRoots(options: CallOptions = {}) { return this.client.call('host.skills.roots', {}, options); }
+  /** Explicit publication only. Existing names cannot be rebound and no grant is created. */
+  publishSkillRoot(expectedRevision: string, id: string, path: string, options: CallOptions = {}) {
+    return this.client.call('host.skills.publish', { expected_revision: expectedRevision, id, path }, options);
+  }
+  /** Applies to future builtin resolutions; does not edit existing sessions or grant access. */
+  setDefaultSkillRoots(expectedRevision: string, roots: string[], options: CallOptions = {}) {
+    return this.client.call('host.skills.set_defaults', { expected_revision: expectedRevision, roots }, options);
   }
   executionDefaults(options: CallOptions = {}) { return this.client.call('host.execution_defaults', {}, options); }
   /** Attempts include the initial request; goal continuations exclude its initial input. Reread after uncertain CAS delivery. */

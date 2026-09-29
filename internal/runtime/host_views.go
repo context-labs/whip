@@ -95,10 +95,7 @@ func (r *Runtime) CompleteHostSkills(ctx context.Context, p HostSkillsRequest) (
 		}
 		document = definition.Document
 	}
-	policy := snapshot.Host.Defaults.Instructions
-	if document.Defaults.Instructions != nil {
-		policy = *document.Defaults.Instructions
-	}
+	policy := session.DefinitionInstructions(snapshot.Host.Defaults.Instructions, document)
 	if err := policy.Validate(); err != nil {
 		return result, err
 	}

@@ -127,6 +127,9 @@ export function ReadingList<Row extends { id: string; seq?: string }>({
     getScrollElement: () => viewport.current,
     estimateSize: (index) => (index === 0 ? 0 : 140),
     overscan: 8,
+    // Row measurement updates React layout; keep it outside ResizeObserver's
+    // delivery cycle so a canonical row replacement cannot re-enter that cycle.
+    useAnimationFrameWithResizeObserver: true,
     // Keep the control's measured space after exhaustion. The virtualizer skips
     // resize compensation while scrolling backward, so removing it shifts rows.
     getItemKey: (index) => (index === 0 ? 0 : rows[index - 1]!.id),

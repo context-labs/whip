@@ -1,6 +1,10 @@
 package session
 
-import "github.com/context-labs/whip/internal/hostmodule"
+import (
+	"slices"
+
+	"github.com/context-labs/whip/internal/hostmodule"
+)
 
 // Builtins uses the same registration and revision path as user documents.
 // Returned documents do not share mutable collections across calls.
@@ -43,4 +47,26 @@ func juniorDeveloperDefinition() DefinitionDocument {
 		Modules:      []string{"context", "files", "shell", "state", "artifacts", "permissions", "user"}, MCPServers: &MCPSelection{Servers: []string{}}, AutomaticTitle: new(true), GoalsEnabled: new(false),
 		Tools: map[string]ToolDeclaration{}, Hooks: map[string]HookDeclaration{}, Children: map[string]DefinitionRef{}, Output: &OutputPolicy{},
 	}}
+}
+
+// DefinitionInstructions applies a definition's whole instruction policy. Exact
+// shipped builtin documents additionally inherit the explicitly selected host or
+// parent skill roots. User definitions, including edited builtin IDs, do not.
+func DefinitionInstructions(base Instructions, document DefinitionDocument) Instructions {
+	if document.Defaults.Instructions == nil {
+		return base
+	}
+	policy := *document.Defaults.Instructions
+	_, _, selected, err := CanonicalDefinition(document)
+	if err != nil {
+		return policy
+	}
+	for _, builtin := range Builtins() {
+		_, _, reference, err := CanonicalDefinition(builtin)
+		if err == nil && selected == reference {
+			policy.SkillRoots = slices.Clone(base.SkillRoots)
+			break
+		}
+	}
+	return policy
 }

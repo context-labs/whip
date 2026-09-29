@@ -7,7 +7,7 @@ and the audited mail repair in [PR #215](https://github.com/context-labs/whip/pu
 The earlier completion claim missed ordinary-mail content-reference transfer;
 the repair passes local gates and hosted Linux, macOS and analysis checks.
 The implementation remains in an unmerged draft PR stack.
-Phases 5–6 are in progress; Phase 7 is pending. The authorized execution scope
+Phases 5–7 are in progress. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
@@ -1016,15 +1016,24 @@ runtime, architecture, setup and package guides now describe native ownership.
 Terminal input recall, interactive shell focus and terminal theme detection now
 have integrated native coverage; Mermaid uses the native production fixture.
 The audit found external Chrome live/dedicated/headless/extension mode ownership
-still missing from the native host; it has no approved retirement and remains
-required. The retired terminal model has now been removed with its supported behaviors
+missing from the native host. Its native backend, public operations and SDK are
+now integrated, with explicit controls across shared Web/Desktop, mobile and
+CLI/TUI. Unused browser-wrapper removal remains required. The retired terminal model has been removed with its supported behaviors
 mapped in the [terminal disposition](native-terminal-retirement.md). Remaining
-work includes external Chrome mode ownership, specialized REPL/slash/chat/Safari
-fixtures, hosted client recovery failures, platform evidence, 50 ms input/RSS
-acceptance and final old-core deletion. Exact checkpoints and
+work includes unused browser-wrapper removal, actual Safari execution, hosted
+history-fixture followthrough, platform evidence and 50 ms input/RSS acceptance.
+Native REPL/slash/chat probes and attachment/queue/resize repairs have both-browser
+evidence. The old core is deleted in draft #276; its restored complete gate still
+needs a passing final revision. Exact checkpoints and
 limitations remain in the development record; this does not complete the phase.
 
 ### Phase 7 — Cut over and remove the retired core
+
+The isolated native core-removal increment deletes the retired execution roots,
+legacy SDK/protocol and contract generator, and restores dynamic whole-product
+CI. [The family disposition](backend-native-core-retirement.md) records retained
+guarantees, removed compatibility and shared leaf cleanup. Final integrated
+client/platform/performance gates still determine completion.
 
 Finish deletion, restore comprehensive product gates and prepare matching
 backend/SDK/client artifacts with a fresh runtime/config namespace.
@@ -1092,11 +1101,12 @@ Useful starting references:
 - [Current task gates](../Taskfile.yaml),
   [CI workflow](../.github/workflows/ci.yml), and
   [pre-commit hook](../scripts/git-hooks/pre-commit).
-- [Retained root-bound SDK](../packages/legacy-sdk/src/session.ts),
-  [Go client in daemon](../internal/daemon/root_client.go), and
-  [SDK process-restart fixture](../internal/daemon/v2_sdk_test.go).
-- [Accounting failure regressions](../internal/daemon/budget_test.go),
-  [engine recovery tests](../internal/daemon/execution_engine_test.go), and
-  [compaction regressions](../internal/daemon/manual_compaction_test.go).
+- [Native SDK sessions](../packages/sdk/src/session.ts),
+  [Go client](../internal/client/session.go), and
+  [SDK process-restart fixture](../scripts/redesign/v4-fixture.test.mjs).
+- [Accounting failure regressions](../internal/store/attempts_test.go),
+  [engine recovery tests](../internal/runtime/engine_test.go),
+  [compaction regressions](../internal/runner/compaction_test.go), and
+  [retired behavior disposition](backend-native-core-retirement.md).
 
 Desktop/gateway integration `397cb9785` passes the full temporary phase gate and pinned analysis; see the dated development record for failures repaired, exact timings and successful hosted259–261 heads. This does not close Phases5–7: renderer/mobile/TUI/ACP adoption, deferred reload/denial/ChromeDP and live/context projections, supported-target packaging and final core removal remain in progress.

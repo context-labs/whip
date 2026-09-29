@@ -14,7 +14,11 @@ import (
 type failedOutputProvider struct{}
 
 func (failedOutputProvider) ToolDefinitions(context.Context) ([]Definition, error) {
-	return []Definition{newDefinition("fixture", "fixture", `{"type":"object"}`)}, nil
+	definition := Definition{Type: "function"}
+	definition.Function.Name = "fixture"
+	definition.Function.Description = "fixture"
+	definition.Function.Parameters = json.RawMessage(`{"type":"object"}`)
+	return []Definition{definition}, nil
 }
 
 func (failedOutputProvider) CallTool(context.Context, string, json.RawMessage) (string, error) {

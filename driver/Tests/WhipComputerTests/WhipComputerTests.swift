@@ -67,7 +67,8 @@ final class AnyCodableTests: XCTestCase {
 }
 
 final class AXTreeTests: XCTestCase {
-    // AX reads need Accessibility TCC; in CI/sandbox these skip gracefully.
+    // These tests inspect running-app metadata and an empty snapshot guard only.
+    // They do not read AX state, request TCC permission, or launch/control apps.
 
     func testResolveUnknownAppFails() {
         let tree = AXTree()
@@ -79,7 +80,7 @@ final class AXTreeTests: XCTestCase {
     }
 
     func testResolveTextEditIfRunning() throws {
-        // Launch TextEdit if the environment permits (best-effort E2E seed).
+        // Inspect an already-running TextEdit, if present; never launch it.
         let tree = AXTree()
         if let (_, pid) = try? tree.resolveApp("TextEdit") {
             XCTAssertGreaterThan(pid, 0)

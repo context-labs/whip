@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/browserhost"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/computer"
@@ -54,52 +55,54 @@ type execution struct {
 	executorActivity ExecutorActivity
 }
 type Runtime struct {
-	standingMu       sync.Mutex
-	browserDriverPin string
-	controlMu        sync.Mutex
-	controlGates     map[session.TreeID]*controlGate
-	browser          *browserhost.Host
-	computer         *computer.Controller
-	computerMu       sync.Mutex
-	hostPicker       *hostview.Picker
-	shells           *shell.Manager
-	mcp              *mcpOwners
-	languageServers  *lsp.Pool
-	hostProcesses    *capability.ProcessManager
-	store            *store.Store
-	content          *content.Store
-	runner           *runner.Runner
-	tools            *tool.Dispatcher
-	executors        *executor.Registry
-	engineManager    *process.Manager
-	kernels          map[session.SessionID]*sessionKernel
-	owner            *owner
-	directory        string
-	host             config.Host
-	configuration    *config.Authority
-	options          Options
-	wake             chan struct{}
-	done             chan struct{}
-	mu               sync.Mutex
-	active           map[session.SessionID]*execution
-	runnable         int
-	waiting          int
-	resumptions      []*workerResumption
-	reloadCursor     string            // owned only by the scheduling goroutine
-	queueCursor      store.QueueCursor // owned only by the scheduling goroutine
-	preferResumption bool
-	started, closed  bool
-	cancel           context.CancelFunc
-	failure          error
-	closeOnce        sync.Once
-	closeErr         error
-	epoch            string
-	previewMu        sync.Mutex
-	previews         map[session.SessionID]*livePreview
-	cellOutputs      map[session.SessionID]*CellOutputPreview
-	workspace        *workspace.Git
-	workspaceCalls   sync.WaitGroup
-	workspaceSlots   chan struct{}
+	standingMu        sync.Mutex
+	browserDriverPin  string
+	controlMu         sync.Mutex
+	controlGates      map[session.TreeID]*controlGate
+	browser           *browserhost.Host
+	externalBrowser   *browser.NativeHost
+	externalBrowserMu sync.Mutex
+	computer          *computer.Controller
+	computerMu        sync.Mutex
+	hostPicker        *hostview.Picker
+	shells            *shell.Manager
+	mcp               *mcpOwners
+	languageServers   *lsp.Pool
+	hostProcesses     *capability.ProcessManager
+	store             *store.Store
+	content           *content.Store
+	runner            *runner.Runner
+	tools             *tool.Dispatcher
+	executors         *executor.Registry
+	engineManager     *process.Manager
+	kernels           map[session.SessionID]*sessionKernel
+	owner             *owner
+	directory         string
+	host              config.Host
+	configuration     *config.Authority
+	options           Options
+	wake              chan struct{}
+	done              chan struct{}
+	mu                sync.Mutex
+	active            map[session.SessionID]*execution
+	runnable          int
+	waiting           int
+	resumptions       []*workerResumption
+	reloadCursor      string            // owned only by the scheduling goroutine
+	queueCursor       store.QueueCursor // owned only by the scheduling goroutine
+	preferResumption  bool
+	started, closed   bool
+	cancel            context.CancelFunc
+	failure           error
+	closeOnce         sync.Once
+	closeErr          error
+	epoch             string
+	previewMu         sync.Mutex
+	previews          map[session.SessionID]*livePreview
+	cellOutputs       map[session.SessionID]*CellOutputPreview
+	workspace         *workspace.Git
+	workspaceCalls    sync.WaitGroup
+	workspaceSlots    chan struct{}
 }
 
 // Open acquires exclusive execution ownership before opening fresh host/storage.
@@ -192,6 +195,9 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	if err := database.PruneUnusedContent(ctx); err != nil {
 		return nil, err
 	}
+	if err := browser.CollectNativeUploads(ctx, directory); err != nil {
+		return nil, err
+	}
 	r := &Runtime{
 		browserDriverPin: browserDriverPin,
 		browser:          browserhost.New(), mcp: newMCPOwners(directory), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{}, cellOutputs: map[session.SessionID]*CellOutputPreview{},
@@ -204,11 +210,13 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	r.hostPicker = hostview.NewPicker(directory)
 	r.shells = shell.NewManager()
 	r.hostProcesses = capability.NewProcessManager()
+	r.externalBrowser = browser.NewNativeHost(directory, r.hostProcesses)
 	r.languageServers = lsp.NewPool(r.hostProcesses)
 	defer func() {
 		if err != nil {
 			_ = r.hostPicker.Close()
 			r.browser.Close()
+			_ = r.externalBrowser.Close()
 			r.languageServers.Close()
 			if r.computer != nil {
 				r.computer.Close()
@@ -275,6 +283,7 @@ func (r *Runtime) Close() error {
 		r.mu.Unlock()
 		pickerErr := r.hostPicker.Close()
 		r.browser.Close()
+		_ = r.externalBrowser.Close()
 		r.executors.Close()
 		r.shells.Close()
 		workspaceErr := r.workspace.Close()

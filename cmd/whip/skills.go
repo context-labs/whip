@@ -12,50 +12,12 @@ import (
 	"github.com/context-labs/whip/internal/skills"
 )
 
-// skillsCLI implements `whipcode skills <list|import>`.
-//
-//	list                    skill names, descriptions, and where they load from
-//	import [--dry-run]      copy skills from other harnesses' dirs (codex,
-//	                        claude-code) into ~/.agents/skills, skipping
-//	                        anything whipcode already has
-//
-// Skills are directories with a SKILL.md, so "import" is a recursive copy.
-// Dedup is by skill name: a name present in any of whip's dirs (project
-// .agents/skills, ~/.whipcode/skills, ~/.agents/skills) is never overwritten —
-// the repo-level copy always wins at scan time too, so copying over a
-// user-level skill would silently shadow nothing and confuse everyone.
+// skillsCLI separates copying files, native publication, selection and authority.
 func skillsCLI(args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: whipcode skills <list|import>")
-	}
-	switch args[0] {
-	case "list":
-		return skillsListCLI()
-	case "import":
+	if len(args) > 0 && args[0] == "import" {
 		return skillsImportCLI(args[1:])
-	default:
-		return fmt.Errorf("unknown skills subcommand %q (list|import)", args[0])
 	}
-}
-
-func skillsListCLI() error {
-	dirs := skills.DefaultDirs()
-	sk, problems := skills.ScanDetailed(dirs...)
-	if len(sk) == 0 && len(problems) == 0 {
-		fmt.Println("no skills found (looked in: " + strings.Join(dirs, ", ") + ")")
-		return nil
-	}
-	for _, s := range sk {
-		warn := ""
-		if s.Warning != "" {
-			warn = " ⚠ " + s.Warning
-		}
-		fmt.Printf("%-24s %s%s\n", s.Name, filepath.Dir(filepath.Dir(s.Path)), warn)
-	}
-	for _, p := range problems {
-		fmt.Fprintf(os.Stderr, "skills: %s: %s\n", p.Path, p.Err)
-	}
-	return nil
+	return nativeSkillsCLI(args)
 }
 
 func skillsImportCLI(args []string) error {
@@ -74,9 +36,14 @@ func skillsImportCLI(args []string) error {
 	}
 	dest := filepath.Join(home, ".agents", "skills")
 
-	// Names whipcode already loads (project + user dirs) are the dedup set.
+	// Copying is explicit local-user work. Only the destination and this project
+	// participate in dedup; retired ambient runtime directories confer nothing.
 	existing := map[string]bool{}
-	for _, s := range skills.Scan(skills.DefaultDirs()...) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	for _, s := range skills.Scan(filepath.Join(cwd, ".agents", "skills"), dest) {
 		existing[s.Name] = true
 	}
 
@@ -132,23 +99,8 @@ func skillsImportCLI(args []string) error {
 			continue
 		}
 		dst := filepath.Join(dest, c.name)
-		// Only clean up a partial copy when copyDir actually created dst. A
-		// pre-existing user folder at dst (e.g. ~/.agents/skills/notes with no
-		// SKILL.md) makes copyDir return "already exists" without writing —
-		// removing it would be data loss.
-		_, statErr := os.Stat(dst)
-		dstPreExisted := statErr == nil
+		// copyDir owns cleanup only after its exclusive directory creation succeeds.
 		if err := copyDir(c.srcDir, dst); err != nil {
-			// One bad skill (a symlink loop, an unreadable file) must not
-			// abort the rest of the import — and a partial copy must not
-			// linger as a broken skill (and block a future import via the
-			// dedup pass). Remove only the half-written destination copyDir
-			// created; a cleanup failure is logged but doesn't mask the error.
-			if !dstPreExisted {
-				if rmErr := os.RemoveAll(dst); rmErr != nil {
-					fmt.Fprintf(os.Stderr, "  (cleanup of partial copy failed: %v)\n", rmErr)
-				}
-			}
 			fmt.Fprintf(os.Stderr, "✗ %-24s %v\n", c.name, err)
 			failed = append(failed, c.name)
 			continue
@@ -156,7 +108,8 @@ func skillsImportCLI(args []string) error {
 		fmt.Printf("✓ %-24s → %s\n", c.name, dst)
 		imported = append(imported, c.name)
 	}
-	fmt.Printf("imported %d skill(s) into %s — available on next whipcode launch\n", len(imported), dest)
+	fmt.Printf("imported %d skill(s) into %s — files only; not published, selected or authorized\n", len(imported), dest)
+	fmt.Printf("Next: whipcode skills publish personal %q, then whipcode skills defaults personal. Create/open a new session and explicitly use skills allow <session-id> personal before invoking a skill.\n", dest)
 	if len(failed) > 0 {
 		return fmt.Errorf("%d skill(s) failed to copy: %s", len(failed), strings.Join(failed, ", "))
 	}
@@ -169,7 +122,7 @@ func skillsImportCLI(args []string) error {
 // silently half-copied). Destination must not already exist — the dedup pass
 // guarantees the name is free, and refusing to clobber keeps a racing user
 // edit safe.
-func copyDir(src, dst string) error {
+func copyDir(src, dst string) (err error) {
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -177,12 +130,19 @@ func copyDir(src, dst string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("%s is not a directory", src)
 	}
-	if _, err := os.Stat(dst); err == nil {
-		return fmt.Errorf("%s already exists", dst)
-	}
-	if err := os.MkdirAll(dst, 0o750); err != nil { // 0o750: imported skills are user config, not world-readable (gosec G301)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return err
 	}
+	// Mkdir, unlike MkdirAll(dst), proves this call created the destination.
+	// A concurrent importer/user creating it first must never be cleaned up.
+	if err := os.Mkdir(dst, 0o750); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, os.RemoveAll(dst))
+		}
+	}()
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
