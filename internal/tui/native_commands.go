@@ -20,6 +20,7 @@ type nativeControlResult struct {
 	err            error
 	retry          tea.Cmd
 	inspectOnError bool
+	notice         string
 }
 
 // control owns only this UI request. Its retry closure captures the original
@@ -76,6 +77,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		}
 		m.status = "No uncertain action is retained in this terminal."
 		return nil
+	case "/me":
+		return m.standing(args)
 	case "/memory":
 		return m.memory(args)
 	case "/status":

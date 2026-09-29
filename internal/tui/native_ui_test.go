@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/config"
 	hostmodel "github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rpc"
@@ -49,6 +50,11 @@ func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Reques
 
 func nativeUIFixture(t *testing.T) (*nativeModel, *nativeUIProvider) {
 	t.Helper()
+	return nativeUIFixtureStanding(t, "")
+}
+
+func nativeUIFixtureStanding(t *testing.T, standing string) (*nativeModel, *nativeUIProvider) {
+	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "whip-tui-v4-") //nolint:usetesting // Bounded macOS Unix socket path.
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +64,16 @@ func nativeUIFixture(t *testing.T) (*nativeModel, *nativeUIProvider) {
 			t.Error(err)
 		}
 	})
+	if standing != "" {
+		settings, err := config.Initialize(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings.StandingInstructionsFile = standing
+		if err := config.Save(dir, settings); err != nil {
+			t.Fatal(err)
+		}
+	}
 	p := &nativeUIProvider{entered: make(chan struct{}), release: make(chan struct{})}
 	host, err := runtime.Open(t.Context(), dir, p, runtime.Options{PollInterval: time.Millisecond})
 	if err != nil {

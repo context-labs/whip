@@ -31,6 +31,10 @@ type nativeWork struct {
 }
 
 func (w *nativeWork) begin() (context.Context, func(), error) {
+	return w.beginFor(10 * time.Second)
+}
+
+func (w *nativeWork) beginFor(timeout time.Duration) (context.Context, func(), error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -44,7 +48,7 @@ func (w *nativeWork) begin() (context.Context, func(), error) {
 	}
 	w.active++
 	w.wg.Add(1)
-	ctx, cancel := context.WithTimeout(w.ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(w.ctx, timeout)
 	return ctx, func() { cancel(); w.mu.Lock(); w.active--; w.mu.Unlock(); w.wg.Done() }, nil
 }
 
@@ -78,6 +82,7 @@ type nativeModel struct {
 	notesHome                       string
 	noteRevisions                   [2]string
 	notice                          string
+	standingDraft                   *protocol.WriteHostStandingInstructionsParams
 }
 
 type (
@@ -268,6 +273,20 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Accepted input " + string(value.admission.Input.ID)
 			}
 		}
+	case nativeStandingResult:
+		m.controlling = false
+		if value.err != nil {
+			m.standingDraft = value.draft
+			m.status = "Standing instructions: " + value.err.Error()
+			if value.draft != nil {
+				m.status += " Draft retained: /me draft, /me retry (same revision), or /me discard."
+			}
+		} else {
+			m.standingDraft = nil
+			m.notice = ""
+			m.status = "Standing instructions saved. Authorized sessions capture them on their next turn."
+			m.refresh()
+		}
 	case nativeNotesResult:
 		m.controlling = false
 		if value.err != nil {
@@ -298,6 +317,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.status = value.label
+			if value.notice != "" {
+				m.notice = nativeBoundedNotice(value.notice)
+				m.refresh()
+			}
 			if value.owner != nil && value.owner.ConfigRevision >= m.owner.ConfigRevision {
 				m.owner = *value.owner
 			}
@@ -360,6 +383,10 @@ func (m *nativeModel) submit() tea.Cmd {
 }
 
 func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
+	if m.standingDraft != nil {
+		m.status = "An unsaved standing draft remains: /me draft, /me retry, or /me discard."
+		return nil
+	}
 	if m.uncertain != nil || m.retryControl != nil {
 		m.status = "Inspect or explicitly retry the original uncertain action before another submission."
 		return nil
