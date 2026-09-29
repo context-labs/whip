@@ -3419,3 +3419,41 @@ metadata. A conflict retains the authored title until an explicit metadata reloa
 no implicit rebase or resend occurs. Fork controls preserve the captured history
 revision, through-sequence and root configuration revision in the recovery journal.
 Deletion removes local tabs and drafts only after the native deletion acknowledges.
+`trees.summaries` reads up to 64 explicitly selected root IDs in one bounded
+SQL snapshot. Native tree metadata, root directories and tree-wide activity
+counts include deep children; missing IDs are explicit and child IDs never alias
+a root. These are current facts, not catalog-revision-cached values or a replay
+of connection events. Navigation polls only while visible and connected.
+
+### Native inspector metadata and controls
+
+The native inspectors receive explicit `Client`, selected `Session`, immutable tree/session
+metadata, and the runtime-owned paired `SessionView`/`ExecutionView`. They never reach into a
+view’s private session or assemble a legacy root snapshot. Read-only metadata uses one bounded
+Query page keyed by runtime ID, process epoch, selected session, operation, and parameters,
+with immediate collection when unused. Agent pages retain at most 16 records; mailbox,
+shared-state and grant pages retain at most 32. Next replaces the current page, including
+short byte-limited pages; First resets its cursor. These metadata reads do not admit work.
+
+Mail bodies, scheduled prompts and immutable shared values are explicit reads. Mail is not
+acknowledged by inspection. Shared values read exact 64 KiB byte pages, verify owner/version,
+size and digest, and decode UTF-8 only after joining bytes. Text preview is capped at 1 MiB;
+explicit state downloads retain the existing 64 MiB value bound. This is separate from the
+4 MiB scoped content contract. Selection changes and unmount abort local reads.
+
+Goals, schedules, compaction, mode edits, workspace changes and run configuration use the
+runtime’s journaled durable command path. An uncertain action disables its original button
+and points to Command recovery; it does not mint a replacement request. Configuration drafts
+retain the revision captured on first edit. Non-durable host configuration conflicts refresh
+read-only evidence without retrying the mutation. Compaction overrides are selected-session
+configuration; shared host defaults stay in Settings. Ask/Full Access is edited from the root,
+including a stopped root, and never substitutes for a child’s exact grants.
+
+This adoption checkpoint does not complete retained parity: detailed provider-reported,
+estimated and unknown usage totals, live worker stdout, built-in schema discovery and full
+host diagnostics are still open. Captured host-settings reload (`session.reload`), the
+separate interactive deny policy (`tool.configure deny_permissions`), and Rod/ChromeDP driver
+selection also remain explicit obligations. The UI must not invent those effects or infer
+whole-tree usage from a retained execution window. Trace rendering remains a separate native
+adoption increment. Computer policy changes use the explicit saved host policy endpoint;
+MCP refresh is additive while explicit reload retires existing connections.

@@ -1,640 +1,659 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import { Session, type WhipClient } from '@whip/legacy-sdk';
-import type { SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
-import type { RootSnapshot } from '@whip/legacy-protocol';
+import { webcrypto } from 'node:crypto';
+import {
+  Client,
+  DeliveryError,
+  DurableCommand,
+  RecoveryJournal,
+  type Operations,
+  type SessionRecord,
+  type Turn,
+  type DurableMethod,
+  type RecoveryRecord,
+} from '@whip/sdk';
+import type { Request } from '@whip/protocol';
+import { createExecutionView, createSessionView } from '@whip/sdk/state';
 import { ThemeProvider, UIProvider } from '@whip/ui';
+import fixtures from '../../protocol/schema/fixtures.json';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import { Agents, Mailbox } from '../src/details/observation';
 import { MCP } from '../src/details/integrations';
 import {
   Compaction,
-  ContextSettings,
   Goals,
   Permissions,
   Limits,
   formatBudgetAmount,
 } from '../src/details/session-controls';
-import { valueText, type InspectorProps } from '../src/details/shared';
+import { readStateBytes } from '../src/details/state-read';
+import type { InspectorProps } from '../src/details/shared';
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="#agent">{children}</a>,
 }));
-
 beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({
     matches: false,
     addEventListener() {},
     removeEventListener() {},
   }));
+  vi.stubGlobal('crypto', webcrypto);
 });
 afterEach(() => vi.unstubAllGlobals());
-
-function fixture() {
-  const root = {
-    root_id: 'root',
-    cursor: '1',
-    history_revision: '1',
-    meta: {
-      id: 'root',
-      kind: 'agent',
-      title: 'Test',
-      goal: '',
-      model: 'model',
-      provider: 'provider',
-      cwd: '/',
-      effort: '',
-      usage_in: 0,
-      usage_out: 0,
-      usage_cached: 0,
+const sample = <T,>(type: string) =>
+  structuredClone(fixtures.find((value) => value.type === type && value.valid)!.value) as T;
+function params<M extends keyof Operations>(request: Request, method: M): Operations[M]['params'] {
+  expect(request.method).toBe(method);
+  return request.params as Operations[M]['params'];
+}
+const at = '2026-09-28T12:00:00Z',
+  hash = 'a'.repeat(64);
+async function fixture() {
+  const calls: Request[] = [],
+    handlers: Record<string, (request: Request) => unknown | Promise<unknown>> = {};
+  const data = {
+    session: {
+      ...sample<SessionRecord>('Session'),
+      id: 'session_child',
+      tree_id: 'tree',
+      parent_id: 'session_root',
+      config_revision: '9007199254740993',
     },
-    active_turns: {},
-    agents: [],
-    messages: [],
-    message_seqs: [],
-    inbox: [],
-    blackboard: [],
-    budgets: [],
-    capabilities: [],
-    schedules: [],
-    permissions: [],
-    questions: [],
-    presentation: [],
-    agent_presentations: {},
-  } as unknown as RootSnapshot;
-  let state = {
-    status: 'live',
-    root,
-    history: {},
-    collections: {},
-    retainedBytes: 0,
-    truncated: false,
-    unavailable: false,
-  } as SessionViewSnapshot;
-  const listeners = new Set<() => void>();
-  const connection = {
-    state: 'connected',
-    info: { runtime_id: 'runtime', host_platform: 'darwin', host_architecture: 'arm64', limits: {} },
+    turn: {
+      ...sample<Turn>('Turn'),
+      id: 'active_turn',
+      session_id: 'session_child',
+      state: 'running',
+    } as Turn,
+    active: false,
+    policy: {
+      tree_id: 'tree',
+      mode: 'prompt',
+      revision: '9007199254740993',
+      updated_at: at,
+    } as Operations['permissions.policy']['result'],
   };
-  const client = {
-    subscribe: () => () => {},
-    getSnapshot: () => connection,
-    supports: vi.fn(() => true),
-    query: vi.fn(async (operation: string) => ({
-      result:
-        operation === 'mcp.import.status'
-          ? { claude: true, codex: false, project: false }
-          : operation === 'permission.rules'
-            ? { rules: [], global: [] }
-            : [],
-    })),
-    submit: vi.fn((operation: string, payload: unknown) => ({ operation, payload })),
-    invoke: vi.fn(async () => ({ result: {} })),
-    call: vi.fn(async () => ({})),
-    configuration: {
-      get: vi.fn(async () => ({
-        revision: '1',
-        compact_model: 'original',
-        compact_provider: 'provider',
-      })),
-      update: vi.fn(async () => ({})),
-    },
+  data.session.configuration.compaction = {
+    model: { name: 'original', provider: 'provider', effort: 'high', temperature: 0, top_p: 0 },
+    threshold_percent: 50,
   };
-  const session = new Session(client as unknown as WhipClient, 'root');
-  const view = {
-    session,
-    getSnapshot: () => state,
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+  const client = await Client.connect(
+    async (request) => {
+      calls.push(structuredClone(request));
+      if (handlers[request.method])
+        return { jsonrpc: '2.0', id: request.id, result: await handlers[request.method]!(request) };
+      let result: unknown;
+      switch (request.method) {
+        case 'initialize':
+          result = {
+            major: 4,
+            minor: 0,
+            runtime_id: 'runtime',
+            process_epoch: 'boot',
+            network_client: false,
+            builtins: [],
+          };
+          break;
+        case 'sessions.history_page':
+          result = {
+            snapshot: {
+              session_id: data.session.id,
+              revision: '1',
+              through_sequence: '0',
+              message_count: '0',
+            },
+            messages: [],
+            next_cursor: null,
+          };
+          break;
+        case 'sessions.observe':
+          result = {
+            snapshot: {
+              session_id: data.session.id,
+              revision: '1',
+              through_sequence: '0',
+              message_count: '0',
+            },
+            epoch: 'boot',
+            messages: [],
+            preview: null,
+          };
+          break;
+        case 'sessions.activity':
+          result = {
+            session_id: data.session.id,
+            lifecycle: 'active',
+            active_turn: data.active ? data.turn : null,
+            active_input_id: data.active ? 'input' : null,
+            queued_input_count: '0',
+            pending_permission_count: '0',
+            pending_question_count: '0',
+            execution_permit: data.active,
+            active_workspace_action_id: null,
+          };
+          break;
+        case 'sessions.turns':
+          result = { items: [], next_cursor: null };
+          break;
+        case 'sessions.list':
+          result = { items: [data.session] };
+          break;
+        case 'goals.current':
+          result = { goal: null };
+          break;
+        case 'schedules.list':
+          result = { items: [], next_after: null, next_cursor: null };
+          break;
+        case 'context.compactions':
+        case 'grants.list':
+        case 'budgets.list':
+        case 'resources.list':
+          result = { items: [] };
+          break;
+        case 'context.head':
+          result = { session_id: data.session.id, revision: '1', compaction_id: null };
+          break;
+        case 'permissions.policy':
+          result = data.policy;
+          break;
+        case 'mcp.configuration':
+          result = {
+            revision: hash,
+            servers: [],
+            imports: { claude: null, codex: null, project: null, opencode: null, offered: false },
+            brand_icons: false,
+          };
+          break;
+        case 'mcp.status':
+          result = { items: [] };
+          break;
+        case 'mcp.refresh':
+        case 'mcp.reload':
+          result = {
+            added: [],
+            existing: [],
+            changed: [],
+            servers: [],
+            blocked: [],
+            source_errors: {},
+          };
+          break;
+        default:
+          throw new Error(`Unexpected ${request.method}`);
+      }
+      return { jsonrpc: '2.0', id: request.id, result: structuredClone(result) };
     },
-    loadCollection: vi.fn(async () => {}),
-  } as unknown as SessionView;
+    { clientID: 'test' },
+  );
+  const session = client.session(data.session.id),
+    view = createSessionView(session, { pollIntervalMs: 60_000 });
+  await view.start();
+  const execution = createExecutionView(session, view, { pollIntervalMs: 60_000 });
+  await execution.start();
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const run = vi.fn(async () => ({ status: 'succeeded', result: {} }));
+  const records = new Map<string, RecoveryRecord>(),
+    journal = new RecoveryJournal({
+      list: async () => [...records.values()],
+      put: async (_namespace, key, record) => {
+        records.set(key, record);
+      },
+      delete: async (_namespace, key) => {
+        records.delete(key);
+      },
+    });
+  const run = vi.fn(async (command: DurableCommand<DurableMethod>) => command.send());
   const runtime = {
     queries,
     run,
-    report: vi.fn(),
-    platform: { download: vi.fn() },
+    command: (
+      client: Client,
+      method: Parameters<Client['command']>[0],
+      params: Parameters<Client['command']>[1],
+    ) => client.command(method, params, { journal }),
+    platform: { copy: vi.fn(), download: vi.fn() },
   } as unknown as AppRuntime;
-  const props: InspectorProps = { view, root, connected: true, agentId: 'root' };
-  return {
+  const props: InspectorProps = {
     client,
-    root,
+    session,
+    rootId: 'session_root',
+    tree: {
+      id: 'tree',
+      metadata: { title: 'Test', pinned: false, archived: false },
+      engine: 'starlark',
+      revision: '1',
+      created_at: at,
+    },
+    selected: data.session,
     view,
-    queries,
-    run,
+    execution,
+    connected: true,
+  };
+  afterEach(async () => {
+    queries.clear();
+    await execution.dispose();
+    await view.dispose();
+  });
+  const wrap = (node: ReactNode) => (
+    <RuntimeContext.Provider value={runtime}>
+      <ThemeProvider initialTheme="light">
+        <UIProvider>
+          <QueryClientProvider client={queries}>{node}</QueryClientProvider>
+        </UIProvider>
+      </ThemeProvider>
+    </RuntimeContext.Provider>
+  );
+  return {
+    data,
+    client,
     props,
-    update(next: Partial<SessionViewSnapshot>) {
-      state = { ...state, ...next };
-      listeners.forEach((listener) => listener());
-    },
-    render(node: ReactNode) {
-      return render(
-        <RuntimeContext.Provider value={runtime}>
-          <ThemeProvider initialTheme="light">
-            <UIProvider>
-              <QueryClientProvider client={queries}>{node}</QueryClientProvider>
-            </UIProvider>
-          </ThemeProvider>
-        </RuntimeContext.Provider>,
-      );
-    },
+    handlers,
+    calls,
+    queries,
+    records,
+    run,
+    wrap,
+    render: (node: ReactNode) => render(wrap(node)),
+    count: (method: string) => calls.filter((call) => call.method === method).length,
   };
 }
-const agent = (id: string, controls: string[]) => ({
+const mail = (
+  id = 'mail1',
+  revision = '1',
+): NonNullable<Operations['mail.list']['result']['items']>[number] => ({
   id,
-  root_id: 'root',
-  parent_id: 'root',
-  name: id,
-  model: 'model',
-  provider: 'provider',
-  effort: '',
-  cwd: '/',
-  report: '',
-  status: 'idle',
-  pending_mail: 0,
-  lifecycle_phase: 'idle',
-  blocking_reason: '',
-  terminal_cause: '',
-  allowed_controls: controls,
+  revision,
+  recipient_id: 'session_child',
+  source: { kind: 'session', id: 'session_root' },
+  state: 'pending',
+  subject: id,
+  delivery: 'queued',
+  evidence_ref: null,
+  body_bytes: '16',
+  available_at: at,
+  created_at: at,
+  revised_at: at,
 });
-
-describe('session inspector controls', () => {
-  it('does not expose a per-session automatic title opt-in', () => {
-    const f = fixture();
-    f.render(<ContextSettings {...f.props} />);
-    expect(screen.queryByRole('button', { name: 'Enable automatic titles' })).toBeNull();
-    expect(f.client.submit).not.toHaveBeenCalled();
+it('reads exact child mail bodies only on selection, refreshes their revision, and replaces bounded pages', async () => {
+  const f = await fixture();
+  let revision = '1';
+  f.handlers['mail.list'] = (request) => ({
+    items: [mail(params(request, 'mail.list').after ? 'mail2' : 'mail1', revision)],
   });
-  it('keeps retained agent controls disabled while disconnected', () => {
-    const f = fixture();
-    f.root.agents = [agent('child', ['agent.stop', 'agent.delete'])];
-    f.root.active_turns = { child: 'turn' };
-    f.render(<Agents {...f.props} connected={false} />);
-    for (const name of ['Stop subtree', 'Delete agent', 'Cancel turn']) {
-      const button = screen.getByRole('button', { name }) as HTMLButtonElement;
-      expect(button.disabled).toBe(true);
-      fireEvent.click(button);
-    }
-    expect(f.client.submit).not.toHaveBeenCalled();
+  f.handlers['mail.read'] = (request) => ({
+    mail: mail(params(request, 'mail.read').mail_id, revision),
+    body: `Body revision ${revision}`,
   });
-  it('recovers schedule prompts beyond the 4096-byte notice preview through collection content', async () => {
-    const f = fixture();
-    const full = JSON.stringify({ id: 11, schedule: '@every 1h', prompt: 'x'.repeat(4096) + ' RECOVERED FULL PROMPT' });
-    const readText = vi.fn(async () => full);
-    const content = vi.fn(() => ({ readText }));
-    Object.assign(f.client, { content });
-    f.root.omitted = { schedules: true };
-    f.render(<Goals {...f.props} />);
-    expect(content).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
-    await waitFor(() => expect(f.view.loadCollection).toHaveBeenCalledWith('schedules', { more: false }));
-    act(() => f.update({ collections: { schedules: { root_id: 'root', collection: 'schedules', revision: '1', event_cursor: '1', has_more: false, items: [{ body: { reference_id: 'full-schedule', digest: 'digest', size: String(full.length), media_type: 'application/json' } }] } } }));
-    expect(content).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Read large collection entry' }));
-    await waitFor(() => expect(document.body.textContent).toContain('RECOVERED FULL PROMPT'));
-    expect(content).toHaveBeenCalledWith(expect.objectContaining({ reference_id: 'full-schedule' }), { rootId: 'root', agentId: 'root' });
-    expect(readText).toHaveBeenCalledWith(expect.objectContaining({ maxBytes: 1 << 20 }));
+  f.render(<Mailbox {...f.props} />);
+  await screen.findByText('mail1');
+  expect(f.count('mail.read')).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect message' }));
+  await screen.findByText('Body revision 1');
+  revision = '9007199254740993';
+  await act(() =>
+    f.queries.invalidateQueries({ predicate: (query) => query.queryKey.includes('mail.list') }),
+  );
+  await screen.findByText('Body revision 9007199254740993');
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+  await screen.findByText('mail2');
+  expect(screen.queryByText('mail1')).toBeNull();
+  expect(screen.queryByText('Body revision 9007199254740993')).toBeNull();
+  expect(
+    f.calls
+      .filter((call) => call.method.startsWith('mail.'))
+      .every((call) => (call.params as { session_id: string }).session_id === 'session_child'),
+  ).toBe(true);
+  expect(f.calls.filter((call) => call.method === 'mail.list').at(-1)?.params).toEqual({
+    session_id: 'session_child',
+    limit: 32,
+    after: 'mail1',
   });
-  it('keeps oversized collection entries explicit without fetching their content', () => {
-    const f = fixture();
-    f.update({
-      collections: {
-        agents: {
-          root_id: 'root',
-          collection: 'agents',
-          revision: '1',
-          event_cursor: '1',
-          has_more: false,
-          items: [
-            {
-              body: {
-                reference_id: 'large-agent',
-                digest: 'digest',
-                size: '1048576',
-                media_type: 'application/json',
-              },
-            },
-          ],
-        },
-      },
-    });
-    f.render(<Agents {...f.props} />);
-    expect(screen.getByRole('button', { name: 'Read large collection entry' })).toBeTruthy();
-    expect(f.client.call).not.toHaveBeenCalled();
-  });
-  it('uses the configuration revision captured when compaction defaults were edited', async () => {
-    const f = fixture();
-    f.client.configuration.update.mockRejectedValueOnce(
-      new Error('configuration revision changed'),
-    );
-    f.render(<Compaction {...f.props} />);
-    await waitFor(() =>
-      expect((screen.getByLabelText('Compaction model') as HTMLInputElement).value).toBe(
-        'original',
-      ),
-    );
-    fireEvent.change(screen.getByLabelText('Compaction model'), { target: { value: 'my-model' } });
-    act(() =>
-      f.queries.setQueryData(['inspector-compaction-config', 'runtime'], {
-        revision: '2',
-        compact_model: 'someone-elses-model',
-        compact_provider: 'provider',
-      }),
-    );
-    await screen.findByText(
-      'Host configuration changed while you were editing. Refresh these fields before applying them.',
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Apply compaction defaults' }));
-    await screen.findByText('configuration revision changed');
-    expect(f.client.configuration.update).toHaveBeenCalledWith({
-      revision: '1',
-      compact_model: 'my-model',
-      compact_provider: 'provider',
-    });
-    expect(f.run).not.toHaveBeenCalled();
-    expect(f.client.configuration.get).toHaveBeenCalledTimes(1);
-  });
-  it('uses daemon-advertised agent controls and renders paged agents', async () => {
-    const f = fixture();
-    f.root.agents = [
-      agent('running-child', ['agent.stop']),
-      agent('finished-child', ['agent.delete']),
-    ];
-    f.root.omitted = { agents: true };
-    f.render(<Agents {...f.props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Stop subtree' }));
-    expect(f.client.submit).toHaveBeenCalledWith(
-      'agent.control',
-      { id: 'running-child' },
-      { rootId: 'root' },
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Delete agent' }));
-    expect(f.client.submit).toHaveBeenCalledWith(
-      'agent.delete',
-      { id: 'finished-child' },
-      { rootId: 'root' },
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
-    await waitFor(() =>
-      expect(f.view.loadCollection).toHaveBeenCalledWith('agents', { more: false }),
-    );
-    act(() =>
-      f.update({
-        collections: {
-          agents: {
-            root_id: 'root',
-            collection: 'agents',
-            revision: '1',
-            event_cursor: '1',
-            has_more: false,
-            items: [{ agent: agent('paged-child', []) }],
-          },
-        },
-      }),
-    );
-    expect(screen.getByText('paged-child')).toBeTruthy();
-  });
-  it('uses the exact active child turn for cancellation', () => {
-    const f = fixture();
-    f.root.agents = [agent('child', ['agent.stop'])];
-    f.root.active_turns = { child: 'turn-before-click' };
-    f.render(<Agents {...f.props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel turn' }));
-    expect(f.client.submit).toHaveBeenCalledWith(
-      'agent.turn.cancel',
-      { id: 'child', turn_id: 'turn-before-click' },
-      { rootId: 'root' },
-    );
-  });
-  it('submits goals and schedules through durable SDK commands', async () => {
-    const f = fixture();
-    f.render(<Goals {...f.props} />);
-    fireEvent.change(screen.getByLabelText('Goal'), { target: { value: 'Finish the audit' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save goal' }));
-    expect(f.client.submit).toHaveBeenCalledWith(
-      'goal.set',
-      { text: 'Finish the audit' },
-      { rootId: 'root' },
-    );
-    fireEvent.change(screen.getByLabelText('When'), { target: { value: 'every 30m' } });
-    fireEvent.change(screen.getByLabelText('Scheduled prompt'), {
-      target: { value: 'Check progress' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
-    expect(f.client.submit).toHaveBeenCalledWith(
-      'schedule.create',
-      { schedule: 'every 30m', prompt: 'Check progress' },
-      { rootId: 'root' },
-    );
-  });
-  it('forgets only the selected permission rule', async () => {
-    const f = fixture();
-    f.client.query.mockImplementation(
-      async () =>
-        ({
-          result: {
-            rules: [
-              {
-                id: 'rule-1',
-                operation: 'write',
-                rule: '/project/**',
-                principal_id: 'human',
-                created_at: 'now',
-              },
-            ],
-            global: [],
-          },
-        }) as never,
-    );
-    f.render(<Permissions {...f.props} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Forget rule' }));
-    expect(f.client.submit).toHaveBeenCalledWith(
-      'permission.forget',
-      { id: 'rule-1' },
-      { rootId: 'root' },
-    );
-  });
-  it('formats exact int64 usage and decodes binary presentation data without model admission', () => {
-    expect(formatBudgetAmount('cost', '9007199254740993')).toBe('$9007199254.740993');
-    expect(formatBudgetAmount('elapsed', '12345')).toBe('12.345 s');
-    expect(valueText({ reference_id: '', digest: '', size: '5', binary: btoa('hello') })).toBe(
-      'hello',
-    );
-  });
+  expect(f.run).not.toHaveBeenCalled();
 });
-
-describe('read-only mailbox and ephemeral integration workflows', () => {
-  it('reloads an inspected body when the same mailbox message receives a new revision', async () => {
-    const f = fixture();
-    let revision = '1';
-    const item = () => ({
-      id: 'message',
-      subject: 'Report',
-      kind: 'report',
-      sender: 'child',
-      recipient: 'root',
-      revision,
-      status: 'pending',
-      excerpt: 'Excerpt',
-    });
-    vi.spyOn(f.view.session.mailbox, 'list').mockImplementation(
-      async () => ({ revision, items: [item()], has_more: false }) as never,
-    );
-    const read = vi
-      .spyOn(f.view.session.mailbox, 'read')
-      .mockImplementation(
-        async () =>
-          ({
-            ...item(),
-            body: {
-              text: `Body revision ${revision}`,
-              reference_id: '',
-              digest: '',
-              size: '15',
-              media_type: 'text/plain',
-            },
-          }) as never,
-      );
-    f.render(<Mailbox {...f.props} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Inspect message' }));
-    await screen.findByText('Body revision 1');
-    revision = '2';
-    await act(() =>
-      f.queries.invalidateQueries({
-        queryKey: ['inspector-mail', 'runtime', 'root', 'root', 'all'],
-        exact: true,
-      }),
-    );
-    await screen.findByText('Body revision 2');
-    expect(screen.queryByText('Body revision 1')).toBeNull();
-    expect(read).toHaveBeenCalledTimes(2);
-    expect(f.client.submit).not.toHaveBeenCalled();
-  });
-  it('pages the mailbox and reads bodies only after selection', async () => {
-    const f = fixture();
-    const cursor = { root_id: 'root', agent_id: 'root', status: 'all', revision: '2', offset: '1' };
-    const item = (id: string) => ({
-      id,
-      subject: id,
-      kind: 'report',
-      sender: 'child',
-      recipient: 'root',
-      revision: '2',
-      status: 'pending',
-      excerpt: 'Excerpt',
-    });
-    const list = vi.spyOn(f.view.session.mailbox, 'list').mockImplementation(
-      async (params) =>
-        ({
-          revision: '2',
-          items: [item(params?.cursor ? 'second-message' : 'first-message')],
-          has_more: !params?.cursor,
-          next_cursor: params?.cursor ? undefined : cursor,
-        }) as never,
-    );
-    const read = vi.spyOn(f.view.session.mailbox, 'read').mockResolvedValue({
-      ...item('second-message'),
-      body: {
-        text: 'Private body',
-        reference_id: '',
-        digest: '',
-        size: '12',
-        media_type: 'text/plain',
-        source: 'mail',
-      },
-    } as never);
-    f.render(<Mailbox {...f.props} />);
-    await screen.findByText('first-message');
-    expect(read).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Older messages' }));
-    await screen.findByText('second-message');
-    expect(list).toHaveBeenLastCalledWith(
-      expect.objectContaining({ cursor, limit: 32, max_bytes: 131072 }),
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
-    fireEvent.click(screen.getAllByRole('button', { name: 'Inspect message' })[1]!);
-    await screen.findByText('Private body');
-    expect(read).toHaveBeenCalledWith('second-message', 'root', expect.anything());
-    expect(f.client.submit).not.toHaveBeenCalled();
-  });
-  it('restarts mailbox paging after a revision conflict', async () => {
-    const f = fixture();
-    const list = vi.spyOn(f.view.session.mailbox, 'list').mockImplementation(async (params) => {
-      if (params?.cursor)
-        throw Object.assign(new Error('expired'), { kind: 'resynchronization_required' });
-      return {
-        revision: '2',
-        items: [],
-        has_more: true,
-        next_cursor: {
-          root_id: 'root',
-          agent_id: 'root',
-          status: 'all',
-          revision: '2',
-          offset: '1',
-        },
-      } as never;
-    });
-    f.render(<Mailbox {...f.props} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Older messages' }));
-    await screen.findByText('Mailbox changed. Refreshed from the current first page.');
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
-    expect(list.mock.calls[2]?.[0]?.cursor).toBeUndefined();
-  });
-  it('explains a remembered MCP rule in words and keeps the digest under a disclosure', async () => {
-    const f = fixture();
-    const selector = JSON.stringify({ server: 'docs', tool: 'search', definition: 'deadbeef' });
-    f.client.query.mockImplementation(async (operation: string) => ({
-      result:
-        operation === 'permission.rules'
-          ? {
-              rules: [{ id: 'r1', operation: 'mcp.call', rule: selector, principal_id: 'sam', created_at: '2026-09-13T00:00:00Z' }],
-              global: [`mcp.call:${selector}`],
-            }
-          : operation === 'mcp.import.status'
-            ? { claude: true, codex: false, project: false }
-            : [],
-    }));
-    f.render(<Permissions {...f.props} />);
-    expect((await screen.findAllByText('MCP server docs, tool search, this exact definition only')).length).toBe(2);
-    expect(screen.getAllByText('Technical identity').length).toBe(2);
-    expect(screen.getAllByText('definition deadbeef').length).toBe(2);
-    expect(screen.queryByText(selector)).toBeNull();
-  });
-  it('offers each MCP row only the controls its state supports, named by subject, and has no attach box', async () => {
-    const f = fixture();
-    f.client.query.mockImplementation(async (operation: string) => ({
-      result:
-        operation === 'mcp.status'
-          ? [
-              { name: 'docs', status: 'ready', tools: 4, source: 'whip' },
-              { name: 'slow', status: 'connecting', tools: 0, source: 'codex' },
-              { name: 'off', status: 'disabled', tools: 0, source: 'whip' },
-              { name: 'ghost', status: 'blocked', note: 'blocked by mcpImport config (project)', source: '/repo/.mcp.json' },
-              { name: 'codex config', status: 'unreadable', error: 'not imported: line 3: expected key = value', source: '/home/u/.codex/config.toml' },
-            ]
-          : operation === 'mcp.import.status'
-            ? { claude: true, codex: false, project: false }
-            : operation === 'permission.rules'
-              ? { rules: [], global: [] }
-              : [],
-    }));
-    f.render(<MCP {...f.props} />);
-    await screen.findByText('docs');
-    expect(screen.getByRole('button', { name: 'Reconnect docs' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Disable docs for this session' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Enable docs for this session' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Disable slow for this session' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Reconnect slow' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Enable off for this session' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Reconnect off' })).toBeNull();
-    for (const name of ['Reconnect ghost', 'Enable ghost for this session', 'Disable ghost for this session', 'Reconnect codex config']) {
-      expect(screen.queryByRole('button', { name })).toBeNull();
-    }
-    expect(screen.getByText('blocked by mcpImport config (project)')).toBeTruthy();
-    expect(screen.queryByLabelText('Private MCP server JSON')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Attach to this session' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Enable project imports' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Reconnect docs' }));
-    await waitFor(() => expect(f.run).toHaveBeenCalledTimes(1));
-    expect(f.run.mock.calls[0]?.[1]).toBe('Reconnect requested');
-    expect(
-      f.client.submit.mock.calls.some(
-        ([operation, payload]) => operation === 'mcp.reconnect' && (payload as { name?: string })?.name === 'docs',
-      ),
-    ).toBe(true);
-  });
-
-  it('shows unlimited and uncertain usage without offering budget controls', () => {
-    const f = fixture();
-    f.root.budgets = [{ agent_id: '', state: { kind: 'cost', limit: null, remaining: null, used: '1142228', reserved: '0', uncertain: '23883863', incomplete: true } }];
-    f.render(<Limits {...f.props} />);
-    expect(screen.getByText('Unlimited')).toBeTruthy();
-    expect(screen.getByText('$1.142228 used · $0.000000 in flight')).toBeTruthy();
-    expect(screen.getByText('Usage is incomplete · estimated $23.883863 unconfirmed.')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Set cap' })).toBeNull();
-    expect(screen.queryByLabelText('Budget agent')).toBeNull();
-    expect(screen.queryByLabelText('Limit')).toBeNull();
-    expect(f.client.submit).not.toHaveBeenCalled();
-  });
-});
-
-
-describe('model accounting provenance', () => {
-  const accounting = (): NonNullable<RootSnapshot['accounting']> => ({
-    root_id: 'root', agent_id: 'root', scope: 'subtree', revision: '11',
-    reported_cost_micros: '9007199254740993', estimated_cost_micros: '1250000',
-    reported_cost_calls: '3', estimated_cost_calls: '2', unknown_cost_calls: '1',
-    reported_calls: '4', estimated_calls: '2', pending_calls: '1',
-  });
-
-  it('separates provider charges, catalog estimates, missing tokens, unknown costs and active requests for the whole tree', () => {
-    const f = fixture();
-    f.root.accounting = accounting();
-    f.root.meta.usage_in = 999;
-    f.props.agentId = 'selected-child';
-    f.root.budgets = [{ agent_id: 'selected-child', state: { kind: 'cost', limit: null, remaining: null, used: '1000000', reserved: '0', uncertain: '0', incomplete: false } }];
-    const rendered = f.render(<Limits {...f.props} />);
-    expect(screen.getByLabelText('Entire session tree accounting')).toBeTruthy();
-    expect(screen.getByText('Provider-reported cost: $9007199254.740993 · 3 calls')).toBeTruthy();
-    expect(screen.getByText('Catalog-estimated cost: $1.250000 · 2 calls')).toBeTruthy();
-    expect(screen.getByText('Unknown cost: 1 call')).toBeTruthy();
-    expect(screen.getByText('Missing token usage: 2 calls')).toBeTruthy();
-    expect(screen.getByText('In-flight requests: 1 call')).toBeTruthy();
-    expect(screen.getByText('$1.000000 used · $0.000000 in flight')).toBeTruthy();
-    expect(screen.queryByText(/9007199255/)).toBeNull();
-    expect(screen.queryByText(/999 input/)).toBeNull();
-    expect(f.props.agentId).toBe('selected-child');
-    expect(f.client.query).not.toHaveBeenCalled();
-    expect(f.client.call).not.toHaveBeenCalled();
-    expect(f.client.submit).not.toHaveBeenCalled();
-    expect(rendered.container.querySelector('input')).toBeNull();
-  });
-
-  it('keeps reported zero distinct from unknown cost and missing tokens', () => {
-    const f = fixture();
-    f.root.accounting = { ...accounting(), reported_cost_micros: '0', reported_cost_calls: '1', estimated_cost_micros: '0', estimated_cost_calls: '0', unknown_cost_calls: '0', reported_calls: '0', estimated_calls: '1', pending_calls: '0' };
-    f.render(<Limits {...f.props} />);
-    expect(screen.getByText('Provider-reported cost: $0.000000 · 1 call')).toBeTruthy();
-    expect(screen.getByText('Unknown cost: 0 calls')).toBeTruthy();
-    expect(screen.getByText('Missing token usage: 1 call')).toBeTruthy();
-    expect(screen.getByText('In-flight requests: 0 calls')).toBeTruthy();
-  });
-
-  for (const invalid of [undefined, { ...accounting(), scope: 'agent' }, { ...accounting(), root_id: 'other' }, { ...accounting(), agent_id: 'child' }]) {
-    it(`keeps unavailable or wrongly scoped accounting separate from budget rows: ${invalid?.scope ?? 'omitted'} ${invalid?.agent_id ?? ''}`, () => {
-      const f = fixture();
-      f.root.accounting = invalid;
-      f.root.budgets = [{ agent_id: '', state: { kind: 'tokens', limit: null, remaining: null, used: '23', reserved: '0', uncertain: '0', incomplete: false } }];
-      f.render(<Limits {...f.props} />);
-      expect(screen.getByText('Model accounting details are unavailable on this snapshot.')).toBeTruthy();
-      expect(screen.getByText('23 tokens used · 0 tokens in flight')).toBeTruthy();
-      expect(screen.getByText('Unlimited')).toBeTruthy();
-      expect(screen.queryByLabelText('Entire session tree accounting')).toBeNull();
-      expect(screen.queryByText(/Provider-reported cost/)).toBeNull();
-    });
+it('retains displayed agents while disconnected and never sends disabled controls', async () => {
+  const f = await fixture();
+  const mounted = f.render(<Agents {...f.props} />);
+  await screen.findByText('session_child');
+  mounted.rerender(f.wrap(<Agents {...f.props} connected={false} />));
+  for (const name of ['Stop subtree', 'Delete agent', 'Resume agent']) {
+    const button = screen.getByRole('button', { name });
+    expect(button.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(button);
   }
+  expect(f.count('sessions.lifecycle')).toBe(0);
+  expect(f.count('sessions.delete')).toBe(0);
+});
+it('cancels the captured active child turn after verifying exact session ownership', async () => {
+  const f = await fixture();
+  f.data.active = true;
+  await f.props.view.refresh();
+  f.handlers['turns.get'] = () => f.data.turn;
+  f.handlers['turns.cancel'] = () => ({ ...f.data.turn, state: 'cancelling' });
+  f.render(<Agents {...f.props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel current turn' }));
+  await waitFor(() => expect(f.count('turns.cancel')).toBe(1));
+  expect(f.calls.find((call) => call.method === 'turns.cancel')?.params).toEqual({
+    turn_id: 'active_turn',
+  });
+  expect(f.calls.filter((call) => call.method === 'turns.get').map((call) => call.params)).toEqual([
+    { turn_id: 'active_turn' },
+  ]);
+});
+it('keeps exact captured compaction revision and sampling when another client edits', async () => {
+  const f = await fixture();
+  const mounted = f.render(<Compaction {...f.props} />);
+  fireEvent.change(screen.getByLabelText('Compaction model'), { target: { value: 'my-model' } });
+  const selected = structuredClone(f.data.session);
+  selected.config_revision = '9007199254740994';
+  selected.configuration.compaction.model = { provider: 'other', name: 'their-model', effort: '' };
+  mounted.rerender(f.wrap(<Compaction {...f.props} selected={selected} />));
+  f.handlers['sessions.configure'] = () => {
+    throw new Error('Configuration revision changed');
+  };
+  fireEvent.click(screen.getByRole('button', { name: 'Apply compaction settings' }));
+  await screen.findByText('Configuration revision changed');
+  expect(f.calls.find((call) => call.method === 'sessions.configure')?.params).toEqual({
+    session_id: 'session_child',
+    expected_revision: '9007199254740993',
+    patch: {
+      compaction: {
+        model: { name: 'my-model', provider: 'provider', effort: 'high', temperature: 0, top_p: 0 },
+        threshold_percent: 50,
+      },
+    },
+  });
+  expect(f.count('sessions.configure')).toBe(1);
+  expect(f.run).not.toHaveBeenCalled();
+});
+it('saves goals and schedules as journaled durable commands with exact IDs', async () => {
+  const f = await fixture();
+  f.handlers['goals.create'] = (request) => ({
+    id: params(request, 'goals.create').goal_id,
+    goal: null,
+    current: false,
+    initial: null,
+    deleted_at: at,
+  });
+  f.handlers['schedules.create'] = (request) => ({
+    id: params(request, 'schedules.create').schedule_id,
+    schedule: null,
+    deleted_at: at,
+  });
+  f.render(<Goals {...f.props} />);
+  await waitFor(() => expect(f.count('goals.current')).toBe(1));
+  fireEvent.change(screen.getByLabelText('Goal'), { target: { value: 'Finish the audit' } });
+  fireEvent.change(screen.getByLabelText('Additional goal continuations'), {
+    target: { value: '9007199254740993' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save goal' }));
+  await waitFor(() => expect(f.count('goals.create')).toBe(1));
+  fireEvent.change(screen.getByLabelText('When'), { target: { value: 'every 30m' } });
+  fireEvent.change(screen.getByLabelText('Scheduled prompt'), {
+    target: { value: 'Check progress' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+  await waitFor(() => expect(f.count('schedules.create')).toBe(1));
+  expect(f.run.mock.calls.every(([command]) => command instanceof DurableCommand)).toBe(true);
+  expect(f.records.size).toBe(2);
+  const sent = f.calls.find((call) => call.method === 'goals.create')!;
+  expect(sent.params).toMatchObject({
+    session_id: 'session_child',
+    expected_current: null,
+    start: false,
+    spec: { text: 'Finish the audit', max_continuations: '9007199254740993' },
+  });
+  expect(
+    [...f.records.values()].some(
+      (record) =>
+        JSON.parse(record.request).params.goal_id === params(sent, 'goals.create').goal_id,
+    ),
+  ).toBe(true);
+});
+it('full scheduled prompts are explicit reads, including text beyond the metadata preview', async () => {
+  const f = await fixture(),
+    schedule = {
+      id: 'schedule',
+      session_id: 'session_child',
+      expression: 'every 30m',
+      first_due: at,
+      next_due: at,
+      cancelled_at: null,
+      failure: null,
+      created_at: at,
+      parts_bytes: '6000',
+      preview: 'bounded preview',
+      preview_truncated: true,
+      latest: null,
+    };
+  f.handlers['schedules.list'] = () => ({ items: [schedule], next_after: null, next_cursor: null });
+  f.handlers['schedules.get'] = () => ({
+    schedule,
+    parts: [{ type: 'text', text: 'x'.repeat(5000) + ' FULL PROMPT' }],
+  });
+  f.render(<Goals {...f.props} />);
+  await screen.findByText('bounded preview…');
+  expect(f.count('schedules.get')).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Read scheduled prompt' }));
+  await waitFor(() =>
+    expect(screen.getByRole('region', { name: 'Scheduled prompt' }).textContent).toContain(
+      'FULL PROMPT',
+    ),
+  );
+  expect(f.calls.find((call) => call.method === 'schedules.get')?.params).toEqual({
+    session_id: 'session_child',
+    schedule_id: 'schedule',
+  });
+});
+it('shows a child’s shared permission mode without allowing it to replace root authority', async () => {
+  const f = await fixture();
+  f.render(<Permissions {...f.props} />);
+  await screen.findByText(/Current: Ask for approval/);
+  const button = screen.getByRole('button', { name: 'Apply policy' });
+  expect(button.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(button);
+  expect(f.run).not.toHaveBeenCalled();
+});
+it('revokes only the selected exact grant and keeps resource identities visible', async () => {
+  const f = await fixture();
+  const grant = {
+    id: 'grant1',
+    session_id: 'session_child',
+    capability: 'mcp.call',
+    resource: 'mcp_call_exact_definition',
+    operation_id: null,
+    issuer_id: 'parent_grant',
+    created_at: at,
+    revoked_at: null,
+  };
+  f.handlers['grants.list'] = () => ({ items: [grant] });
+  f.handlers['grants.revoke'] = () => ({ ...grant, revoked_at: at });
+  f.render(<Permissions {...f.props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Revoke grant' }));
+  await waitFor(() => expect(f.count('grants.revoke')).toBe(1));
+  expect(f.calls.find((call) => call.method === 'grants.revoke')?.params).toEqual({
+    grant_id: 'grant1',
+  });
+  expect(screen.getByText('mcp_call_exact_definition')).toBeDefined();
+});
+it('uses exact budget counters without presenting a retained execution window as whole-tree accounting', async () => {
+  const f = await fixture();
+  f.handlers['budgets.list'] = () => ({
+    items: [
+      {
+        session_id: 'session_child',
+        kind: 'model_cost_nano_usd',
+        revision: '1',
+        limit: null,
+        used: '9007199254740993',
+        reserved: '0',
+        uncertain: '23883863000',
+        incomplete: true,
+      },
+    ],
+  });
+  f.render(<Limits {...f.props} />);
+  await screen.findByText('$9007199.254740993 used · $0.000000000 in flight');
+  expect(screen.getByText('No local cap')).toBeDefined();
+  expect(screen.getByText('Usage is incomplete · $23.883863000 unconfirmed.')).toBeDefined();
+  expect(screen.queryByLabelText('Entire session tree accounting')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Set cap' })).toBeNull();
+  expect(formatBudgetAmount('model_elapsed_millis', '12345')).toBe('12.345 s');
+});
+it('keeps MCP controls state-specific and refreshes only the selected child', async () => {
+  const f = await fixture();
+  f.handlers['mcp.status'] = () => ({
+    items: ['ready', 'blocked', 'unreadable', 'disabled', 'connecting'].map((state) => ({
+      name: state,
+      state,
+      tools: 0,
+      source: 'host',
+      note: '',
+      failure: null,
+    })),
+  });
+  f.render(<MCP {...f.props} />);
+  await screen.findByRole('button', { name: 'Reconnect ready' });
+  expect(screen.queryByRole('button', { name: 'Reconnect blocked' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Reconnect connecting' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Enable disabled for this session' })).toBeDefined();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Refresh MCP configuration for this session' }),
+  );
+  await waitFor(() => expect(f.count('mcp.refresh')).toBe(1));
+  expect(f.calls.find((call) => call.method === 'mcp.refresh')?.params).toEqual({
+    session_id: 'session_child',
+  });
+  expect(f.count('mcp.reload')).toBe(0);
+});
+it('does not replay a conflicting shared host import edit', async () => {
+  const f = await fixture();
+  f.handlers['mcp.configure'] = () => {
+    throw new Error('Host revision changed');
+  };
+  f.render(<MCP {...f.props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Enable project imports' }));
+  await screen.findByText('Host revision changed');
+  expect(f.count('mcp.configure')).toBe(1);
+  expect(f.count('mcp.configuration')).toBe(2);
+  expect(f.count('mcp.refresh')).toBe(0);
+  expect(f.calls.find((call) => call.method === 'mcp.configure')?.params).toMatchObject({
+    revision: hash,
+    imports: { project: { enabled: true, only: [], exclude: [] } },
+  });
+});
+it('reads immutable shared values across UTF-8 page boundaries and verifies their digest', async () => {
+  const f = await fixture(),
+    bytes = new TextEncoder().encode('x'.repeat(65535) + '🌍');
+  const version = {
+    id: 'version',
+    tree_id: 'tree',
+    session_id: null,
+    key: 'state',
+    revision: '9007199254740993',
+    author_id: 'session_root',
+    digest: Buffer.from(await webcrypto.subtle.digest('SHA-256', bytes)).toString('hex'),
+    size: String(bytes.length),
+    created_at: at,
+  };
+  f.handlers['state.read'] = (request) => {
+    const p = request.params as Operations['state.read']['params'];
+    return {
+      version,
+      offset: p.offset,
+      data_base64: Buffer.from(bytes.slice(Number(p.offset), Number(p.offset) + p.length)).toString(
+        'base64',
+      ),
+    };
+  };
+  const result = await readStateBytes(
+    f.props.session,
+    version,
+    1 << 20,
+    new AbortController().signal,
+  );
+  expect(new TextDecoder().decode(result)).toBe('x'.repeat(65535) + '🌍');
+  expect(f.calls.filter((call) => call.method === 'state.read').map((call) => call.params)).toEqual(
+    [
+      { session_id: 'session_child', version_id: 'version', offset: '0', length: 65536 },
+      { session_id: 'session_child', version_id: 'version', offset: '65536', length: 3 },
+    ],
+  );
+  await expect(
+    readStateBytes(
+      f.props.session,
+      { ...version, size: String(2 << 20) },
+      1 << 20,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('read limit');
+  expect(f.count('state.read')).toBe(2);
+  f.handlers['state.read'] = (request) => ({
+    version: { ...version, tree_id: 'foreign' },
+    offset: params(request, 'state.read').offset,
+    data_base64: '',
+  });
+  await expect(
+    readStateBytes(f.props.session, version, 1 << 20, new AbortController().signal),
+  ).rejects.toThrow('identity changed');
 });
 
-it('refreshes external MCP additions for the inspected session', async () => {
-  const f = fixture();
-  f.render(<MCP {...f.props} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh MCP configuration for this session' }));
-  await waitFor(() => expect(f.client.submit).toHaveBeenCalledWith('mcp.refresh', {}, { rootId: 'root' }));
-  expect(f.run).toHaveBeenCalledWith({ operation: 'mcp.refresh', payload: {} }, 'MCP configuration refreshed');
+it('an uncertain durable action retains its exact request and cannot mint a second identity from the same button', async () => {
+  const f = await fixture();
+  f.handlers['schedules.create'] = () => {
+    throw new DeliveryError('Acknowledgement was lost');
+  };
+  f.render(<Goals {...f.props} />);
+  await waitFor(() => expect(f.count('goals.current')).toBe(1));
+  fireEvent.change(screen.getByLabelText('When'), { target: { value: 'every 30m' } });
+  fireEvent.change(screen.getByLabelText('Scheduled prompt'), { target: { value: 'Once' } });
+  const button = screen.getByRole('button', { name: 'Create schedule' });
+  fireEvent.click(button);
+  await screen.findByText('Acknowledgement was lost');
+  expect(button.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(button);
+  expect(f.count('schedules.create')).toBe(1);
+  expect(f.records.size).toBe(1);
+  const request = f.calls.find((call) => call.method === 'schedules.create')!;
+  expect(JSON.parse([...f.records.values()][0]!.request)).toEqual({
+    method: 'schedules.create',
+    params: request.params,
+  });
+  expect(screen.getByText(/Inspect this command in Settings/)).toBeDefined();
 });
-
-it('explains unavailable live MCP refresh without sending an unsupported action', async () => {
-  const f = fixture();
-  f.client.supports.mockImplementation((...args: unknown[]) => args[1] !== 'mcp.refresh');
-  f.render(<MCP {...f.props} />);
-  expect(screen.queryByRole('button', { name: 'Refresh MCP configuration for this session' })).toBeNull();
-  expect(screen.getByText(/This host does not support live MCP refresh/)).toBeTruthy();
-  expect(f.client.submit).not.toHaveBeenCalled();
+it('a stopped root can explicitly save the current policy using an exact receipt and revision', async () => {
+  const f = await fixture(),
+    selected = {
+      ...f.data.session,
+      id: 'session_root',
+      parent_id: null,
+      lifecycle: 'stopped' as const,
+    };
+  f.handlers['permissions.set_mode'] = (request) => {
+    const p = params(request, 'permissions.set_mode');
+    return {
+      id: p.edit_id,
+      session_id: p.session_id,
+      expected_revision: p.expected_revision,
+      mode: p.mode,
+      previous_mode: 'prompt',
+      policy: f.data.policy,
+      created_at: at,
+    };
+  };
+  f.render(
+    <Permissions {...f.props} session={f.client.session('session_root')} selected={selected} />,
+  );
+  const button = await screen.findByRole('button', { name: 'Apply policy' });
+  expect(button.hasAttribute('disabled')).toBe(false);
+  fireEvent.click(button);
+  await waitFor(() => expect(f.count('permissions.set_mode')).toBe(1));
+  expect(f.calls.find((call) => call.method === 'permissions.set_mode')?.params).toMatchObject({
+    session_id: 'session_root',
+    expected_revision: '9007199254740993',
+    mode: 'prompt',
+  });
+  expect(f.records.size).toBe(1);
 });

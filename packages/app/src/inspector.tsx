@@ -23,7 +23,7 @@ export function SessionInspector(props: InspectorProps & { section: InspectorSec
         </p>
       )}
       <div
-        key={`${props.view.session.client.getSnapshot().info?.runtime_id}:${props.view.session.rootId}:${props.agentId}:${section}`}
+        key={`${props.client.runtimeID}:${props.client.processEpoch}:${props.rootId}:${props.session.id}:${section}`}
         {...stylex.props(layout.column)}
       >
         {section === 'agents' && <Agents {...props} />}

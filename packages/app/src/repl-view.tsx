@@ -64,7 +64,7 @@ export function ReplView({ session, view, execution, engine, runtimeId, viewId, 
         <p {...stylex.props(styles.meta)}>No execution cell has been committed for this preview.</p>
       </article>)}
       renderRow={row => row.gap ? <HistoryGapControl gap={row.gap} connected={connected && !!loadGap} load={() => loadGap ? loadGap(row.gap.messageID) : Promise.resolve()} />
-        : <Cell row={row.cell} number={ordinals.get(row.id)!} session={session} engine={engine} connected={connected} expanded={expanded.has(row.id)} onToggle={() => toggle(row.id)} />}
+        : <ExecutionCellCard row={row.cell} number={ordinals.get(row.id)!} session={session} engine={engine} connected={connected} expanded={expanded.has(row.id)} onToggle={() => toggle(row.id)} />}
     />
   </div>;
 }
@@ -81,7 +81,7 @@ export function formatJsonOutput(output: string): string {
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return output;
   try { return JSON.stringify(safeJSON(trimmed), null, 2); } catch { return output; }
 }
-function Cell({ row, number, session, engine, connected, expanded, onToggle }: {
+export function ExecutionCellCard({ row, number, session, engine, connected, expanded, onToggle }: {
   row: CellExecutionRow; number: number; session: Session; engine: 'starlark' | 'quickjs'; connected: boolean; expanded: boolean; onToggle(): void;
 }) {
   const cell = row.cell, result = executionOutput(row.result?.value.output ?? '');

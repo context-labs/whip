@@ -1,82 +1,109 @@
 import { ErrorNotice } from '../error-feedback';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useSessionView, useWhipConnection } from '@whip/legacy-sdk/react';
-import type { DeepReadonly, SessionView } from '@whip/legacy-sdk/state';
-import type {
-  ContentHandle,
-  QueryOperation,
-  RootSnapshot,
-  RuntimeOperations,
-} from '@whip/legacy-protocol';
-import { Alert, Button, CodeBlock } from '@whip/ui';
+import { DeliveryError, RecoveryError, RecoveryPersistenceError } from '@whip/sdk';
+import type { Client, Operations, Session, SessionRecord, Tree } from '@whip/sdk';
+import type { DeepReadonly, ExecutionView, SessionView } from '@whip/sdk/state';
+import { Button } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
-import { useRuntime } from '../context';
 import { layout } from '../styles';
 
 export interface InspectorProps {
+  client: Client;
+  session: Session;
+  rootId: string;
+  tree: DeepReadonly<Tree>;
+  selected: DeepReadonly<SessionRecord>;
   view: SessionView;
-  root: DeepReadonly<RootSnapshot>;
+  execution: ExecutionView;
   connected: boolean;
-  agentId: string;
   viewId?: string;
   kind?: 'chat' | 'repl' | 'trace';
 }
-export type Value = NonNullable<RootSnapshot['blackboard']>[number]['payload'];
-export function useDetailQuery<O extends QueryOperation>(
-  props: Pick<InspectorProps, 'view' | 'connected'>,
-  operation: O,
-  params: RuntimeOperations[O]['params'],
+type DetailRead =
+  | 'sessions.list'
+  | 'mail.list'
+  | 'mail.read'
+  | 'state.history'
+  | 'schedules.list'
+  | 'schedules.get'
+  | 'context.compaction'
+  | 'context.head'
+  | 'context.compactions'
+  | 'context.snapshot'
+  | 'turns.instructions'
+  | 'workspace.inspect'
+  | 'permissions.policy'
+  | 'grants.list'
+  | 'budgets.list'
+  | 'resources.list'
+  | 'mcp.status'
+  | 'mcp.configuration'
+  | 'lsp.status'
+  | 'computer.status'
+  | 'browser.attachments'
+  | 'definitions.get'
+  | 'goals.current'
+  | 'state.list'
+  | 'state.read';
+export function useDetailQuery<M extends DetailRead>(
+  props: Pick<InspectorProps, 'client' | 'session' | 'connected'>,
+  method: M,
+  params: Operations[M]['params'],
   poll = false,
 ) {
-  const { session } = props.view;
-  const supported = session.client.supports('runtime', operation);
   const query = useQuery({
     queryKey: [
       'inspector',
-      session.client.getSnapshot().info?.runtime_id,
-      session.rootId,
-      operation,
+      props.client.runtimeID,
+      props.client.processEpoch,
+      props.session.id,
+      method,
       params,
     ],
-    queryFn: ({ signal }) => session.query(operation, params, { signal }),
-    enabled: props.connected && supported,
+    queryFn: ({ signal }) => props.client.call(method, params, { signal }),
+    enabled: props.connected,
     gcTime: 0,
+    retry: false,
     refetchInterval: props.connected && poll ? 3000 : false,
   });
-  return { ...query, supported, errorOwner: `${session.rootId}:${operation}:${JSON.stringify(params)}` };
+  return { ...query, errorOwner: `${props.client.runtimeID}:${props.session.id}:${method}` };
 }
 export function QueryFeedback({
   query,
-  view,
+  connected,
 }: {
   query: {
     error: Error | null;
     isLoading: boolean;
-    supported: boolean;
     errorOwner?: string;
     refetch?(): Promise<unknown>;
-    data?: { content?: ContentHandle | null };
   };
-  view: SessionView;
+  connected: boolean;
 }) {
-  const connected = useWhipConnection(view.session.client).state === 'connected';
   if (!connected) return <p role="status">Unavailable while this host is offline.</p>;
-  if (!query.supported)
+  if (query.error)
     return (
-      <Alert title="Unavailable on this host">
-        The execution host does not offer this operation.
-      </Alert>
+      <ErrorNotice
+        type="resource"
+        owner={query.errorOwner ?? 'inspector'}
+        title="Could not load this resource"
+        error={query.error}
+        action={
+          query.refetch && (
+            <Button variant="ghost" onClick={() => void query.refetch?.()}>
+              Retry
+            </Button>
+          )
+        }
+      />
     );
-  if (query.error) return <ErrorNotice type="resource" owner={query.errorOwner ?? `${view.session.rootId}:inspector`} title="Could not load this resource" error={query.error} action={query.refetch && <Button variant="ghost" onClick={() => void query.refetch?.()}>Retry</Button>} />;
   if (query.isLoading)
     return (
       <p role="status" {...stylex.props(layout.muted)}>
         Loading from the execution host…
       </p>
     );
-  if (query.data?.content)
-    return <ContentRead view={view} value={query.data.content} label="Large result" />;
   return null;
 }
 export function Action({
@@ -84,39 +111,65 @@ export function Action({
   run,
   disabled,
   danger = false,
+  recoverable = false,
 }: {
   children: ReactNode;
   run: () => Promise<unknown>;
   disabled?: boolean;
   danger?: boolean;
+  recoverable?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const [needsRecovery, setNeedsRecovery] = useState(false);
   const actionId = useId();
   return (
     <div {...stylex.props(layout.column)}>
       <Button
         size="sm"
         variant={danger ? 'danger' : 'secondary'}
-        disabled={disabled || busy}
+        disabled={disabled || busy || needsRecovery}
         loading={busy}
         onClick={() => {
-          if (disabled || busy) return;
+          if (disabled || busy || needsRecovery) return;
           setBusy(true);
           setError('');
           setDone(false);
           void run()
             .then(
               () => setDone(true),
-              (error) => setError(error instanceof Error ? error.message : String(error)),
+              (error) => {
+                setError(error instanceof Error ? error.message : String(error));
+                if (
+                  recoverable &&
+                  (error instanceof DeliveryError ||
+                    error instanceof RecoveryError ||
+                    error instanceof RecoveryPersistenceError ||
+                    (error instanceof Error && error.name === 'AbortError'))
+                )
+                  setNeedsRecovery(true);
+              },
             )
             .finally(() => setBusy(false));
         }}
       >
         {children}
       </Button>
-      {error && <ErrorNotice type="action" owner={`inspector-action:${actionId}`} title="Could not complete this action" error={error} />}
+      {error && (
+        <ErrorNotice
+          type="action"
+          owner={`inspector-action:${actionId}`}
+          title="Could not complete this action"
+          error={error}
+        />
+      )}
+      {needsRecovery && (
+        <p role="status">
+          Inspect this command in Settings → Command recovery before starting another. Its exact
+          request has been retained when recovery storage is available.
+        </p>
+      )}
       {done && (
         <span role="status" {...stylex.props(layout.muted)}>
           Applied
@@ -145,200 +198,34 @@ export function Section({
 export function Empty({ children }: { children: ReactNode }) {
   return <p {...stylex.props(layout.muted)}>{children}</p>;
 }
-export function mergeBy<T>(
-  initial: readonly T[],
-  extra: readonly T[],
-  key: (value: T) => string,
-): T[] {
-  return [...new Map([...initial, ...extra].map((value) => [key(value), value])).values()];
-}
-export function useCollection(view: SessionView, name: string) {
-  const state = useSessionView(view);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [notice, setNotice] = useState('');
-  const page = state.collections[name];
-  return {
-    view,
-    name,
-    page,
-    loading,
-    error,
-    notice,
-    async load(more: boolean) {
-      if (loading) return;
-      setLoading(true);
-      setError('');
-      setNotice('');
-      try {
-        await view.loadCollection(name, { more });
-      } catch (error) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'kind' in error &&
-          error.kind === 'resynchronization_required'
-        ) {
-          try {
-            await view.loadCollection(name);
-            setNotice('This collection changed. Loaded its current first page.');
-          } catch (next) {
-            setError(next instanceof Error ? next.message : String(next));
-          }
-        } else setError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setLoading(false);
-      }
-    },
-  };
-}
-export function CollectionMore({
-  collection,
-  omitted,
+export { ContentRead } from './content-read';
+
+/** Replace one bounded page; never accumulate metadata behind the inspector. */
+export function PageControls({
+  after,
+  next,
+  busy,
   connected,
+  onChange,
 }: {
-  collection: ReturnType<typeof useCollection>;
-  omitted?: boolean;
+  after?: string;
+  next?: string;
+  busy: boolean;
   connected: boolean;
+  onChange(value: string | undefined): void;
 }) {
-  const more = collection.page ? collection.page.has_more : omitted;
   return (
-    <>
-      {collection.notice && <p role="status">{collection.notice}</p>}
-      {collection.error && connected && <ErrorNotice type="resource" owner={`${collection.view.session.rootId}:${collection.name}`} title="Collection needs attention" error={collection.error} />}
-      {collection.page?.items?.map(
-        (entry) =>
-          entry.body && (
-            <ContentRead
-              key={entry.body.reference_id}
-              view={collection.view}
-              value={entry.body}
-              label="Large collection entry"
-            />
-          ),
-      )}
-      {more && (
-        <Button
-          variant="ghost"
-          disabled={!connected || collection.loading}
-          loading={collection.loading}
-          onClick={() => void collection.load(!!collection.page)}
-        >
-          Load more
+    <div {...stylex.props(layout.row)}>
+      {after !== undefined && (
+        <Button variant="ghost" disabled={!connected || busy} onClick={() => onChange(undefined)}>
+          First page
         </Button>
       )}
-    </>
-  );
-}
-export function valueText(
-  value: DeepReadonly<ContentHandle & Partial<Pick<Value, 'text' | 'inline' | 'binary'>>>,
-): string | undefined {
-  if (value.text != null) return value.text;
-  if (value.inline !== undefined) return JSON.stringify(value.inline, null, 2);
-  if (value.binary != null)
-    return new TextDecoder('utf-8', { fatal: true }).decode(
-      Uint8Array.from(atob(value.binary), (character) => character.charCodeAt(0)),
-    );
-  return undefined;
-}
-export function ContentRead({
-  view,
-  value,
-  referenceId,
-  agentId = view.session.rootId,
-  label = 'Content',
-}: {
-  view: SessionView;
-  value?: DeepReadonly<Value> | ContentHandle;
-  referenceId?: string;
-  agentId?: string;
-  label?: string;
-}) {
-  const runtime = useRuntime();
-  const connected = useWhipConnection(view.session.client).state === 'connected';
-  const controller = useRef<AbortController | null>(null);
-  const [body, setBody] = useState<string>();
-  const [operation, setOperation] = useState<'resource' | 'action'>('resource');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => () => controller.current?.abort(), []);
-  let inline: string | undefined;
-  try {
-    if (value) inline = valueText(value);
-  } catch {
-    /* Binary content stays behind an explicit download. */
-  }
-  const reference = referenceId || value?.reference_id;
-  async function read(download: boolean) {
-    controller.current?.abort();
-    controller.current = new AbortController();
-    const signal = controller.current.signal;
-    setBusy(true);
-    setError('');
-    setOperation(download ? 'action' : 'resource');
-    try {
-      const scope = { rootId: view.session.rootId, agentId };
-      const handle = value?.reference_id
-        ? value
-        : (
-            await view.session.client.call(
-              'content.read',
-              {
-                root_id: scope.rootId,
-                agent_id: agentId,
-                reference_id: reference!,
-                offset: '0',
-                limit: 1,
-              },
-              { signal },
-            )
-          ).content;
-      const content = view.session.client.content(handle, scope);
-      if (download)
-        await runtime.platform.download(
-          await content.readBytes({ maxBytes: 64 << 20, signal }),
-          'whip-content',
-          handle.media_type ?? 'application/octet-stream',
-        );
-      else setBody(await content.readText({ maxBytes: 1 << 20, signal }));
-    } catch (error) {
-      if (!signal.aborted) setError(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (!signal.aborted) setBusy(false);
-    }
-  }
-  return (
-    <div {...stylex.props(layout.column)}>
-      {(body ?? inline) !== undefined && (
-        <CodeBlock label={label} code={body ?? inline ?? ''} maxBytes={128 << 10} />
+      {next !== undefined && (
+        <Button variant="ghost" disabled={!connected || busy} onClick={() => onChange(next)}>
+          Next page
+        </Button>
       )}
-      {reference && (
-        <>
-          <span {...stylex.props(layout.muted)}>
-            {label}
-            {value && ` · ${value.size} bytes`}
-          </span>
-          <div {...stylex.props(layout.row, layout.wrap)}>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy || !connected}
-              onClick={() => void read(false)}
-            >
-              Read {label.toLowerCase()}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy || !connected}
-              onClick={() => void read(true)}
-            >
-              Download
-            </Button>
-          </div>
-        </>
-      )}
-      {error && (connected || operation === 'action') && <ErrorNotice type={operation} owner={`${view.session.rootId}:${reference ?? label}`} title={`Could not ${operation === 'action' ? 'download' : 'load'} ${label.toLowerCase()}`} error={error} />}
     </div>
   );
 }
