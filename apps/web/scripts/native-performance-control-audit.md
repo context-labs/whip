@@ -239,3 +239,89 @@ needs no timed typing, repeated latency benchmark, forced collection, owner
 deletion or speculative product repair. Ordinary browser/document retention and
 an app-owned leak remain distinct possibilities; the current immediate samples
 do not decide between them.
+
+
+## Bounded retention source audit (2026-09-29)
+
+This audit uses measured candidate `473d065d01b38a56ef562f1731920e6b4ca3648a`
+plus the preceding documentation-only record `0fb3c63e3`. It adds no product
+change and does not reopen the user-accepted 72 ms typing result. The immediate
+post-navigation samples in both full runs remain natural observations, not a
+leak diagnosis or a memory acceptance threshold.
+
+### Document and native ownership
+
+The reviewed normal, nonpersisted navigation path has explicit retirement:
+
+| Owner | Source and concrete disposal behavior |
+| --- | --- |
+| Shared application bootstrap | [`bootstrap.tsx`](../src/bootstrap.tsx) `pagehide` flushes drafts; `persisted === false` runs idempotent disposal. It removes runtime/composition/desktop subscriptions and DOM lifecycle listeners, disposes the application, unmounts React, then disposes the platform. `persisted === true` deliberately preserves the application for back-forward caching. The measured runs did **not** record this flag. |
+| App runtime and query cache | [`runtime.ts`](../../../packages/app/src/runtime.ts) `dispose` closes host connections, drops all session/execution/trace leases including suspended ones, clears pending command closures and submitted inputs, clears Query, browser state, tabs, compositions, reading positions and subscribers. Draft flushing clears the 150 ms save timer. Host detachment removes title subscriptions. Query defaults are immediate inactive disposal except the enumerated five-minute host-metadata caches; `queries.clear()` removes both kinds. The pinned Query implementation destroys/cancels each removed query. |
+| SDK observation state | [`state.ts`](../../../packages/sdk/src/state.ts), [`execution-state.ts`](../../../packages/sdk/src/execution-state.ts) and [`trace-state.ts`](../../../packages/sdk/src/trace-state.ts) abort requests, advance generations, clear polling timers, join pending observation/navigation promises and empty their retained rows/listeners on disposal. Ordinary unused app views have a 30-second warm lease; complete app disposal drops them immediately instead of waiting for that lease. |
+| Renderer native transport | [`desktop.ts`](../src/platform/desktop.ts) aborts each prepared connection, removes its exact bridge subscription and sends `releaseConnection`; each framed call removes its transport subscription and sends `closeTransport`. [`framed.ts`](../../../packages/sdk/src/framed.ts) closes its connection in `finally`, and closes a connector that resolves after cancellation. |
+| Preload listeners | [`preload.ts`](../../desktop/src/preload.ts) and [`browser-preload.ts`](../../desktop/src/browser-preload.ts) register explicit listener wrappers and return exact `removeListener` callbacks. App browser association/workspace disposal invokes those callbacks and removes DOM/viewport listeners and measured slot elements. They do not register a second cross-document app registry. |
+| Main process | [`main.ts`](../../desktop/src/main.ts) owns the window and bounded native resource maps. Releasing one connection deletes its record, aborts its controller and releases its transports/SSH. [`transport.ts`](../../desktop/src/transport.ts) closes queued/active work, clears timers and pending byte-count maps. Outstanding frame accounting retains sequence/byte numbers, not renderer DOM or cached conversation values. [`unix-frames.ts`](../../desktop/src/unix-frames.ts) destroys its socket and clears the decode buffer on close. Main's event sink closes over the native BrowserWindow, not the renderer's AppRuntime. |
+| Attachment bytes | [`compositions.ts`](../../../packages/app/src/compositions.ts) aborts removed upload jobs, clears file/session references and revokes removed object URLs. [`input-attachment.tsx`](../../../packages/app/src/input-attachment.tsx) uses inactive `gcTime: 0`, aborts downloads and revokes image URLs on cleanup. [`content-read.tsx`](../../../packages/app/src/details/content-read.tsx) aborts its scoped read and revokes its image URL on unmount. The native save owner deletes completed save entries and retains no completed content byte cache. |
+
+This is a source-supported account of the existing normal path, not proof that
+all asynchronous disposal completed before the immediate CDP samples. Bootstrap
+does not await all SDK joins, and preserving a persisted document is intentional.
+Two CDP documents alone cannot distinguish that case from a detached document
+awaiting natural collection or an actual retained owner. No concrete missing
+cross-document teardown was identified in these paths. No speculative teardown
+or cache rewrite is justified by the current evidence.
+
+### Exact large-paragraph node attribution
+
+The fixture emits one paragraph containing 2,000 `**delta-NNNN** ` tokens.
+[`markdownRows`](../../../packages/app/src/streaming-markdown.tsx) virtualizes
+Markdown blocks; it does not split one paragraph into independently virtualized
+inline nodes. Its AST optimization is bounded by 512 entries and 2 MiB of source
+text; this is not a byte measurement of the resulting AST/React/DOM graph.
+
+[`timeline.tsx`](../../../packages/app/src/timeline.tsx) can mark a newly observed
+live preview as an arrival. `MarkdownBlock` starts that arrival's displayed-text
+model empty and decorates its added text with `FadingText` spans. Each rendered
+text leaf covered by that chunk gets a span, even though there is only one
+paragraph. There are at most 32 chunk records, but that bound does not limit the
+number of text leaves intersecting one chunk.
+
+A temporary diagnostic test rendered the actual current `markdownRows` and
+`MarkdownBlock` under the production React/StyleX test configuration:
+
+| Same 2,000-token paragraph | Descendant count including block root | Fade spans | Strong elements |
+| --- | ---: | ---: | ---: |
+| Initial live value without fresh arrival | 6,001 | 0 | 2,000 |
+| Fresh live arrival | 10,000 | 3,999 | 2,000 |
+| Fresh arrival after clock passes all fade durations, unchanged text | 10,000 | 3,999 | 2,000 |
+| Explicit settled row | 6,001 | 0 | 2,000 |
+
+The animation effect cancels on cleanup, but expiration alone does not remove
+its span. Chunk expiry is pruned on another text change; settlement/motion state
+clears it on rendering. This reproduces **exactly** the 10,000-node largest block
+in both measured documents. It is a sufficient explanation of the extra
+connected block nodes, not proof that all of the approximately 190 MiB renderer
+RSS jump belongs to these spans. There is no timing claim or proposed animation
+change in this audit.
+
+The focused run passed 58 tests across this diagnostic and the existing bootstrap
+and runtime suites. Artifacts are
+`/tmp/whip-retention-source-audit/markdown-proof.test.tsx` and
+`/tmp/whip-retention-source-audit/source-lifetimes.log`. The temporary test was
+removed from the worktree after verification; no product/test contract was
+changed merely to encode an observed implementation detail. No browser, typing,
+forced collection or heap snapshot was used for this proof.
+
+### Remaining ambiguity and bounded follow-up
+
+One retention-only native experiment is sufficient as the next diagnostic:
+retain one finite held paragraph, capture bounded scalar
+`pagehide.persisted`/execution-context/transport-close evidence, navigate the same
+owned document at most three times, and read natural immediate/35-second
+heap/DOM/RSS values. Then explicitly settle that fixture turn and take one final
+sample. Do not type, upload, force collection, take heap snapshots, introduce a
+new threshold or rewrite product ownership. Stable/released document counts
+would narrow the owner question; absence of natural collection within this
+finite window remains ambiguity, not proof of a leak. This experiment has been
+authorized separately; its results must be recorded separately from this source
+audit and from the earlier full workload.
