@@ -3599,3 +3599,17 @@ Local complementary store validation passed in 193.133 seconds and 89.438
 seconds respectively (`task check:race-store`), with every test covered exactly
 once by the mutually exclusive run/skip patterns. Hosted validation is pending
 for this repair; the previous hosted failure is not claimed as passed.
+
+### PR 259 extension relay publication repair — 2026-09-28
+
+Hosted run 36523975388 at `39c76adb6` exposed a real intermittent handshake
+race: `TestCDPTunnelRoundTrip` waited the entire 120-second package deadline.
+The extension's HTTP 101 acknowledgement could reach its client before the
+relay published that connection, letting the first CDP command see no extension.
+Leaf `ef99a4403` holds the existing relay lock across upgrade and publication.
+A deterministic gated-socket regression fails on the old code and passes with
+the repair. Focused handshake/auth/roundtrip races pass 100 repetitions (4.318s);
+the full fake-only relay race suite passes ten repetitions (3.958s), vet and
+pinned lint pass. Test-local reads/dials now fail after five seconds instead of
+hanging indefinitely. No production timeout, assertion or test is weakened.
+The prior failed hosted run remains recorded as failed; fresh validation follows.
