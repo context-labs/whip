@@ -10,6 +10,7 @@ test('production web fixture executes both engines, scopes consent and preserves
     let client = await fixture.connect('native-fixture-check');
     const { root } = await fixture.createRoot(client), session = client.session(root.id);
     assert.equal((await client.hostDirectories({ path: '~', after: '', prefix: '', show_hidden: false, limit: 16 }, deadline())).path, join(fixture.directory, 'home'));
+    await assert.rejects(client.call('host.directory.pick', { start: fixture.directory }, deadline()), /unavailable/);
     for (const scope of [null, root.id]) {
       const discovery = await client.mcpImportCandidates(scope, deadline());
       assert.deepEqual(discovery.candidates, [], 'Disposable runtime discovered external MCP configuration');
