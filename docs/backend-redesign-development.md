@@ -5745,3 +5745,18 @@ baseline stopped before typing when a cached child jumped from its saved reading
 anchor to the tail after seven successful restores. Its retained failure and
 joined cleanup are recorded in the performance audit. No new UI-latency result
 or leak diagnosis is inferred from the parser microbenchmark.
+
+### Fresh-checkout performance gate ordering — 2026-09-29
+
+Draft #278 publishes the platform increment at `e85f72203`. Its hosted run
+`36588313432` exposes a setup-order failure before the performance workload:
+the newly required Desktop helper contracts import the SDK through
+`native-fixture.mjs`, but `packages/sdk/dist/index.js` does not exist until
+`web-assets` builds it. The performance gate now builds its existing assets
+before running those contracts, matching the other native product gates.
+No workload, assertion or timing threshold changed. With generated SDK output
+moved aside, the actual asset build and all 22 performance helper contracts
+pass (10.041s for the tests); prior generated output is preserved separately.
+Evidence: `/tmp/whip-performance-order-validation.log`. The complete performance
+workload is not claimed by this dependency-order check. Hosted #278 remains
+frozen for the other platform results.
