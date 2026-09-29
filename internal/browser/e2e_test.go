@@ -60,6 +60,7 @@ func chromiumPath(t *testing.T) string {
 	}
 	for _, name := range []string{"google-chrome", "chromium", "chromium-browser"} {
 		if p, err := exec.LookPath(name); err == nil {
+			t.Setenv("ROD_BROWSER_BIN", p)
 			return p
 		}
 	}

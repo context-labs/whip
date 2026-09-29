@@ -3560,3 +3560,21 @@ local complete build gate passed; replacement hosted validation is pending.
 Browser child transfer, product renderer/native-client migration, and retired
 core removal remain outstanding. Phases5–6 are in progress; Phase7 is pending.
 No merge, deployment, or installed-runtime change occurred.
+
+
+### Browser integration hosted fixture repair (2026-09-28)
+
+Draft #259 at `8d538697d` failed Linux build in run `36521788536`:
+`internal/browser` found the system Chrome through `PATH`, but only the explicit
+candidate-path branch configured `ROD_BROWSER_BIN`. Production `Open` therefore
+launched Rod's downloaded Chromium, which had no usable sandbox on the runner.
+The fixture now consistently selects its detected executable. Linux build and
+race-other jobs use an isolated Xvfb display for the retained headed dedicated
+browser scenarios. Production launch flags and sandbox policy are unchanged;
+no browser scenario is removed. Local browser checks and the subsequent hosted
+run are recorded separately below; this failed run is not passing evidence.
+
+Local affected browser scenarios (`TestE2EHeadless`, `TestE2EDedicated` including
+reattachment, and `TestManySequentialCalls`) passed in 10.964s on macOS with an
+isolated profile. This proves the fixture change locally, not the Linux Xvfb
+setup; the exact repaired hosted head must pass before crediting Linux evidence.
