@@ -446,6 +446,32 @@ class PreparationTests(unittest.TestCase):
                 self.assertEqual(archive.extractfile('main.txt').read(), b'working source')
             self.assertEqual(source_snapshot(repo, 'HEAD'), initial)
 
+    def test_dirty_source_preserves_internal_links_without_following_external_links(self):
+        from whip_evals.prepare import command, source_snapshot
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary).resolve() / 'repo'
+            repo.mkdir()
+            command(['git', 'init', '-q'], cwd=repo)
+            (repo / 'source').mkdir()
+            (repo / 'source/main.txt').write_text('tracked')
+            (repo / 'alias').symlink_to('source', target_is_directory=True)
+            command(['git', 'add', '.'], cwd=repo)
+            command(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], cwd=repo)
+            (repo / 'source/main.txt').write_text('edited')
+            with tarfile.open(fileobj=io.BytesIO(source_snapshot(repo)[0])) as archive:
+                self.assertTrue(archive.getmember('alias').issym())
+                self.assertEqual(archive.getmember('alias').linkname, 'source')
+                self.assertEqual(archive.extractfile('source/main.txt').read(), b'edited')
+                destination = Path(temporary) / 'unpacked'
+                archive.extractall(destination, filter='data')
+                self.assertEqual((destination / 'alias/main.txt').read_text(), 'edited')
+            (repo / 'alias').unlink()
+            for target in ('../outside', str(repo / 'source')):
+                (repo / 'alias').symlink_to(target)
+                with self.assertRaisesRegex(ValueError, 'source link escapes repository'):
+                    source_snapshot(repo)
+                (repo / 'alias').unlink()
+
     def test_historical_cost_forecast_never_becomes_a_limit(self):
         from whip_evals.run import cost_estimate
         planned = dict(task_ids=['a', 'b'], repetitions=3, candidate_count=2)

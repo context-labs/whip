@@ -59,3 +59,17 @@ are not full Harbor/Pier runner qualification and are not performance or model
 proficiency evidence. Full doctor qualification is being run separately. Its first
 attempt stopped before any trial because dirty source collection rejects a tracked
 skill symlink; the recorded failure is not a runtime result.
+
+Full qualification subsequently passed at clean source6497bc957: all eight real
+Harbor/Pier × Starlark/QuickJS × shared/separate verifier combinations, including
+Pier no-network tasks, owned cleanup, canonical accounting and hidden verifier
+reward1. No external model calls occurred. Artifact root:
+`evals/artifacts/doctor-20260929T101726Z-dca1fc2967/doctor.json`.
+The binary was Linuxamd64 on an arm64 Docker host; this is emulated correctness
+qualification, not native-hardware timing or a promotable baseline.
+
+Dirty source capture now preserves internal relative symlinks as archive metadata,
+matching git archive, while rejecting absolute and escaping links without following
+them. The retained real repository skill link no longer prevents a dirty candidate
+build. Tests cover extraction plus both rejection paths; ignored caches and secret
+files remain excluded. This preparation fix does not change runtime execution.

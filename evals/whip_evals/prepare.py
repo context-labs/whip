@@ -56,11 +56,21 @@ def source_snapshot(repo, ref=None):
     with tarfile.open(fileobj=buffer, mode="w") as archive:
         for name in sorted(set(names) - {""}):
             path = repo / name
-            if not path.exists():
-                continue
             if path.name == ".env" or path.name.startswith(".env.") or path.name in ("credentials.json", "secrets.json"):
                 continue
-            if not path.is_file() or path.is_symlink():
+            if path.is_symlink():
+                target = os.readlink(path)
+                if Path(target).is_absolute() or not path.resolve().is_relative_to(repo):
+                    raise ValueError("source link escapes repository: " + name)
+                # Match git archive: preserve an internal link as metadata,
+                # never read its target through the link or copy an external tree.
+                info = tarfile.TarInfo(name)
+                info.type, info.linkname = tarfile.SYMTYPE, target
+                archive.addfile(info)
+                continue
+            if not path.exists():
+                continue
+            if not path.is_file():
                 raise ValueError("unsupported source entry: " + name)
             data = path.read_bytes()
             info = tarfile.TarInfo(name)
