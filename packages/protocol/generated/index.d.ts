@@ -2741,6 +2741,7 @@ export interface Grant {
 }
 export interface GrantParams {
   grant_id: string;
+  session_id?: null | string;
 }
 export interface GrantsParams {
   session_id: string;

@@ -62,6 +62,7 @@ type nativeModel struct {
 	connection                      *client.Client
 	handle                          *client.Session
 	owner                           protocol.Session
+	permissionPolicy                *protocol.PermissionPolicy
 	observer                        *client.Observer
 	readCancel                      context.CancelFunc
 	picker                          *nativeSessionPicker
@@ -387,6 +388,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				return m, m.read()
+			}
+			if value.policy != nil && value.policy.TreeID == m.owner.TreeID && (m.permissionPolicy == nil || value.policy.Revision >= m.permissionPolicy.Revision) {
+				m.permissionPolicy = value.policy
 			}
 			if value.picker != nil {
 				m.picker = value.picker

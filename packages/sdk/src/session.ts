@@ -106,6 +106,20 @@ export class Session {
     get: (operationID: string, options: CallOptions = {}) => this.client.getQuestion(this.id, operationID, options),
     answer: (operationID: string, answers: Params<'questions.answer'>['answers'], options: CallOptions = {}) => this.client.answerQuestion(this.id, operationID, answers, options),
   };
+  readonly grants = {
+    list: async (params: Page<'grants.list'> = {}, options: CallOptions = {}) => {
+      const value = await this.client.call('grants.list', { limit: 50, ...params, session_id: this.id }, options);
+      const items = value.items ?? [];
+      if (items.some(grant => grant.session_id !== this.id)) throw new TypeError('Grant belongs to another session');
+      return { ...value, items };
+    },
+    /** Explicit owner-scoped revocation. Transport failure is never automatically replayed. */
+    revoke: async (grantID: string, options: CallOptions = {}) => {
+      const value = await this.client.call('grants.revoke', { grant_id: grantID, session_id: this.id }, options);
+      if (value.id !== grantID || value.session_id !== this.id || value.revoked_at === null) throw new TypeError('Grant revocation identity mismatch');
+      return value;
+    },
+  };
   readonly permissions = {
     list: (params: Page<'permissions.list'> = {}, options: CallOptions = {}) => this.client.call('permissions.list', { limit: 50, ...params, session_id: this.id }, options),
     policy: (options: CallOptions = {}) => this.client.getPermissionPolicy(this.id, options),

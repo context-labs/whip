@@ -14,21 +14,33 @@ func (r *Runtime) CreateGrant(ctx context.Context, grant session.Grant) (session
 func (r *Runtime) RevokeGrant(ctx context.Context, id session.GrantID) (session.Grant, error) {
 	grant, err := r.store.RevokeGrant(ctx, id)
 	if err == nil {
-		r.languageServers.RetireAll()
-		if grant.Capability == "browser.control" {
-			if owner, readErr := r.store.Session(ctx, grant.SessionID); readErr == nil {
-				if identity, identityErr := r.browserIdentity(ctx, owner); identityErr == nil {
-					r.browser.RevokeLineage(identity.RootID, grant.Resource)
-				}
-			}
-		}
-		if strings.HasPrefix(grant.Capability, "computer.") {
-			r.computerMu.Lock()
-			r.computer.Disconnect()
-			r.computerMu.Unlock()
-		}
+		r.retireRevokedGrant(ctx, grant)
 	}
 	return grant, err
+}
+
+func (r *Runtime) RevokeGrantForOwner(ctx context.Context, owner session.SessionID, id session.GrantID) (session.Grant, error) {
+	grant, err := r.store.RevokeGrantForOwner(ctx, owner, id)
+	if err == nil {
+		r.retireRevokedGrant(ctx, grant)
+	}
+	return grant, err
+}
+
+func (r *Runtime) retireRevokedGrant(ctx context.Context, grant session.Grant) {
+	r.languageServers.RetireAll()
+	if grant.Capability == "browser.control" {
+		if owner, readErr := r.store.Session(ctx, grant.SessionID); readErr == nil {
+			if identity, identityErr := r.browserIdentity(ctx, owner); identityErr == nil {
+				r.browser.RevokeLineage(identity.RootID, grant.Resource)
+			}
+		}
+	}
+	if strings.HasPrefix(grant.Capability, "computer.") {
+		r.computerMu.Lock()
+		r.computer.Disconnect()
+		r.computerMu.Unlock()
+	}
 }
 
 func (r *Runtime) Grants(ctx context.Context, id session.SessionID, after session.GrantID, limit int) ([]session.Grant, error) {

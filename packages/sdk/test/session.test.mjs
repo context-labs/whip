@@ -94,3 +94,25 @@ test('pending permission pages preserve exact owner and exclusive operation curs
   await client.session('child').permissions.list();
   assert.deepEqual(calls.at(-1).params, { limit: 50, session_id: 'child' });
 });
+
+test('grant revocation is scoped atomically and an uncertain write is never replayed', async () => {
+  let foreign = false;
+  let fail = false;
+  const grant = { id: 'grant', session_id: 'child', capability: 'files.read', resource: '/workspace', operation_id: null, issuer_id: 'parent-grant', created_at: '2026-09-28T00:00:00Z', revoked_at: '2026-09-28T00:01:00Z' };
+  const { client, calls } = await clientFixture(request => {
+    if (fail) throw new Error('lost acknowledgement');
+    const value = { ...grant, session_id: foreign ? 'other' : 'child' };
+    return request.method === 'grants.list' ? { items: [value] } : value;
+  });
+  const session = client.session('child');
+  await session.grants.list({ session_id: 'wrong' });
+  await session.grants.revoke('grant');
+  assert.deepEqual(calls.at(-1).params, { grant_id: 'grant', session_id: 'child' });
+  foreign = true;
+  await assert.rejects(session.grants.list(), /another session/);
+  await assert.rejects(session.grants.revoke('grant'), /identity mismatch/);
+  fail = true;
+  const before = calls.length;
+  await assert.rejects(session.grants.revoke('grant'), /lost acknowledgement/);
+  assert.equal(calls.length, before + 1);
+});

@@ -153,6 +153,7 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.invalidateRead()
 	m.navigationRequest++
 	m.handle, m.owner = handle, owner
+	m.permissionPolicy = nil
 	m.observer, m.ready, m.cancelling = nil, false, false
 	m.history = nativeTranscript{owner: owner.ID}
 	m.activity = protocol.SessionActivity{SessionID: owner.ID, Lifecycle: owner.Lifecycle}

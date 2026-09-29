@@ -19,6 +19,7 @@ type nativeControlResult struct {
 	label          string
 	mutation       bool
 	owner          *protocol.Session
+	policy         *protocol.PermissionPolicy
 	reset          bool
 	err            error
 	retry          tea.Cmd
@@ -122,6 +123,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return m.standing(args)
 	case "/memory":
 		return m.memory(args)
+	case "/permissions":
+		return m.permissionsCommand(args)
 	case "/status":
 		return m.control("Session status", false, func(ctx context.Context) nativeControlResult {
 			owner, err := m.handle.Get(ctx)
