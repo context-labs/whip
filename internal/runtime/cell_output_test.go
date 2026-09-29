@@ -146,9 +146,9 @@ func TestCellOutputSuppressesSettledAndForeignHistoryBeforeRetirement(t *testing
 func TestBothEnginesCellOutputBeforeQuestionAndAfterSettlementCancellationRestart(t *testing.T) {
 	for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
 		t.Run(string(engine), func(t *testing.T) {
-			code := `print("before 界")` + "\n" + `user.ask(question="Choose", options=[{"label":"A"},{"label":"B"}])` + "\n" + `print("after")`
+			code := `print("first")` + "\n" + `print("before 界")` + "\n" + `user.ask(question="Choose", options=[{"label":"A"},{"label":"B"}])` + "\n" + `print("after")`
 			if engine == session.QuickJS {
-				code = `console.log("before 界"); await user.ask({question:"Choose",options:[{label:"A"},{label:"B"}]}); console.log("after");`
+				code = `console.log("first"); console.log("before 界"); await user.ask({question:"Choose",options:[{label:"A"},{label:"B"}]}); console.log("after");`
 			}
 			complete := cellProvider(map[string]string{"settle": code, "cancel": code, "restart": code})
 			var calls atomic.Int64
@@ -163,7 +163,7 @@ func TestBothEnginesCellOutputBeforeQuestionAndAfterSettlementCancellationRestar
 				submitTest(t, r, owner.ID, outcome)
 				question := awaitRuntimeQuestion(t, r, owner.ID, outcome)
 				live, err := r.CellOutput(t.Context(), owner.ID)
-				if err != nil || live == nil || live.Text != "before 界\n" || live.CellID != question.CellID || live.TurnID != question.TurnID || live.SessionID != owner.ID || live.HistoryRevision != owner.HistoryRevision || live.Truncated {
+				if err != nil || live == nil || live.Text != "first\nbefore 界\n" || live.CellID != question.CellID || live.TurnID != question.TurnID || live.SessionID != owner.ID || live.HistoryRevision != owner.HistoryRevision || live.Truncated {
 					t.Fatal("output hidden during human wait", live, err)
 				}
 				cell, err := r.Cell(t.Context(), question.CellID)
@@ -180,7 +180,7 @@ func TestBothEnginesCellOutputBeforeQuestionAndAfterSettlementCancellationRestar
 						t.Fatal(err)
 					}
 					result := questionCellResult(t, r, question, outcome)
-					if result.Output != "before 界\nafter\n" {
+					if result.Output != "first\nbefore 界\nafter\n" {
 						t.Fatal("committed output changed", result.Output)
 					}
 				case "cancel":

@@ -411,3 +411,35 @@ func TestWorkerStreamsOutputFrames(t *testing.T) {
 		t.Fatalf("frameless evaluation wrote %q", output.String())
 	}
 }
+
+func TestWorkerHostWaitDoesNotRepeatUnchangedOutput(t *testing.T) {
+	var replies bytes.Buffer
+	for id := uint64(1); id <= 4; id++ {
+		if err := writeFrame(&replies, 1<<20, frame{Type: "host_response", ID: id, Value: "ok"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w, output := newUnitWorker(replies.String())
+	w.installModules(nil, nil)
+	for id := uint64(7); id <= 8; id++ {
+		w.currentEval = id
+		result := w.evaluate("print('same')\nfiles.read(path='a')\nfiles.read(path='b')")
+		if result.Error != "" {
+			t.Fatal(result.Error)
+		}
+		reader := bufio.NewReader(output)
+		printed, err := readFrame(reader, 1<<20)
+		if err != nil || printed.Type != "output" || printed.ID != id || printed.Output != "same\n" {
+			t.Fatal(printed, err)
+		}
+		for range 2 {
+			request, err := readFrame(reader, 1<<20)
+			if err != nil || request.Type != "host_request" {
+				t.Fatal("unchanged output repeated before host call", request, err)
+			}
+		}
+		if _, err := readFrame(reader, 1<<20); err == nil {
+			t.Fatal("unexpected extra frame")
+		}
+	}
+}
