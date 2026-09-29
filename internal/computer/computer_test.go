@@ -1,16 +1,10 @@
 package computer
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestQuote(t *testing.T) {
@@ -105,9 +99,6 @@ func TestUnsupportedPlatform(t *testing.T) {
 	// The platform error must NOT be rewritten to the Chrome-toggle guidance.
 	if _, err := ChromeJS("1+1", automation); !errors.Is(err, ErrUnsupportedPlatform) || errors.Is(err, ErrJSFromAppleEvents) {
 		t.Errorf("ChromeJS: %v", err)
-	}
-	if _, err := ensureHelperBinary(); !errors.Is(err, ErrUnsupportedPlatform) {
-		t.Errorf("ensureHelperBinary: %v", err)
 	}
 }
 
@@ -226,75 +217,5 @@ func TestChromeOperationsWithFakeAutomation(t *testing.T) {
 	}}
 	if _, err := ChromeJS("1+1", jsBlocked); !errors.Is(err, ErrJSFromAppleEvents) {
 		t.Fatalf("ChromeJS error = %v, want ErrJSFromAppleEvents", err)
-	}
-}
-
-type testWriteCloser struct{ io.Writer }
-
-func (testWriteCloser) Close() error { return nil }
-
-func TestHelperStartupFailures(t *testing.T) {
-	for _, tc := range []struct {
-		name, script, want string
-	}{
-		{"announcement", "#!/bin/sh\nexit 0\n", "did not announce"},
-		{"handshake", "#!/bin/sh\nprintf 'whip-computer/1\\n'\nread request\nprintf '{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":1,\"message\":\"no\"}}\\n'\n", "handshake"},
-		{"handshake version", "#!/bin/sh\nprintf 'whip-computer/1\\n'\nread request\nprintf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"version\":\"wrong\"}}\\n'\n", "handshake version mismatch"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			bin := filepath.Join(t.TempDir(), "helper")
-			if err := os.WriteFile(bin, []byte(tc.script), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("WHIP_COMPUTER_BIN", bin)
-			h := &Helper{}
-			if err := h.spawn(); err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("spawn error = %v, want %q", err, tc.want)
-			}
-		})
-	}
-
-	t.Setenv("WHIP_COMPUTER_BIN", filepath.Join(t.TempDir(), "missing"))
-	if _, err := NewManagedHelper(nil, "root", t.TempDir(), nil); err == nil {
-		t.Fatal("NewManagedHelper accepted a missing binary")
-	}
-}
-
-func TestHelperFrameFailures(t *testing.T) {
-	if err := (&Helper{}).callLocked(t.Context(), "test", nil, nil); err == nil {
-		t.Fatal("an unstarted helper accepted a call")
-	}
-	h := &Helper{cmd: &exec.Cmd{}, stdin: testWriteCloser{io.Discard}, reader: bufio.NewReader(strings.NewReader(""))}
-	if err := h.callLocked(t.Context(), "test", map[string]any{"bad": make(chan int)}, nil); err == nil {
-		t.Fatal("callLocked accepted non-JSON params")
-	}
-	h.reader = bufio.NewReader(strings.NewReader("bad frame\n"))
-	if err := h.callLocked(t.Context(), "test", nil, nil); err == nil || !strings.Contains(err.Error(), "bad frame") {
-		t.Fatalf("bad frame error = %v", err)
-	}
-	h.reader = bufio.NewReader(strings.NewReader(`{"jsonrpc":"2.0","id":1}` + "\n"))
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	if err := h.callLocked(ctx, "test", nil, nil); err != nil {
-		t.Fatalf("empty response = %v", err)
-	}
-
-	r, w := io.Pipe()
-	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
-	h.reader = bufio.NewReader(r)
-	if _, err := h.readLineTimeout(time.Millisecond); err == nil || !strings.Contains(err.Error(), "timeout") {
-		t.Fatalf("read timeout error = %v", err)
-	}
-
-	closedR, closedW, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = closedR.Close()
-	_ = closedW.Close()
-	t.Setenv("WHIP_COMPUTER_BIN", filepath.Join(t.TempDir(), "missing"))
-	h = &Helper{cmd: &exec.Cmd{}, stdin: closedW, reader: bufio.NewReader(strings.NewReader(""))}
-	if err := h.Call(t.Context(), "test", nil, nil); err == nil || !strings.Contains(err.Error(), "restart failed") {
-		t.Fatalf("restart failure = %v", err)
 	}
 }

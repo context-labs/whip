@@ -21,7 +21,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	const prefix = "github.com/context-labs/whip/internal/"
 	allowed := map[string]map[string]bool{
-		"computer":       {"browser": true, "computerconfig": true, "helperprogram": true, "capability": true, "buildinfo": true},
+		"computer":       {"browser": true, "computerconfig": true, "helperprogram": true, "capability": true},
 		"computerconfig": {}, "browserconfig": {}, "helperprogram": {}, "browser": {"browserconfig": true, "buildinfo": true, "capability": true, "browser/extrelay": true, "helperprogram": true}, "browserhost": {"session": true},
 		"hostview": {"capability": true, "session": true}, "theme": {}, "trace": {"session": true},
 		"terminal":       {"capability": true},
