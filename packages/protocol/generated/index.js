@@ -120,6 +120,11 @@ export const manifest = {
       "result": "HostDirectoryPickResult"
     },
     {
+      "name": "host.directory.create",
+      "params": "HostDirectoryCreateParams",
+      "result": "HostDirectoryCreateResult"
+    },
+    {
       "name": "host.skills.roots",
       "params": "EmptyParams",
       "result": "HostSkillRoots"

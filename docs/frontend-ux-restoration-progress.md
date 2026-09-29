@@ -167,6 +167,25 @@ with disposable credentials; no live provider inference is used.
 
 Execution SDK is draft [#293](https://github.com/context-labs/whip/pull/293).
 
+## Increment 8 — Projects, folders and reference polish (G6 / A12)
+
+Integrated source leaves `d3b2bc4c6`, `0e5cf6215`, `c3192a9ce`. The remote
+picker restores explicit New folder / Choose folder with native single-child
+creation; Mac native pickers allow directory creation. Unified Projects groups
+exact directories across hosts, preserves route reveal/collapse and pages actual
+root recency using one bounded client-keyed Query window. Stable-ID Search is
+unchanged; recency is explicitly advisory under concurrent activity/pinning.
+
+Latest reference compact agent More options, natural-height dialogs, Details
+overflow, close-last tab menus and ContextMenu/Shift-F10 are ported without
+replacing native definition or tab ownership. Leaf Go folder/recency race checks,
+SDK paging tests, app/UI/desktop types and focused UI sets pass. Chromium/Firefox
+UI tab/CSP/RTL/touch scenarios and all 66 theme accessibility checks pass in the
+leaf. Combined protocol18/drift, SDK build and app types pass. Combined Projects,
+agent and recency tests pass (12); folder/workflow checks pass (35).
+
+Providers/settings is draft [#294](https://github.com/context-labs/whip/pull/294).
+
 ## Remaining work
 
 Backend/provider/settings/terminal and durable presentation prerequisites are

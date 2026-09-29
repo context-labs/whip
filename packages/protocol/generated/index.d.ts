@@ -4107,6 +4107,13 @@ export interface HostDirectoriesResult {
   has_more: boolean;
   truncated: boolean;
 }
+export interface HostDirectoryCreateParams {
+  parent: string;
+  name: string;
+}
+export interface HostDirectoryCreateResult {
+  path: string;
+}
 export interface HostDirectoryPickParams {
   start: string;
 }
@@ -9313,6 +9320,14 @@ export interface RecentInputTextParams {
 }
 export interface RecentTreesParams {
   limit: number;
+  after?: null | {
+    tree_id: string;
+    last_activity_at: string;
+    pinned: boolean;
+  };
+  archived?: null | boolean;
+  pinned?: null | boolean;
+  pinned_first?: boolean;
 }
 export interface RecentTreesResult {
   catalog_revision: string;
@@ -9343,6 +9358,11 @@ export interface RecentTreesResult {
     last_activity_at: string;
   }[];
   has_more: boolean;
+  next_cursor?: null | {
+    tree_id: string;
+    last_activity_at: string;
+    pinned: boolean;
+  };
 }
 export interface ReloadEdit {
   id: string;
@@ -12085,6 +12105,8 @@ export interface ContractTypes {
   HostBrowserDriver: HostBrowserDriver;
   HostDirectoriesParams: HostDirectoriesParams;
   HostDirectoriesResult: HostDirectoriesResult;
+  HostDirectoryCreateParams: HostDirectoryCreateParams;
+  HostDirectoryCreateResult: HostDirectoryCreateResult;
   HostDirectoryPickParams: HostDirectoryPickParams;
   HostDirectoryPickResult: HostDirectoryPickResult;
   HostExecutionDefaults: HostExecutionDefaults;
@@ -12331,6 +12353,7 @@ export interface Operations {
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };
   "host.directories.list": { params: HostDirectoriesParams; result: HostDirectoriesResult };
   "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult };
+  "host.directory.create": { params: HostDirectoryCreateParams; result: HostDirectoryCreateResult };
   "host.skills.roots": { params: EmptyParams; result: HostSkillRoots };
   "host.skills.publish": { params: PublishSkillRootParams; result: HostSkillRoots };
   "host.skills.set_defaults": { params: SetDefaultSkillRootsParams; result: HostSkillRoots };

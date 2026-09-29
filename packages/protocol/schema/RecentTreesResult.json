@@ -130,6 +130,32 @@
     },
     "has_more": {
       "type": "boolean"
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "tree_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "last_activity_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "pinned": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "tree_id",
+        "last_activity_at",
+        "pinned"
+      ],
+      "additionalProperties": false
     }
   },
   "$id": "https://whip.dev/protocol/v4/RecentTreesResult",

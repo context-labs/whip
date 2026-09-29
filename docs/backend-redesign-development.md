@@ -6119,3 +6119,11 @@ SDK display projections. Execution browsing retains its selected window and page
 the rest of a partial turn before advancing. Integrated protocol/drift checks and
 217 SDK tests/type checks pass. Renderer handover and combined parity acceptance
 remain open in the [implementation record](frontend-ux-restoration-progress.md).
+
+## 2026-09-29 — latest Projects, folders and interaction polish
+
+Integrated the approved unified Projects layout, advisory recency paging, explicit
+remote folder creation, compact agent editor and tab/dialog refinements. Bounded
+native ownership stays behind the restored UI. Combined protocol, SDK build, app
+types and47 focused tests pass; leaf UI browser/CSP/theme checks pass. End-to-end
+comparative app checks remain in the restoration record.
