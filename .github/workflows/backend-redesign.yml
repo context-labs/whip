@@ -68,6 +68,8 @@ jobs:
         include:
           - {os: ubuntu-latest, gate: product-web}
           - {os: ubuntu-latest, gate: product-browser}
+          - {os: ubuntu-latest, gate: product-content}
+          - {os: ubuntu-latest, gate: product-activity}
           - {os: ubuntu-latest, gate: product-settings}
           - {os: ubuntu-latest, gate: product-distributions}
           - {os: macos-15, gate: product-distributions}
@@ -103,7 +105,7 @@ jobs:
         run: |
           node node_modules/electron/install.js
           npx playwright install ffmpeg
-      - if: matrix.gate == 'product-browser' || matrix.gate == 'product-settings' || matrix.gate == 'product-examples' || matrix.gate == 'product-distributions'
+      - if: matrix.gate == 'product-browser' || matrix.gate == 'product-content' || matrix.gate == 'product-activity' || matrix.gate == 'product-settings' || matrix.gate == 'product-examples' || matrix.gate == 'product-distributions'
         run: npx playwright install --with-deps chromium firefox
       - name: Required ${{ matrix.gate }} gate
         run: task check:${{ matrix.gate }}
@@ -115,6 +117,7 @@ jobs:
           path: |
             test-results/redesign/
             /tmp/whip-*-results/
+            /tmp/whip-history-prefetch/
           if-no-files-found: ignore
 
   analysis:

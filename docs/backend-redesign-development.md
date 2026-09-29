@@ -4635,3 +4635,69 @@ including packed SDK, both agent examples and the actual browser/Node client,
 also passes. The broader legacy reference gates remain explicitly named until
 final removal; this checkpoint does not claim Phase7 completion or new Safari,
 signed-distribution, real-account or remote-SSH evidence.
+
+### Native terminal and browser workflow follow-through — 2026-09-29
+
+The native terminal now mounts goals/formulation/resume, durable schedules,
+compaction history and summary selection, and explicit MCP/browser/computer/LSP
+status and controls. Mutations retain their original owner and CAS payload;
+helper inputs use the existing private input journal. Unknown host lifecycle or
+integration effects require status inspection, not generic replay. Read-only
+status never starts a helper or acquires agent authority. Compaction off clears
+the helper selection; it does not disable automatic context compaction.
+
+The agent tree, sidebar and narrow dock use canonical session lineage and exact
+activity. Metadata reads stop at eight pages/512 owners; only eight visible
+owners receive activity reads. Lifecycle active is not inferred to mean running.
+Per-owner drafts are bounded to16 owners/1MiB total with refusal before a switch
+would lose text. Real root/child/grandchild tests cover navigation without stopping
+host work, pending input on a stopped child, foreign-tree rejection, child-only
+deletion and non-replay of lifecycle controls. Integrated native TUI race/shuffle
+passed68.735s before the tree leaf; the integrated tree/layout scenarios then
+passed7.090s. The leaf's full native suite passed72.723s. Remaining terminal REPL,
+paste/attachment, copy/palette/completion and richer history navigation work is
+still tracked; no retired TUI implementation has been deleted.
+
+SDK cell operation rows now sort by exact nanosecond timestamps with opaque ID
+ties, preserving API keyset pagination. Actual Firefox exposed ID ordering that
+split three chronological file reads around a later spawn. Tests cover2500
+timestamps beyond JavaScript's exact-integer range and equal-second fractions.
+The combined SDK suite passes189 tests; focused app tests pass42 plus app types.
+Actual Chromium/Firefox activity probes each pass12 workflow groups, including
+real cells/operations/child wait, live-only reasoning, reading intent and bounded
+rows (maximum33 mounted for128 operations). These do not claim Electron400%
+zoom or native desktop drag coverage.
+
+Queue acceptance uses real native inputs and immutable steering receipts. Both
+browsers pass eight groups: exact original attachments, FIFO, reload/removal,
+foreign-child rejection, ended-target fallback and composer/queue/agent geometry.
+Collapsed queue attachments display metadata; explicit preview fetches scoped
+bytes. Combined actual activity/queue/history fixture checks pass five tests in
+32.240s against renderer434fd24db73351a53734d49c73f50060c2532a618c812d73d79aea766f248daf.
+
+Native history prefetch passes Chromium/Firefox at100/300/800ms: one warmup,
+no idle/resize/selection/downward/Latest-triggered crawl, bounded three-page
+intent refill, stable canonical cursors and at-most2px anchor drift. Recovery
+preserves exact DOM/selection/draft across held and failed older reads and
+Chat/REPL switches; only explicit keyboard retry repeats the failed cursor.
+Six100-message pages cross the512-message retention bound, and Latest then
+fetches the canonical tail. A separate actual-host fixture proves count/8MiB
+windows, independent execution evidence after eviction and an oversized body's
+explicit exact-byte read. Native sequence holes do not imply missing events;
+the previous event-gap arithmetic is intentionally replaced by revisioned pages.
+
+Multiple-host acceptance passes nine workflow groups in each browser, including
+three panes, per-host defaults/directories, wrong-host content and permission
+denial, two actual crashes/restarts with stable runtime/new epoch, no provider
+replay, explicit disconnect while accepted work continues, and remove/re-add
+with draft/reload preservation. Evidence and the30-second released-lease policy
+are recorded in apps/web/scripts/native-multiple-host-audit.md. Maximum steady
+outstanding observations were two on each browser. Opening an attachment across
+local-to-canonical confirmation still needs its separately tracked continuity fix.
+
+Required CI adds product-content and product-activity jobs, retaining all prior
+browser assertions and deadlines. This partition makes room for the additional
+history/activity/queue checks without extending the20-minute job bounds. These
+checkpoints do not complete Phases5–7: performance targets, remaining specialized
+probes, canonical documentation, final active-import removal and exact final-head
+platform/package validation remain open.
