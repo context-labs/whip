@@ -3450,10 +3450,85 @@ configuration; shared host defaults stay in Settings. Ask/Full Access is edited 
 including a stopped root, and never substitutes for a child’s exact grants.
 
 This adoption checkpoint does not complete retained parity: detailed provider-reported,
-estimated and unknown usage totals, live worker stdout, built-in schema discovery and full
-host diagnostics are still open. Captured host-settings reload (`session.reload`), the
+estimated and unknown usage totals and live worker stdout are still open. Captured host-settings reload (`session.reload`), the
 separate interactive deny policy (`tool.configure deny_permissions`), and Rod/ChromeDP driver
 selection also remain explicit obligations. The UI must not invent those effects or infer
 whole-tree usage from a retained execution window. Trace rendering remains a separate native
 adoption increment. Computer policy changes use the explicit saved host policy endpoint;
 MCP refresh is additive while explicit reload retires existing connections.
+
+`content.get` reads owner/reference metadata only. Canonical message attachment
+rows inspect at most 128 references in batches of four, with zero inactive Query
+retention. Text bytes load on disclosure; images load through their mounted
+preview. Inspecting metadata does not claim that stored bytes are available or
+verified; the separate SDK byte read performs that verification.
+
+The v4 conversation projection consumes canonical `Message.parts` and the SDK's
+whole `preview` value. It has no stream-event reducer or independent history
+cache. Sequence values remain decimal strings, including reading bookmarks.
+Tool output matches only the recorded exchange ID plus call ID; imported messages
+retain their group even with a null local turn. Mail styling follows explicit
+mail provenance. Design grouping verifies unique reference identities at the
+server-derived part indices and never parses tagged transcript text. Local input
+previews retire on exact input identity, not prose similarity or queue disappearance.
+### V4 execution, definitions, imports, and command recovery
+
+Execution settings read and save `client.hosts.executionDefaults()` using the
+same host revision as provider, profile, and MCP settings. The explicit save
+captures the revision the form loaded; conflicts refresh the read while retaining
+the draft, and adopting current settings requires an explicit discard. Execution
+language affects future roots. Maximum attempts includes the initial model
+request (1–5, default 3); uncertain output is never regenerated automatically.
+Goal continuation counts remain decimal strings, including zero for no additional
+continuations. Compaction zero captures the native default of 50%. Reasoning effort
+belongs to the saved default model, not a parallel preference.
+
+Definition selectors retain immutable `{id, revision}` pairs. Metadata uses
+explicit 100-item pages, up to 1,000 retained revisions with visible truncation;
+there is no latest-by-ID alias or implicit full listing. Editing an existing
+revision preserves omitted defaults, tools, hooks, output policy, model, and exact
+child references unless that field is edited. Registering publishes a new
+immutable revision. Module visibility is not an authority grant. Switching editor
+targets requires saving or explicitly discarding the current draft.
+
+MCP import reads capture an optional root session, use host-issued fingerprints
+and the host configuration revision, and display excluded/disabled/unsupported
+sources separately. Importing publishes selected native declarations without
+starting connections or granting calls. Settings offers a separate explicit
+refresh of the root captured when import opened; changing tabs cannot retarget
+that action. A failed refresh does not undo publication or repeat it. Source and
+logo preferences use host CAS. Host theme listing is lazy; cancelled theme
+resolution cannot install a late result, and installed themes remain device-local.
+
+Saved commands in General Settings read the existing bounded `RecoveryJournal`
+(64 records / 8 MiB by default). Opening the page reads local storage only.
+Explicit checks distinguish exact accepted requests, identity-only evidence,
+missing receipts, and unavailable evidence. Workspace `claimed` and `uncertain`
+states are shown as such. Retrying requires confirmation and recovers the complete
+original SDK record with its runtime/client identity; neither the UI nor a
+reconnect reconstructs or automatically replays it. A replacement host cannot
+receive the request. Forgetting requires a separate explicit action explaining
+that it removes local tracking and neither cancels nor undoes remote work.
+
+Execution inspection shares one SDK `ExecutionView` beside each observed session
+view. It holds canonical `Turn`, `Cell`, and `HostOperation` DTOs, bounded by
+16/128/512 records and 4 MiB by default, with explicit truncation. The transcript
+remains in `SessionView`; `cellExecutionRows` joins exact local session/turn,
+message and call IDs to that existing window. Imported messages without local
+links never imply a local cell. Direct human work has ordinary turn metadata and
+operations with `origin: host_operation` and null `cell_id`, so inspectors do not
+need fake cells or a tree-wide trace scan. `sessions.turns` pages canonical turn
+metadata newest first with an owner-scoped opaque cursor. Each page reads current
+states; it does not claim work or promise a frozen multi-page execution snapshot.
+The application owns the shared execution observer lifetime and passes it into
+chat, REPL and inspectors. Suspend/reconnect alongside the transcript view; a
+changed history revision or process epoch clears pending execution evidence.
+Older/focused turn inspection is explicit, and navigation never replays effects.
+
+
+Native Tools & host diagnostics reuses `tool.schemas` (at most 142 declarations) and
+`host.status`. Direct-call built-ins are qualified by module; captured custom input/output
+schemas remain separate. Search displays at most 64 matches and never registers a tool,
+binds an executor, or grants authority. Host diagnostics verify the runtime identity through
+the SDK and reject a replacement process epoch before presenting its PID, build, startup
+or gateway metadata. Reading diagnostics never starts or stops a host.

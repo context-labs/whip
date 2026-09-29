@@ -37,6 +37,7 @@ type DetailRead =
   | 'grants.list'
   | 'budgets.list'
   | 'resources.list'
+  | 'tool.schemas'
   | 'mcp.status'
   | 'mcp.configuration'
   | 'lsp.status'

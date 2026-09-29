@@ -21,7 +21,7 @@ import fixtures from '../../protocol/schema/fixtures.json';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import { Agents, Mailbox } from '../src/details/observation';
-import { MCP } from '../src/details/integrations';
+import { MCP, Tools } from '../src/details/integrations';
 import {
   Compaction,
   Goals,
@@ -656,4 +656,61 @@ it('a stopped root can explicitly save the current policy using an exact receipt
     mode: 'prompt',
   });
   expect(f.records.size).toBe(1);
+});
+
+it('reads existing bounded native schemas and exact host diagnostics without granting or executing tools', async () => {
+  const f = await fixture();
+  f.handlers['tool.schemas'] = () => ({
+    items: [
+      {
+        module: 'files',
+        name: 'read',
+        description: 'Read a bounded file range',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } } },
+      },
+      { module: 'tools', name: 'custom', description: 'Custom', input_schema: { type: 'object' } },
+    ],
+  });
+  f.handlers['host.status'] = () => ({
+    runtime_id: 'runtime',
+    process_epoch: 'boot',
+    pid: 42,
+    build: 'fixture-build',
+    started_at: at,
+    web_endpoint: 'http://127.0.0.1:1234',
+  });
+  f.render(<Tools {...f.props} />);
+  await screen.findByText('files.read');
+  await screen.findByText('Build fixture-build');
+  expect(screen.getByText('Process 42')).toBeDefined();
+  expect(screen.getByText('Web gateway: http://127.0.0.1:1234')).toBeDefined();
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect files.read schema' }));
+  expect(screen.getByRole('region', { name: 'files.read input schema' }).textContent).toContain(
+    'path',
+  );
+  expect(f.calls.find((call) => call.method === 'tool.schemas')?.params).toEqual({
+    session_id: 'session_child',
+  });
+  expect(f.count('tool.call')).toBe(0);
+  expect(f.count('host.stop')).toBe(0);
+  expect(f.count('mcp.refresh')).toBe(0);
+  fireEvent.change(screen.getByLabelText('Find a tool'), { target: { value: 'absent' } });
+  expect(screen.queryByText('files.read')).toBeNull();
+});
+it('does not present diagnostics from a replacement process as belonging to the connection', async () => {
+  const f = await fixture();
+  f.handlers['tool.schemas'] = () => ({ items: [] });
+  f.handlers['host.status'] = () => ({
+    runtime_id: 'runtime',
+    process_epoch: 'replacement',
+    pid: 777,
+    build: 'foreign-build',
+    started_at: at,
+    web_endpoint: '',
+  });
+  f.render(<Tools {...f.props} />);
+  await screen.findByText('The host process changed. Reconnect to inspect it.');
+  expect(screen.queryByText('Process 777')).toBeNull();
+  expect(screen.queryByText('Build foreign-build')).toBeNull();
+  expect(f.count('host.status')).toBe(1);
 });

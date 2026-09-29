@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Badge, Button, CodeBlock, Field, Input, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { ErrorNotice } from '../error-feedback';
@@ -326,21 +327,61 @@ function Computer(props: InspectorProps) {
     </Section>
   );
 }
-function Tools(props: InspectorProps) {
+export function Tools(props: InspectorProps) {
   const [search, setSearch] = useState(''),
     [selected, setSelected] = useState('');
+  const schemas = useDetailQuery(props, 'tool.schemas', { session_id: props.session.id });
+  const builtins = (schemas.data?.items ?? []).filter(
+    (tool) =>
+      tool.module !== 'tools' &&
+      `${tool.module}.${tool.name}`.toLowerCase().includes(search.toLowerCase()),
+  );
   const tools = Object.entries(props.selected.configuration.tools ?? {}).filter(([name]) =>
     name.toLowerCase().includes(search.toLowerCase()),
   );
   return (
     <>
       <Section
-        title="Captured custom tools"
-        description="These declarations belong to the selected agent’s exact configuration. Callable authority and executor availability are checked separately."
+        title="Built-in tools"
+        description="Public direct-call schemas for this agent’s enabled modules. Listing does not start resources, grant authority, or execute a tool."
       >
+        <QueryFeedback query={schemas} connected={props.connected} />
         <Field label="Find a tool">
           <Input value={search} onChange={(event) => setSearch(event.target.value)} />
         </Field>
+        {builtins.slice(0, 64).map((tool) => {
+          const name = `${tool.module}.${tool.name}`;
+          return (
+            <article key={name} {...stylex.props(layout.column, layout.notice)}>
+              <strong>{name}</strong>
+              <p>{tool.description}</p>
+              <Button variant="ghost" onClick={() => setSelected(selected === name ? '' : name)}>
+                Inspect {name} schema
+              </Button>
+              {selected === name && (
+                <CodeBlock
+                  code={JSON.stringify(tool.input_schema, null, 2)}
+                  label={`${name} input schema`}
+                  language="json"
+                  maxBytes={32 << 10}
+                />
+              )}
+            </article>
+          );
+        })}
+        {builtins.length > 64 && (
+          <Empty>
+            Showing 64 matches. Narrow the module or tool name to inspect another schema.
+          </Empty>
+        )}
+        {!builtins.length && schemas.data && (
+          <Empty>No matching built-in schemas for this agent.</Empty>
+        )}
+      </Section>
+      <Section
+        title="Captured custom tools"
+        description="These declarations belong to the selected agent’s exact configuration. Callable authority and executor availability are checked separately."
+      >
         {tools.slice(0, 64).map(([name, tool]) => (
           <article key={name} {...stylex.props(layout.column, layout.notice)}>
             <strong>{name}</strong>
@@ -370,13 +411,41 @@ function Tools(props: InspectorProps) {
           <Empty>Showing 64 matches. Narrow the name to inspect another tool.</Empty>
         )}
         {!tools.length && <Empty>No matching custom tools.</Empty>}
-        <p>Built-in tool schema discovery is not yet available in this inspector.</p>
       </Section>
-      <Section title="Execution host">
-        <code>Runtime {props.client.runtimeID}</code>
-        <span>Process epoch {props.client.processEpoch}</span>
-        <p>Detailed host diagnostics are not yet available here.</p>
-      </Section>
+      <HostDiagnostics {...props} />
     </>
+  );
+}
+
+function HostDiagnostics(props: InspectorProps) {
+  const query = useQuery({
+    queryKey: ['inspector-host-status', props.client.runtimeID, props.client.processEpoch],
+    queryFn: async ({ signal }) => {
+      const value = await props.client.hosts.status({ signal });
+      if (value.process_epoch !== props.client.processEpoch)
+        throw new Error('The host process changed. Reconnect to inspect it.');
+      return value;
+    },
+    enabled: props.connected,
+    gcTime: 0,
+    retry: false,
+  });
+  return (
+    <Section
+      title="Execution host"
+      description="Observed identity and startup information for this exact connected process."
+    >
+      <QueryFeedback query={query} connected={props.connected} />
+      <code>Runtime {props.client.runtimeID}</code>
+      <span>Process epoch {props.client.processEpoch}</span>
+      {query.data && (
+        <>
+          <span>Process {query.data.pid}</span>
+          <span>Build {query.data.build || 'Unspecified'}</span>
+          <span>Started {query.data.started_at}</span>
+          <span>Web gateway: {query.data.web_endpoint || 'Disabled'}</span>
+        </>
+      )}
+    </Section>
   );
 }
