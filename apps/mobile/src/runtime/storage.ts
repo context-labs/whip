@@ -1,4 +1,5 @@
 import type { RecoveryRecord, RecoveryStorage } from '@whip/legacy-sdk';
+import { metadataKey, validateMetadata, type MetadataStorage, type RecoveryMetadata, type StoredMetadata } from './recovery-metadata';
 
 export type StorageBucket = 'hosts' | 'settings' | 'drafts' | 'bookmarks' | 'themes';
 export interface Draft { text: string; revision: string }
@@ -27,6 +28,7 @@ export interface MobileStorage {
   prepareIntent(commandId: string, intent: CommandIntent): void;
   discardIntent(commandId: string): void;
   recoveryStorage: RecoveryStorage;
+  nativeRecovery: MetadataStorage;
   listRecovery(): Promise<StoredRecovery[]>;
   markAccepted(record: DurableRecord): Promise<void>;
   putDecision(record: PermissionRecoveryRecord, intent: CommandIntent): Promise<void>;
@@ -53,7 +55,7 @@ export interface StorageDatabase {
   getFirstAsync<T>(sql: string, ...params: Array<string | number>): Promise<T | null>;
   closeAsync(): Promise<void>;
 }
-type Bucket = StorageBucket | 'recovery';
+type Bucket = StorageBucket | 'recovery' | 'recovery-v4';
 type Row = { key: string; value: string };
 type BookmarkEnvelope = { __whipBookmark: 1; savedAt: number; value: unknown };
 function bookmark(value: unknown): { savedAt: number; value: unknown } {
@@ -71,12 +73,13 @@ const limits: Record<Bucket, { count: number; bytes: number; entry: number }> = 
   drafts: { count: 16, bytes: 512 * 1024, entry: 64 * 1024 },
   bookmarks: { count: 64, bytes: 64 * 1024, entry: 4 * 1024 },
   recovery: { count: 64, bytes: 64 * 1024, entry: 64 * 1024 },
+  'recovery-v4': { count: 64, bytes: 64 * 1024, entry: 64 * 1024 },
 };
 const schema = `CREATE TABLE records (
   bucket TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
   PRIMARY KEY (bucket, key)
 ) WITHOUT ROWID;
-PRAGMA user_version = 2;`;
+PRAGMA user_version = 3;`;
 const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
 const recoveryKey = (record: DurableRecord) => JSON.stringify([record.runtimeId, record.clientId, record.commandId]);
 function identifier(value: unknown, label: string): asserts value is string {
@@ -121,6 +124,51 @@ export class SqliteMobileStorage implements MobileStorage {
     put: (record) => this.putRecovery(record),
     delete: (record) => this.deleteRecovery(record),
   };
+  readonly nativeRecovery: MetadataStorage = {
+    list: () => this.enqueue(async () => (await this.rows('recovery-v4')).map(row => this.readNativeRecovery(row))),
+    put: value => this.putNativeRecovery(value),
+    accept: record => this.acceptNativeRecovery(record),
+    delete: record => this.deleteNativeRecovery(record),
+  };
+  private readNativeRecovery(row: Row): StoredMetadata {
+    const value = validateMetadata(decode<StoredMetadata>(row.value));
+    if (row.key !== metadataKey(value.record)) throw new StorageError('corrupt', 'Native recovery identity mismatch');
+    return value;
+  }
+  private putNativeRecovery(source: StoredMetadata): Promise<void> {
+    const value = validateMetadata(source);
+    return this.enqueue(() => this.transaction(async () => {
+      const key = metadataKey(value.record);
+      const row = await this.db.getFirstAsync<Row>('SELECT key, value FROM records WHERE bucket = ? AND key = ?', 'recovery-v4', key);
+      if (row) {
+        const previous = this.readNativeRecovery(row);
+        if (encode(previous.record) !== encode(value.record) || encode(previous.intent) !== encode(value.intent)) throw new StorageError('corrupt', 'Native recovery identity already belongs to another request');
+        value.knownAccepted ||= previous.knownAccepted;
+      }
+      await this.write('recovery-v4', key, value);
+    }));
+  }
+  private acceptNativeRecovery(source: RecoveryMetadata): Promise<void> {
+    const record = validateMetadata({ record: source, intent: {}, knownAccepted: false }).record;
+    return this.enqueue(() => this.transaction(async () => {
+      const key = metadataKey(record);
+      const row = await this.db.getFirstAsync<Row>('SELECT key, value FROM records WHERE bucket = ? AND key = ?', 'recovery-v4', key);
+      if (!row) throw new StorageError('corrupt', 'Accepted command has no native recovery metadata');
+      const previous = this.readNativeRecovery(row);
+      if (encode(previous.record) !== encode(record)) throw new StorageError('corrupt', 'Native acceptance identity mismatch');
+      await this.write('recovery-v4', key, { ...previous, knownAccepted: true });
+    }));
+  }
+  private deleteNativeRecovery(source: RecoveryMetadata): Promise<void> {
+    const record = validateMetadata({ record: source, intent: {}, knownAccepted: false }).record;
+    return this.enqueue(() => this.transaction(async () => {
+      const key = metadataKey(record);
+      const row = await this.db.getFirstAsync<Row>('SELECT key, value FROM records WHERE bucket = ? AND key = ?', 'recovery-v4', key);
+      if (!row) return;
+      if (encode(this.readNativeRecovery(row).record) !== encode(record)) throw new StorageError('corrupt', 'Native recovery identity mismatch');
+      await this.db.runAsync('DELETE FROM records WHERE bucket = ? AND key = ?', 'recovery-v4', key);
+    }));
+  }
   constructor(private readonly db: StorageDatabase) {}
 
   /** Called after SQLCipher verification; a version mismatch never wipes data. */
@@ -133,15 +181,17 @@ export class SqliteMobileStorage implements MobileStorage {
           if (tables.length) throw new StorageError('schema', 'Unrecognized database schema; existing data has been preserved');
           await this.db.execAsync(schema);
         });
-      } else if (version?.user_version !== 1 && version?.user_version !== 2) {
+      } else if (version?.user_version !== 1 && version?.user_version !== 2 && version?.user_version !== 3) {
         throw new StorageError('schema', 'This app cannot read the saved database version; existing data has been preserved');
       }
       const validate = async () => {
-        const unknown = await this.db.getFirstAsync<{ bucket: string }>("SELECT bucket FROM records WHERE bucket NOT IN ('hosts', 'settings', 'drafts', 'bookmarks', 'recovery', 'themes') LIMIT 1");
+        const unknown = await this.db.getFirstAsync<{ bucket: string }>("SELECT bucket FROM records WHERE bucket NOT IN ('hosts', 'settings', 'drafts', 'bookmarks', 'recovery', 'recovery-v4', 'themes') LIMIT 1");
         if (unknown) throw new StorageError('schema', 'Unrecognized saved data; existing records have been preserved');
         for (const bucket of Object.keys(limits) as Bucket[]) await this.rows(bucket);
+        const recovery = [...await this.rows('recovery'), ...await this.rows('recovery-v4')];
+        if (recovery.length > limits.recovery.count || recovery.reduce((total, row) => total + bytes(row.key) + bytes(row.value), 0) > limits.recovery.bytes) throw new StorageError('quota', 'Recovery metadata exceeds this app’s storage limits; existing data has been preserved');
       };
-      if (version?.user_version === 1) await this.transaction(async () => { await validate(); await this.db.execAsync('PRAGMA user_version = 2'); });
+      if (version?.user_version === 1 || version?.user_version === 2) await this.transaction(async () => { await validate(); await this.db.execAsync('PRAGMA user_version = 3'); });
       else await validate();
     });
   }
@@ -186,7 +236,8 @@ export class SqliteMobileStorage implements MobileStorage {
     identifier(key, 'storage key');
     const encoded = encode(value);
     const rows = await this.rows(bucket);
-    const remaining = rows.filter((row) => row.key !== key);
+    const otherRecovery = bucket === 'recovery' || bucket === 'recovery-v4' ? await this.rows(bucket === 'recovery' ? 'recovery-v4' : 'recovery') : [];
+    const remaining = [...rows.filter((row) => row.key !== key), ...otherRecovery];
     const budget = limits[bucket];
     // Count the key and encoded value, including recovery correlation metadata.
     const size = bytes(key) + bytes(encoded);
