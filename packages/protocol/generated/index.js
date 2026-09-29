@@ -790,6 +790,11 @@ export const manifest = {
       "result": "Input"
     },
     {
+      "name": "receipts.match",
+      "params": "MatchReceiptParams",
+      "result": "Admission"
+    },
+    {
       "name": "receipts.get",
       "params": "RequestIdentity",
       "result": "Admission"

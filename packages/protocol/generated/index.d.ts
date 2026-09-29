@@ -3446,6 +3446,17 @@ export interface MailAdmission {
   };
   deleted_at: null | string;
 }
+export interface MatchReceiptParams {
+  method:
+    | "sessions.submit"
+    | "sessions.compact"
+    | "sessions.spawn"
+    | "goals.formulate"
+    | "goals.resume"
+    | "tool.call"
+    | "shell.run";
+  params_base64: string;
+}
 export type Message =
   | {
       group_id: string;
@@ -8071,6 +8082,7 @@ export interface ContractTypes {
   MCPStatusResult: MCPStatusResult;
   MCPToolsResult: MCPToolsResult;
   MailAdmission: MailAdmission;
+  MatchReceiptParams: MatchReceiptParams;
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
@@ -8340,6 +8352,7 @@ export interface Operations {
   "inputs.page": { params: InputPageParams; result: InputPageResult };
   "inputs.get": { params: SessionInputParams; result: Input };
   "inputs.cancel": { params: InputParams; result: Input };
+  "receipts.match": { params: MatchReceiptParams; result: Admission };
   "receipts.get": { params: RequestIdentity; result: Admission };
   "content.put": { params: PutContentParams; result: ContentReference };
   "content.read": { params: ReadContentParams; result: ReadContentResult };

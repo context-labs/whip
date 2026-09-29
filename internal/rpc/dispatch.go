@@ -49,6 +49,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return nil, ErrMethod
 	}
 	switch method {
+	case "receipts.match":
+		return dispatchReceiptMatch(ctx, r, raw)
 	case "tool.schemas", "tool.call", "shell.run":
 		return dispatchHostOperation(ctx, r, method, raw)
 	case "sessions.activity", "inputs.page", "inputs.get":
@@ -237,29 +239,9 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		})
 	case "sessions.spawn":
 		return decode(raw, func(p protocol.SpawnSessionParams) (any, error) {
-			patch, err := p.Overrides.Domain()
+			request, err := childRequest(p)
 			if err != nil {
 				return nil, err
-			}
-			request := store.ChildRequest{ParentID: session.SessionID(p.ParentID), Overrides: patch, Resources: protocol.ResourceLimitsDomain(p.Resources)}
-			for _, limit := range p.Budgets {
-				request.Budgets = append(request.Budgets, limit.Domain())
-			}
-			for _, part := range p.Parts {
-				request.Parts = append(request.Parts, part.Domain())
-			}
-			if p.GrantIDs != nil {
-				request.GrantIDs = make([]session.GrantID, len(p.GrantIDs))
-				for i, id := range p.GrantIDs {
-					request.GrantIDs[i] = session.GrantID(id)
-				}
-			}
-			if p.Definition != nil {
-				ref := definitionRef(*p.Definition)
-				request.Definition = &ref
-			}
-			if p.WorkingDirectory != nil {
-				request.WorkingDirectory = *p.WorkingDirectory
 			}
 			value, err := r.SpawnChild(ctx, identity(p.Identity), request)
 			if err != nil {
@@ -309,11 +291,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		})
 	case "sessions.submit":
 		return decode(raw, func(p protocol.SubmitParams) (any, error) {
-			parts := make([]session.Part, len(p.Parts))
-			for i, part := range p.Parts {
-				parts[i] = part.Domain()
-			}
-			value, err := r.Admit(ctx, identity(p.Identity), store.Submission{SessionID: session.SessionID(p.SessionID), Source: session.InputSource(p.Source), Parts: parts})
+			value, err := r.Admit(ctx, identity(p.Identity), submissionRequest(p))
 			return admission(value), err
 		})
 	case "sessions.history_page":

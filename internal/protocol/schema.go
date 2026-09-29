@@ -181,6 +181,7 @@ func Operations() []Operation {
 		{"inputs.page", reflect.TypeFor[InputPageParams](), reflect.TypeFor[InputPageResult]()},
 		{"inputs.get", reflect.TypeFor[SessionInputParams](), reflect.TypeFor[Input]()},
 		{"inputs.cancel", reflect.TypeFor[InputParams](), reflect.TypeFor[Input]()},
+		{"receipts.match", reflect.TypeFor[MatchReceiptParams](), reflect.TypeFor[Admission]()},
 		{"receipts.get", reflect.TypeFor[RequestIdentity](), reflect.TypeFor[Admission]()},
 		{"content.put", reflect.TypeFor[PutContentParams](), reflect.TypeFor[ContentReference]()},
 		{"content.read", reflect.TypeFor[ReadContentParams](), reflect.TypeFor[ReadContentResult]()},
@@ -283,6 +284,10 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		mcpSchema(schema, t)
 		terminalSchema(schema, t)
 		hostOperationSchema(schema, t)
+		if t == reflect.TypeFor[MatchReceiptParams]() {
+			schema.Properties["params_base64"].MinLength = new(1)
+			schema.Properties["params_base64"].MaxLength = new(5592408)
+		}
 		if t == reflect.TypeFor[InputSummary]() {
 			schema.Properties["text_preview"].MaxLength = new(512)
 		}

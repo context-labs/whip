@@ -139,24 +139,9 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 			return result, err
 		}
 	}
-	if (request.Source != session.UserInput && request.Source != session.AgentInput) || request.Schedule != nil || request.Goal != nil || request.HostOperation != nil {
-		return result, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
-	}
-	if request.Kind == "" {
-		request.Kind = session.PromptInput
-	}
-	switch request.Kind {
-	case session.PromptInput:
-		if err := session.ValidateInputParts(request.Parts); err != nil {
-			return result, err
-		}
-	case session.CompactInput:
-		if len(request.Parts) != 0 {
-			return result, fmt.Errorf("%w: compact input cannot contain prompt parts", session.ErrInvalid)
-		}
-		request.Parts = []session.Part{}
-	default:
-		return result, fmt.Errorf("%w: unknown input kind", session.ErrInvalid)
+	request, err = normalizeSubmission(request)
+	if err != nil {
+		return result, err
 	}
 	digest, err := requestDigest("submit", request)
 	if err != nil {
@@ -178,6 +163,29 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 		return err
 	})
 	return
+}
+
+func normalizeSubmission(request Submission) (Submission, error) {
+	if (request.Source != session.UserInput && request.Source != session.AgentInput) || request.Schedule != nil || request.Goal != nil || request.HostOperation != nil {
+		return request, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
+	}
+	if request.Kind == "" {
+		request.Kind = session.PromptInput
+	}
+	switch request.Kind {
+	case session.PromptInput:
+		if err := session.ValidateInputParts(request.Parts); err != nil {
+			return request, err
+		}
+	case session.CompactInput:
+		if len(request.Parts) != 0 {
+			return request, fmt.Errorf("%w: compact input cannot contain prompt parts", session.ErrInvalid)
+		}
+		request.Parts = []session.Part{}
+	default:
+		return request, fmt.Errorf("%w: unknown input kind", session.ErrInvalid)
+	}
+	return request, nil
 }
 
 func requestDigest(kind string, request any) (string, error) {

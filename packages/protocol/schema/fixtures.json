@@ -2207,6 +2207,14 @@
     "valid": true
   },
   {
+    "type": "MatchReceiptParams",
+    "value": {
+      "method": "sessions.compact",
+      "params_base64": "eyJzZXNzaW9uX2lkIjoic2Vzc2lvbl9yb290IiwiaWRlbnRpdHkiOnsiY2xpZW50X2lkIjoiY2xpZW50IiwicmVxdWVzdF9pZCI6ImNvbXBhY3QifX0="
+    },
+    "valid": true
+  },
+  {
     "type": "SessionActivity",
     "value": {
       "session_id": "session_child",

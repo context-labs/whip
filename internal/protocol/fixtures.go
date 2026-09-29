@@ -209,6 +209,7 @@ func Fixtures() ([]Fixture, error) {
 		{"ResourceUsage", ResourceUsageFromDomain(session.ResourceUsage{SessionID: "session_child", Kind: session.ResourceDescendants, Revision: 0, Limit: nil, Used: 0})},
 		{"SetResourceParams", SetResourceParams{SessionID: "session_child", ExpectedRevision: 9007199254740993, Resource: ResourceLimit{Kind: "descendants", Limit: nil}}},
 		{"Budget", BudgetFromDomain(session.Budget{SessionID: "session_root", Kind: session.BudgetModelTokens, Revision: 9007199254740993, Limit: new(int64(9007199254740994)), Used: 9007199254740993, Reserved: 1})},
+		{"MatchReceiptParams", MatchReceiptParams{Method: "sessions.compact", ParamsBase64: base64.StdEncoding.EncodeToString([]byte(`{"session_id":"session_root","identity":{"client_id":"client","request_id":"compact"}}`))}},
 		{"SessionActivity", SessionActivity{SessionID: child.ID, Lifecycle: "active", QueuedInputCount: 9007199254740993}},
 		{"InputPageParams", InputPageParams{SessionID: child.ID, State: "queued", After: new(Counter(9007199254740993)), Limit: 100}},
 		{"InputPageResult", InputPageResult{Items: []InputSummary{{ID: "queued_fixture", SessionID: child.ID, Ordinal: 9007199254740993, Source: "user", Kind: "prompt", State: "queued", CreatedAt: created.Format(time.RFC3339Nano), TextPreview: "Preview", PreviewTruncated: true, AttachmentCount: 1}}, NextCursor: new(Counter(9007199254740993))}},

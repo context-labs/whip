@@ -252,10 +252,7 @@ func (s *Store) ResumeGoal(ctx context.Context, identity session.RequestIdentity
 			return result, err
 		}
 	}
-	digest, err := requestDigest("goal_resume", struct {
-		Owner session.SessionID
-		Goal  session.GoalRef
-	}{owner, ref})
+	digest, err := goalResumeDigest(owner, ref)
 	if err != nil {
 		return result, err
 	}

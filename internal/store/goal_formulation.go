@@ -22,10 +22,7 @@ func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.Reque
 			return result, err
 		}
 	}
-	digest, err := requestDigest("goal_formulation", struct {
-		Owner   session.SessionID
-		Request session.GoalFormulationRequest
-	}{owner, request})
+	digest, err := goalFormulationDigest(owner, request)
 	if err != nil {
 		return result, err
 	}

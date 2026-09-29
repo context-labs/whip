@@ -21,12 +21,7 @@ func (s *Store) AdmitHostOperation(ctx context.Context, identity session.Request
 			return result, err
 		}
 	}
-	operation, err = operation.Normalize()
-	if err != nil {
-		return result, err
-	}
-	request := Submission{SessionID: owner, Source: session.UserInput, Kind: session.HostOperationInputKind, Parts: []session.Part{}, HostOperation: &operation}
-	digest, err := requestDigest("host_operation", request)
+	request, digest, err := hostOperationSubmission(owner, operation)
 	if err != nil {
 		return result, err
 	}

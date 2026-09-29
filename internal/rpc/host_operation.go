@@ -23,30 +23,43 @@ func dispatchHostOperation(ctx context.Context, r *runtime.Runtime, method strin
 		})
 	case "tool.call":
 		return decode(raw, func(p protocol.CallHostToolParams) (any, error) {
-			if len(p.Operation.ArgumentsBase64) > base64.StdEncoding.EncodedLen(session.MaxDocumentBytes/2) {
-				return nil, session.ErrInvalid
-			}
-			arguments, err := base64.StdEncoding.Strict().DecodeString(p.Operation.ArgumentsBase64)
+			operation, err := hostToolOperation(p)
 			if err != nil {
-				return nil, session.ErrInvalid
+				return nil, err
 			}
-			result, err := r.AdmitHostOperation(ctx, identity(p.Identity), session.SessionID(p.SessionID), session.HostOperation{Module: p.Operation.Module, Name: string(p.Operation.Name), Arguments: arguments})
+			result, err := r.AdmitHostOperation(ctx, identity(p.Identity), session.SessionID(p.SessionID), operation)
 			return admission(result), err
 		})
 	case "shell.run":
 		return decode(raw, func(p protocol.RunShellParams) (any, error) {
-			args := map[string]any{"command": p.Command, "interactive": p.Interactive}
-			if p.Timeout != nil {
-				args["timeout"] = *p.Timeout
-			}
-			arguments, err := json.Marshal(args)
+			operation, err := shellOperation(p)
 			if err != nil {
 				return nil, err
 			}
-			result, err := r.AdmitHostOperation(ctx, identity(p.Identity), session.SessionID(p.SessionID), session.HostOperation{Module: "shell", Name: "run", Arguments: arguments})
+			result, err := r.AdmitHostOperation(ctx, identity(p.Identity), session.SessionID(p.SessionID), operation)
 			return admission(result), err
 		})
 	default:
 		return nil, ErrMethod
 	}
+}
+
+func hostToolOperation(p protocol.CallHostToolParams) (session.HostOperation, error) {
+	if len(p.Operation.ArgumentsBase64) > base64.StdEncoding.EncodedLen(session.MaxDocumentBytes/2) {
+		return session.HostOperation{}, session.ErrInvalid
+	}
+	arguments, err := base64.StdEncoding.Strict().DecodeString(p.Operation.ArgumentsBase64)
+	if err != nil {
+		return session.HostOperation{}, session.ErrInvalid
+	}
+	return session.HostOperation{Module: p.Operation.Module, Name: string(p.Operation.Name), Arguments: arguments}, nil
+}
+
+func shellOperation(p protocol.RunShellParams) (session.HostOperation, error) {
+	args := map[string]any{"command": p.Command, "interactive": p.Interactive}
+	if p.Timeout != nil {
+		args["timeout"] = *p.Timeout
+	}
+	arguments, err := json.Marshal(args)
+	return session.HostOperation{Module: "shell", Name: "run", Arguments: arguments}, err
 }
