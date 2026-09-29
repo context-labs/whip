@@ -31,3 +31,11 @@ export function withSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promis
     promise.then(value => { cleanup(); resolve(value); }, error => { cleanup(); reject(error); });
   });
 }
+
+/** Encode UTF-8 without Node globals or an argument stack proportional to input. */
+export function utf8Base64(value: string): string {
+  const encoded = new TextEncoder().encode(value);
+  let binary = '';
+  for (let offset = 0; offset < encoded.length; offset += 8192) binary += String.fromCharCode(...encoded.subarray(offset, offset + 8192));
+  return btoa(binary);
+}

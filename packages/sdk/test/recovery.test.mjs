@@ -30,7 +30,7 @@ test('prepared commands freeze exact input and recover a lost acknowledgement wi
   let exists = false;
   const storage = memoryStorage(), journal = new RecoveryJournal(storage);
   const { client, calls } = await clientFixture(request => {
-    if (request.method === 'receipts.get') return exists ? { jsonrpc: '2.0', id: request.id, result: admission() } : missing(request.id);
+    if (request.method === 'receipts.match') return exists ? { jsonrpc: '2.0', id: request.id, result: admission() } : missing(request.id);
     assert.equal(storage.records.size, 1);
     if (exists) return { jsonrpc: '2.0', id: request.id, result: admission() };
     exists = true; throw new DeliveryError('lost acknowledgement');
@@ -43,11 +43,9 @@ test('prepared commands freeze exact input and recover a lost acknowledgement wi
   const loaded = DurableCommand.recover(client, (await journal.list())[0], { journal });
   assert.equal(calls.length, 1);
   assert.throws(() => loaded.send(), /explicit check\/retry/);
-  assert.equal((await loaded.check()).state, 'identity_only');
-  assert.equal(loaded.record.accepted, false);
-  await assert.rejects(loaded.wait(), /Exact request acceptance/);
+  assert.equal((await loaded.check()).state, 'found');
+  assert.equal(loaded.record.accepted, true);
   assert.equal(calls.filter(value => value.method === 'sessions.submit').length, 1);
-  await loaded.retry(); // Only this explicit request verifies the original payload.
   assert.equal((await loaded.check()).state, 'found');
   assert.equal((await loaded.wait()).receipt.deleted_at !== null, true);
   assert.equal(loaded.record.accepted, true);
@@ -57,7 +55,7 @@ test('prepared commands freeze exact input and recover a lost acknowledgement wi
 test('explicit retry deduplicates callers, keeps same bytes, and refuses a missing accepted receipt', async () => {
   let accepted = false, responses = 0;
   const { client, calls } = await clientFixture(request => {
-    if (request.method === 'receipts.get') return accepted ? { jsonrpc: '2.0', id: request.id, result: admission() } : missing(request.id);
+    if (request.method === 'receipts.match') return accepted ? { jsonrpc: '2.0', id: request.id, result: admission() } : missing(request.id);
     responses++; if (responses === 1) throw new DeliveryError('not delivered');
     accepted = true; return { jsonrpc: '2.0', id: request.id, result: admission() };
   });
@@ -134,15 +132,40 @@ test('slow recovery storage has bounded pending work and never becomes an unboun
 });
 
 test('an identity collision cannot confirm or wait on another command payload', async () => {
-  const { client, calls } = await clientFixture(request => {
-    if (request.method === 'receipts.get') return { jsonrpc: '2.0', id: request.id, result: admission() };
-    return { jsonrpc: '2.0', id: request.id, error: { code: -32004, kind: 'CONFLICT', message: 'identity already has another payload' } };
-  });
-  const command = client.command('sessions.submit', { ...params(), parts: [{ type: 'text', text: 'different request' }] });
-  assert.equal((await command.check()).state, 'identity_only');
+  const { client, calls } = await clientFixture(request => ({ jsonrpc: '2.0', id: request.id, error: { code: -32004, kind: 'CONFLICT', message: 'identity already has another payload' } }));
+  const command = client.command('sessions.submit', { ...params(), parts: [{ type: 'text', text: 'different request 界' }] });
+  await assert.rejects(command.check(), error => error.kind === 'CONFLICT');
   assert.equal(command.record.accepted, false);
-  await assert.rejects(command.wait(), /Exact request acceptance/);
-  assert.ok(calls.every(value => value.method === 'receipts.get'));
+  await assert.rejects(command.wait(), error => error.kind === 'CONFLICT');
   await assert.rejects(command.retry(), error => error.kind === 'CONFLICT');
+  assert.ok(calls.every(value => value.method === 'receipts.match'));
+  assert.deepEqual(JSON.parse(Buffer.from(calls[0].params.params_base64, 'base64').toString('utf8')), command.params);
   assert.equal(command.record.accepted, false);
+});
+
+test('non-admission receipt reads remain identity-only when payload equality is not exposed', async () => {
+  const input = fixture('CreateTreeParams');
+  const { client, calls } = await clientFixture(request => {
+    assert.equal(request.method, 'trees.creation');
+    const result = fixture('CreateTreeResult'); result.creation.id = input.creation_id;
+    return { jsonrpc: '2.0', id: request.id, result };
+  });
+  const command = client.command('trees.create', input);
+  assert.equal((await command.check()).state, 'identity_only');
+  assert.equal(command.record.accepted, false); assert.equal(calls.length, 1);
+});
+
+test('direct host commands use the same read-only exact admission matcher', async () => {
+  for (const [method, shape] of [['tool.call', 'CallHostToolParams'], ['shell.run', 'RunShellParams']]) {
+    const input = fixture(shape); input.identity = { client_id: 'client', request_id: method };
+    const { client, calls } = await clientFixture(request => {
+      assert.equal(request.method, 'receipts.match'); assert.equal(request.params.method, method);
+      assert.deepEqual(JSON.parse(Buffer.from(request.params.params_base64, 'base64').toString('utf8')), input);
+      const result = admission(method); // A deleted-owner receipt still verifies the exact request.
+      return { jsonrpc: '2.0', id: request.id, result };
+    });
+    const command = client.command(method, input);
+    assert.equal((await command.check()).state, 'found');
+    assert.equal(command.record.accepted, true); assert.equal(calls.length, 1);
+  }
 });

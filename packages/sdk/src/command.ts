@@ -3,10 +3,10 @@ import type { Admission, Operations } from '@whip/protocol';
 import type { Client } from './index.js';
 import { operation, RemoteError } from './wire.js';
 import type { CallOptions } from './wire.js';
-import { boundedInteger, bytes, delay, freeze, withSignal } from './value.js';
+import { boundedInteger, bytes, delay, freeze, utf8Base64, withSignal } from './value.js';
 
 const methods = [
-  'sessions.submit', 'sessions.compact', 'sessions.spawn', 'goals.formulate', 'goals.resume',
+  'sessions.submit', 'sessions.compact', 'sessions.spawn', 'goals.formulate', 'goals.resume', 'tool.call', 'shell.run',
   'trees.create', 'sessions.fork', 'sessions.rewind', 'permissions.set_mode',
   'workspace.capture', 'workspace.restore', 'workspace.release',
   'goals.create', 'schedules.create', 'mail.send', 'state.write', 'state.append', 'state.subscribe',
@@ -159,10 +159,11 @@ export class DurableCommand<M extends DurableMethod> {
       let evidence: RecoveryEvidence;
       let matchesRequest = this.current.accepted;
       switch (request.method) {
-        case 'sessions.submit': case 'sessions.compact': case 'sessions.spawn': case 'goals.formulate': case 'goals.resume': {
-          evidence = await this.client.call('receipts.get', request.params.identity, options);
+        case 'sessions.submit': case 'sessions.compact': case 'sessions.spawn': case 'goals.formulate': case 'goals.resume': case 'tool.call': case 'shell.run': {
+          evidence = await this.client.call('receipts.match', { method: request.method, params_base64: utf8Base64(JSON.stringify(request.params)) }, options);
           if (evidence.receipt.identity.client_id !== this.current.clientID || evidence.receipt.identity.request_id !== request.params.identity.request_id) throw new TypeError('Receipt identity mismatch');
           if ('session_id' in request.params && evidence.input && evidence.input.session_id !== request.params.session_id) throw new TypeError('Receipt session mismatch');
+          matchesRequest = true;
           break;
         }
         case 'trees.create': {
