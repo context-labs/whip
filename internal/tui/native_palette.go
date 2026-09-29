@@ -122,7 +122,7 @@ func (m *nativeModel) shortcut(key tea.KeyPressMsg) (tea.Cmd, bool) {
 	}
 	if name == "ctrl+x" {
 		m.leaderAt = time.Now()
-		m.status = "Ctrl+X: 1 agents · 2 context · 3 LSP · m model · l sessions · n clear · b sidebar · r REPL · t theme · c compact · g rewind · s stop child · y copy last assistant"
+		m.status = "Ctrl+X: i shell input · 1 agents · 2 context · 3 LSP · m model · l sessions · n clear · b sidebar · r REPL · t theme · c compact · g rewind · s stop child · y copy last assistant"
 		return nil, true
 	}
 	if m.leaderAt.IsZero() {
@@ -133,7 +133,7 @@ func (m *nativeModel) shortcut(key tea.KeyPressMsg) (tea.Cmd, bool) {
 	if !active {
 		return nil, false
 	}
-	commands := map[string]string{"m": "/model", "l": "/sessions", "n": "/clear", "b": "/sidebar", "r": "/repl", "t": "/theme", "c": "/compact", "g": "/rewind", "y": "/copy", "1": "/panel agents", "2": "/panel context", "3": "/panel lsp"}
+	commands := map[string]string{"i": "/shell focus", "m": "/model", "l": "/sessions", "n": "/clear", "b": "/sidebar", "r": "/repl", "t": "/theme", "c": "/compact", "g": "/rewind", "y": "/copy", "1": "/panel agents", "2": "/panel context", "3": "/panel lsp"}
 	if command, ok := commands[name]; ok {
 		return m.commandKeepingDraft(command), true
 	}

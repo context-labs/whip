@@ -172,6 +172,8 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	if err != nil {
 		return err
 	}
+	m.releaseShellFocus()
+	m.shell, m.shellHidden = nil, false
 	m.closeMenu()
 	m.closeCompletion(false)
 	m.invalidateRead()

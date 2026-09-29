@@ -60,6 +60,9 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // nativeModel is the native chat composition. Commands and menus are added
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
+	shell                                     *nativeShellView
+	shellFocus, shellPending                  *nativeShellFocus
+	shellHidden                               bool
 	recallLocal                               []nativeDraft
 	recall                                    *nativeInputRecall
 	recallUpAt, escapeAt, interruptAt, quitAt time.Time
@@ -148,6 +151,8 @@ type nativeModel struct {
 type (
 	nativePoll struct{}
 	nativeRead struct {
+		shell               *nativeShellView
+		shellError          error
 		lsp                 *nativeLSPStatus
 		execution           *nativeExecution
 		executionGeneration uint64
@@ -272,6 +277,11 @@ func (m *nativeModel) read() tea.Cmd {
 		// Primary history is delivered even if a later auxiliary read fails.
 		// Otherwise Observer's advanced cursor would silently skip messages.
 		result.output, result.evidenceError = handle.CellOutput(ctx)
+		if result.evidenceError == nil && result.activity.ActiveTurn != nil {
+			result.shell, result.shellError = readNativeShell(ctx, m.connection, owner.ID, result.output.Epoch)
+		} else {
+			result.shellError = result.evidenceError
+		}
 		if evidence {
 			result.decisions, err = readNativeDecisions(ctx, m.connection, owner)
 			result.evidenceError = errors.Join(result.evidenceError, err)
@@ -332,6 +342,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectionClick = nativeSelectionClick{}
 	}
 	if mouse, ok := message.(tea.MouseMsg); ok {
+		m.releaseShellFocus()
 		if command, handled := m.panelMouse(mouse); handled {
 			m.selectionClick = nativeSelectionClick{}
 			return m, command
@@ -344,6 +355,11 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeShellFocused:
+		m.shellFocused(value)
+		return m, nil
+	case nativeShellSent:
+		return m, m.shellSent(value)
 	case nativeRecallLoaded:
 		m.recallLoaded(value)
 		return m, nil
@@ -381,6 +397,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.reading = false
 		if value.err != nil {
+			m.observeShell(nil, value.err)
 			m.ready = false
 			m.status = "Connection read failed: " + value.err.Error()
 			return m, nativeTick()
@@ -411,6 +428,8 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.lsp = nil
 		}
 		m.history.output(value.output)
+		m.observeShell(value.shell, value.shellError)
+		m.sizeInput()
 		if m.browse != nil && m.browse.transcript.snapshot.Revision != m.history.snapshot.Revision {
 			m.latest()
 			m.status = "History changed; the older page was closed."
@@ -585,6 +604,8 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Cancellation requested for turn " + string(value.turn)
 		}
 	case tea.KeyPressMsg:
+		// Typing during the focus read keeps ownership in the composer.
+		m.shellPending = nil
 		if value.String() != "esc" {
 			m.escapeAt = time.Time{}
 		}
@@ -592,6 +613,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.interruptTarget = ""
 			m.quitArmed = false
 			m.initialPrompt = ""
+		}
+		if command, handled := m.shellKey(value); handled {
+			return m, command
 		}
 		if m.messageActions != nil && value.String() != "ctrl+c" {
 			return m, m.messageActionKey(value)
@@ -687,6 +711,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.follow = m.browse == nil && m.vp.AtBottom()
 		}
 	case tea.PasteMsg:
+		m.shellPending = nil
+		if m.shellFocus != nil {
+			return m, m.queueShellInput(value.Content)
+		}
 		if m.messageActions != nil {
 			return m, nil
 		}
@@ -962,7 +990,7 @@ func (m *nativeModel) refresh() {
 	m.rows = boundNativeRows(rows, nativeRenderBytes, nativeRenderRows)
 	m.vp.rows = func(y int) string { return m.selectionRow(nativeSelectTranscript, y, m.rows[y]) }
 	m.vp.SetWidth(width)
-	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight(), 1))
+	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight()-m.shellHeight(), 1))
 	m.vp.setTotal(len(m.rows))
 	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
@@ -1020,6 +1048,9 @@ func (m *nativeModel) View() tea.View {
 	main := m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), width, "…") + "\n"
 	if completions := m.completionView(); completions != "" {
 		main += completions + "\n"
+	}
+	if shell := m.shellView(); shell != "" {
+		main += shell + "\n"
 	}
 	main += m.selectedInputView()
 	if height := m.dockHeight(); height > 0 {

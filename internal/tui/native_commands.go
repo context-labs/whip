@@ -76,6 +76,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/shell":
+		return m.shellCommand(args)
 	case "/pending":
 		return m.pendingCommand(args)
 	case "/panel":

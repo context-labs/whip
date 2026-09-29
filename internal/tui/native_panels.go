@@ -203,7 +203,7 @@ func (m *nativeModel) panelMouse(message tea.MouseMsg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	if height := m.dockHeight(); height > 0 && mouse.X >= 0 && mouse.X < m.transcriptWidth() {
-		top := m.vp.Height() + 1 + m.completionHeight() + m.input.Height()
+		top := m.vp.Height() + 1 + m.completionHeight() + m.shellHeight() + m.input.Height()
 		if mouse.Y >= top && mouse.Y < top+height {
 			m.selection = nil
 			return m.agentMouse(mouse, click, top+1, height-1), true
