@@ -37,6 +37,9 @@ export function InputAttachment({ client, rootId, runtimeId, agentId, file, name
     setDownloading(false); setDownloadError(undefined);
     return () => { downloadRequest.current?.abort(); downloadRequest.current = null; };
   }, [client, agentId, file.session_id, file.id, file.digest, open, connected]);
+  useEffect(() => {
+    setOpen(false);
+  }, [client, rootId, runtimeId, agentId, file.session_id, file.id, file.digest]);
   async function download() {
     if (!connected || downloadRequest.current) return;
     const controller = new AbortController(); downloadRequest.current = controller;

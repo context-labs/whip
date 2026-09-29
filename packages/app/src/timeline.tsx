@@ -45,7 +45,6 @@ import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } fr
 import { DiagramChoices, MarkdownCodeBlock, MarkdownReadiness } from './markdown-code-block';
 import { isActivityGroup, isAgentActivity, activityItems, responseCopies, type ActivityItem, type ActivityGroup, type ConversationActivityRow } from './chat-activity-rows';
 import { type ImagePart, type TimelineRow } from './conversation-rows';
-import { DesignInputAttachments } from './design-input-attachments';
 import { MessageAttachments } from './message-attachments';
 export { conversationRows, messagePresentation, timelineRows, type TimelineRow } from './conversation-rows';
 
@@ -750,11 +749,9 @@ export function Timeline({
             : isMarkdownRow(source) ? <article data-message-role="assistant" data-message-id={source.ownerId} {...stylex.props(messageMarker, styles.article)}><MarkdownBlock row={source} components={markdownComponents} arrival={arrivals.current.get(row.id)} /></article>
             : <MessageRow row={source} readBody={readBody} historyAction={historyAction}
                 attachments={messageScope && (!!source.references?.length || !!source.inputAttachments?.length) && <>
-                  {!!source.references?.length && <MessageAttachments references={source.references} designContext={source.designContext}
-                    client={messageScope.client} rootId={messageScope.rootId} agentId={messageScope.agentId} connected={connected} />}
-                  {!!source.inputAttachments?.length && <DesignInputAttachments files={source.inputAttachments} designContext={source.designContext}
-                    client={messageScope.client} rootId={messageScope.rootId} agentId={messageScope.agentId}
-                    runtimeId={messageScope.client.runtimeID} connected={connected} />}
+                  <MessageAttachments references={source.references ?? source.inputAttachments?.map(file => file.id) ?? []}
+                    uploaded={source.inputAttachments} designContext={source.designContext}
+                    client={messageScope.client} rootId={messageScope.rootId} agentId={messageScope.agentId} connected={connected} />
                 </>}
                 details={['tool', 'internal', 'mailbox', 'reasoning'].includes(source.role) ? <>
                   <MessageDetails row={source} readBody={readBody} />

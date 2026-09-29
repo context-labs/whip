@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { Client } from '@whip/sdk';
+import type { Client, ContentReference } from '@whip/sdk';
 import type { DeepReadonly } from '@whip/sdk/state';
 import { Button, Spinner } from '@whip/ui';
 import { DesignInputAttachments } from './design-input-attachments';
@@ -8,13 +8,21 @@ import { ErrorNotice } from './error-feedback';
 
 /** Canonical parts name references, not inline bytes. Inspect only metadata here;
  * the individual preview owns its scoped, cancellable byte read. */
-export function MessageAttachments({ references, designContext, client, rootId, agentId, connected }: {
+export function MessageAttachments({ references, uploaded, designContext, client, rootId, agentId, connected }: {
   references: readonly string[];
+  uploaded?: readonly ContentReference[];
   designContext?: DeepReadonly<DesignContext> | null;
   client: Client; rootId: string; agentId: string; connected: boolean;
 }) {
+  const unique = [...new Set(references)];
+  // Upload results already carry verified immutable metadata. Seed this same
+  // query while the exact authored input moves from local to canonical history.
+  const initialData = references.length <= 128 && uploaded?.length === unique.length
+    && uploaded.every((file, index) => file.session_id === agentId && file.id === unique[index])
+    ? [...uploaded] : undefined;
   const query = useQuery({
     queryKey: ['message-attachments', client.runtimeID, agentId, references],
+    initialData,
     enabled: connected && references.length > 0, staleTime: Infinity, gcTime: 0, retry: false, refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
       if (references.length > 128) throw new RangeError('Message has too many attachments');
