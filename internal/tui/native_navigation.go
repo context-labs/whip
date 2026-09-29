@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -198,6 +199,9 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.picker, m.decision, m.hiddenDecision = nil, nil, nil
 	m.palette = nil
 	m.historyDialog = nil
+	m.recall, m.recallLocal = nil, nil
+	m.escapeAt, m.interruptAt = time.Time{}, time.Time{}
+	m.interruptTarget = ""
 	m.messageActions = nil
 	m.decisions, m.decisionsHidden = nil, false
 	m.notice, m.noteRevisions = "", [2]string{}
