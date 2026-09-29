@@ -18,10 +18,16 @@ const encoder = new TextEncoder();
 
 /** One verified native connection per call. No reconnect, notification replay,
  * credential transport, or native bridge implementation belongs here. */
-export function framedTransport(open: FramedConnector): Transport {
+export function framedTransport(open: FramedConnector, { expectedProcessEpoch }: { expectedProcessEpoch?: string } = {}): Transport {
   return async (request, expectedRuntimeID, options) => {
     assertValid('Request', request);
     request = structuredClone(request);
+    if (request.method === 'initialize' && expectedProcessEpoch !== undefined) {
+      assertValid('InitializeParams', request.params);
+      if (request.params.expected_process_epoch !== undefined && request.params.expected_process_epoch !== expectedProcessEpoch) throw new TypeError('Native process generation mismatch');
+      request.params = { ...request.params, expected_process_epoch: expectedProcessEpoch };
+      assertValid('InitializeParams', request.params);
+    }
     const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
     signal.throwIfAborted();
     let connection: FramedConnection | undefined;
@@ -80,14 +86,14 @@ export function framedTransport(open: FramedConnector): Transport {
         try { connection!.send(raw); } catch (error) { fail(error); }
       });
       if (request.method !== 'initialize') {
-        const response = await invoke({ jsonrpc: '2.0', id: 'native-initialize', method: 'initialize', params: { major: 4, expected_runtime_id: expectedRuntimeID } });
+        const response = await invoke({ jsonrpc: '2.0', id: 'native-initialize', method: 'initialize', params: { major: 4, expected_runtime_id: expectedRuntimeID, ...(expectedProcessEpoch === undefined ? {} : { expected_process_epoch: expectedProcessEpoch }) } });
         const initial = decodeResponse('initialize', 'native-initialize', response);
-        if (initial.runtime_id !== expectedRuntimeID || initial.network_client) throw new TypeError('Native runtime identity or transport mismatch');
+        if (initial.runtime_id !== expectedRuntimeID || initial.network_client || expectedProcessEpoch !== undefined && initial.process_epoch !== expectedProcessEpoch) throw new TypeError('Native runtime identity, process generation or transport mismatch');
       }
       const response = await invoke(request);
       if (request.method === 'initialize') {
         const initial = decodeResponse('initialize', request.id, response);
-        if (initial.network_client || expectedRuntimeID !== undefined && initial.runtime_id !== expectedRuntimeID) throw new TypeError('Native runtime identity or transport mismatch');
+        if (initial.network_client || expectedRuntimeID !== undefined && initial.runtime_id !== expectedRuntimeID || expectedProcessEpoch !== undefined && initial.process_epoch !== expectedProcessEpoch) throw new TypeError('Native runtime identity, process generation or transport mismatch');
       }
       return response;
     } catch (error) {

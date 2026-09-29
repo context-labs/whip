@@ -4,7 +4,7 @@ import { Client, framedTransport, DeliveryError } from '../dist/index.js';
 
 const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot_test', network_client: false, builtins: [] };
 const response = (id, result) => JSON.stringify({ jsonrpc: '2.0', id, result });
-function connector(respond, kind = 'unix') {
+function connector(respond, kind = 'unix', options) {
   const connections = [];
   const open = async handlers => {
     const connection = {
@@ -15,7 +15,7 @@ function connector(respond, kind = 'unix') {
     connections.push(connection);
     return connection;
   };
-  return { transport: framedTransport(open), connections };
+  return { transport: framedTransport(open, options), connections };
 }
 const reply = (handlers, request) => handlers.message(response(request.id, request.method === 'initialize' ? initial : { revision: '2' }));
 test('framed native calls verify runtime identity per connection and safely join reentrant closure', async () => {
@@ -61,4 +61,18 @@ test('queued native bytes reject the next call without sending it', async () => 
   const client = await Client.connect(transport, { clientID: 'native' });
   await assert.rejects(client.treeCatalog(), /queue limit/);
   assert.equal(connections[1].sent.length, 1);
+});
+
+test('native epoch pins reject restart before relaying a dependent effect', async () => {
+  let epoch = initial.process_epoch;
+  const { transport, connections } = connector((handlers, request) => handlers.message(response(request.id, { ...initial, process_epoch: epoch })), 'unix', { expectedProcessEpoch: epoch });
+  const client = await Client.connect(transport, { clientID: 'native', expectedRuntimeID: initial.runtime_id });
+  assert.equal(connections[0].sent[0].params.expected_process_epoch, epoch);
+  epoch = 'boot_restarted';
+  await assert.rejects(client.hosts.setProfiles('a'.repeat(64), []), /process generation/);
+  assert.deepEqual(connections[1].sent.map(request => request.method), ['initialize']);
+  assert.equal(connections[1].sent[0].params.expected_process_epoch, initial.process_epoch);
+  assert.ok(connections.every(connection => connection.closes === 1));
+  await assert.rejects(Client.connect(transport, { clientID: 'native' }), /process generation/);
+  assert.equal(connections[2].sent.length, 1);
 });
