@@ -218,6 +218,349 @@ export interface AutomaticTitleResultParams {
   tree_id: string;
   attempt_id: string;
 }
+export interface BrowserAccepted {
+  accepted: boolean;
+}
+export interface BrowserAttachmentsResult {
+  /**
+   * @maxItems 8
+   */
+  attachments: {
+    scope: {
+      provider_id: string;
+      provider_epoch: string;
+      tab_id: string;
+      tab_generation: string;
+      profile_id: string;
+      control_lineage: string;
+      attachment_id: string;
+      attachment_generation: string;
+      preview?: null | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: "127.0.0.1" | "::1";
+        /**
+         * @maxItems 64
+         */
+        ports: number[];
+      };
+    };
+    root_id: string;
+    agent_id: string;
+    document_revision: string;
+    url: string;
+    title: string;
+  }[];
+}
+export interface BrowserCommandResultParams {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  document_revision: string;
+  url: string;
+  title: string;
+  result?: unknown;
+  error?: null | {
+    kind:
+      | "permission_denied"
+      | "desktop_unavailable"
+      | "host_not_connected"
+      | "browser_busy"
+      | "stale_document"
+      | "attachment_revoked"
+      | "tab_closed"
+      | "preview_disconnected"
+      | "unsupported_operation"
+      | "outcome_unknown";
+    message: string;
+  };
+  screenshot?: null | {
+    size: string;
+    digest: string;
+    media_type: "image/jpeg";
+  };
+}
+export type BrowserEvent = {
+  jsonrpc: "2.0";
+  method:
+    | "browser.command"
+    | "browser.inventory"
+    | "browser.command.cancel"
+    | "browser.provider.revoked"
+    | "browser.scopes.retired";
+  command: null | {
+    command_id: string;
+    operation_id: string;
+    root_id: string;
+    agent_id: string;
+    provider_epoch: string;
+    scope: {
+      provider_id: string;
+      provider_epoch: string;
+      tab_id: string;
+      tab_generation: string;
+      profile_id: string;
+      control_lineage: string;
+      attachment_id: string;
+      attachment_generation: string;
+      preview?: null | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: "127.0.0.1" | "::1";
+        /**
+         * @maxItems 64
+         */
+        ports: number[];
+      };
+    };
+    expected_document: string;
+    deadline_millis: string;
+    kind: "open" | "attach" | "allow_preview_port" | "detach" | "begin" | "cdp" | "end" | "transfer";
+    arguments: unknown;
+  };
+  inventory: null | {
+    request_id: string;
+    root_id: string;
+    agent_id: string;
+    provider_id: string;
+    provider_epoch: string;
+    /**
+     * @maxItems 72
+     */
+    tabs: {
+      tab_id: string;
+      tab_generation: string;
+    }[];
+  };
+  cancel: null | {
+    command_id: string;
+    root_id: string;
+    provider_epoch: string;
+    attachment_generation: string;
+  };
+  revoked: null | {
+    root_id: string;
+    provider_id: string;
+    provider_epoch: string;
+    reason: string;
+  };
+  retired: null | {
+    root_id: string;
+    provider_id: string;
+    provider_epoch: string;
+    /**
+     * @maxItems 256
+     */
+    scopes: {
+      provider_id: string;
+      provider_epoch: string;
+      tab_id: string;
+      tab_generation: string;
+      profile_id: string;
+      control_lineage: string;
+      attachment_id: string;
+      attachment_generation: string;
+      preview?: null | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: "127.0.0.1" | "::1";
+        /**
+         * @maxItems 64
+         */
+        ports: number[];
+      };
+    }[];
+  };
+} & (
+  | {
+      cancel?: null;
+      command?: {
+        [k: string]: unknown;
+      };
+      inventory?: null;
+      method?: "browser.command";
+      retired?: null;
+      revoked?: null;
+      [k: string]: unknown;
+    }
+  | {
+      cancel?: null;
+      command?: null;
+      inventory?: {
+        [k: string]: unknown;
+      };
+      method?: "browser.inventory";
+      retired?: null;
+      revoked?: null;
+      [k: string]: unknown;
+    }
+  | {
+      cancel?: {
+        [k: string]: unknown;
+      };
+      command?: null;
+      inventory?: null;
+      method?: "browser.command.cancel";
+      retired?: null;
+      revoked?: null;
+      [k: string]: unknown;
+    }
+  | {
+      cancel?: null;
+      command?: null;
+      inventory?: null;
+      method?: "browser.provider.revoked";
+      retired?: null;
+      revoked?: {
+        [k: string]: unknown;
+      };
+      [k: string]: unknown;
+    }
+  | {
+      cancel?: null;
+      command?: null;
+      inventory?: null;
+      method?: "browser.scopes.retired";
+      retired?: {
+        [k: string]: unknown;
+      };
+      revoked?: null;
+      [k: string]: unknown;
+    }
+);
+export interface BrowserInventoryResultParams {
+  request_id: string;
+  root_id: string;
+  provider_epoch: string;
+  /**
+   * @maxItems 72
+   */
+  tabs: {
+    tab_id: string;
+    tab_generation: string;
+    document_revision: string;
+    url: string;
+    title: string;
+    state: "available" | "busy" | "attached";
+    requestable: boolean;
+    attachment_id?: null | string;
+  }[];
+  error?: null | {
+    kind:
+      | "permission_denied"
+      | "desktop_unavailable"
+      | "host_not_connected"
+      | "browser_busy"
+      | "stale_document"
+      | "attachment_revoked"
+      | "tab_closed"
+      | "preview_disconnected"
+      | "unsupported_operation"
+      | "outcome_unknown";
+    message: string;
+  };
+}
+export interface BrowserProviderBindParams {
+  root_id: string;
+  version: number;
+  desktop_id: string;
+  window_id: string;
+  offer_revision: string;
+  create_profile_id: string;
+  availability?: boolean;
+  expected_provider_epoch?: null | string;
+  /**
+   * @maxItems 32
+   */
+  offered_tabs: {
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    document_revision: string;
+    url: string;
+    title: string;
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: "127.0.0.1" | "::1";
+      /**
+       * @maxItems 64
+       */
+      ports: number[];
+    };
+  }[];
+  /**
+   * @maxItems 16
+   */
+  offered_preview_hosts: {
+    host_id: string;
+    host_identity: string;
+    connection_generation: string;
+    environment_id: string;
+    loopback: "127.0.0.1" | "::1";
+    /**
+     * @maxItems 64
+     */
+    ports: number[];
+  }[];
+}
+export interface BrowserProviderBindResult {
+  version: number;
+  provider_id: string;
+  provider_epoch: string;
+}
+export interface BrowserProviderEventParams {
+  root_id: string;
+  provider_epoch: string;
+  tab_id: string;
+  tab_generation: string;
+  attachment_id: string;
+  attachment_generation: string;
+  sequence: string;
+  operation_id?: null | string;
+  document_revision: string;
+  kind: "cdp" | "state" | "document" | "closed" | "revoked" | "preview_disconnected";
+  method?: string;
+  params?: unknown;
+  url?: string;
+  title?: string;
+}
+export interface BrowserProviderUnbindParams {
+  root_id: string;
+  provider_epoch: string;
+}
+export interface BrowserScreenshotChunkParams {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  offset: string;
+  data_base64: string;
+}
+export interface BrowserTabsResult {
+  /**
+   * @maxItems 72
+   */
+  tabs: {
+    tab_id: string;
+    tab_generation: string;
+    document_revision: string;
+    url: string;
+    title: string;
+    state: "available" | "busy" | "attached";
+    requestable: boolean;
+    attachment_id?: null | string;
+  }[];
+}
 export interface Budget {
   session_id: string;
   kind:
@@ -6943,6 +7286,7 @@ export interface RPCError {
     | "PROVIDER_KEY_PENDING"
     | "PROVIDER_KEY_STORAGE"
     | "MCP_UNAVAILABLE"
+    | "BROWSER_EVENT_STALE"
     | "INTERNAL";
 }
 export interface ReadCompletionParams {
@@ -7171,6 +7515,7 @@ export type Response = {
       | "PROVIDER_KEY_PENDING"
       | "PROVIDER_KEY_STORAGE"
       | "MCP_UNAVAILABLE"
+      | "BROWSER_EVENT_STALE"
       | "INTERNAL";
   };
 } & {
@@ -8936,6 +9281,17 @@ export interface ContractTypes {
   AutomaticTitleDecision: AutomaticTitleDecision;
   AutomaticTitleResult: AutomaticTitleResult;
   AutomaticTitleResultParams: AutomaticTitleResultParams;
+  BrowserAccepted: BrowserAccepted;
+  BrowserAttachmentsResult: BrowserAttachmentsResult;
+  BrowserCommandResultParams: BrowserCommandResultParams;
+  BrowserEvent: BrowserEvent;
+  BrowserInventoryResultParams: BrowserInventoryResultParams;
+  BrowserProviderBindParams: BrowserProviderBindParams;
+  BrowserProviderBindResult: BrowserProviderBindResult;
+  BrowserProviderEventParams: BrowserProviderEventParams;
+  BrowserProviderUnbindParams: BrowserProviderUnbindParams;
+  BrowserScreenshotChunkParams: BrowserScreenshotChunkParams;
+  BrowserTabsResult: BrowserTabsResult;
   Budget: Budget;
   BudgetsResult: BudgetsResult;
   CallHostToolParams: CallHostToolParams;
@@ -9190,6 +9546,14 @@ export interface Operations {
   "workspace.inspect": { params: SessionParams; result: WorkspaceInspection };
   "workspace.set": { params: WorkspaceSetParams; result: ControlEdit };
   "run.configure": { params: RunConfigureParams; result: ControlEdit };
+  "browser.provider.bind": { params: BrowserProviderBindParams; result: BrowserProviderBindResult };
+  "browser.provider.unbind": { params: BrowserProviderUnbindParams; result: BrowserAccepted };
+  "browser.provider.event": { params: BrowserProviderEventParams; result: BrowserAccepted };
+  "browser.command.result": { params: BrowserCommandResultParams; result: BrowserAccepted };
+  "browser.screenshot.chunk": { params: BrowserScreenshotChunkParams; result: BrowserAccepted };
+  "browser.inventory.result": { params: BrowserInventoryResultParams; result: BrowserAccepted };
+  "browser.attachments": { params: SessionParams; result: BrowserAttachmentsResult };
+  "browser.tabs": { params: SessionParams; result: BrowserTabsResult };
   "trace.page": { params: TracePageParams; result: TracePageResult };
   "trace.export": { params: TraceExportParams; result: TraceExportResult };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };

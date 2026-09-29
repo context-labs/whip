@@ -20,6 +20,46 @@ export const manifest = {
       "result": "ControlEdit"
     },
     {
+      "name": "browser.provider.bind",
+      "params": "BrowserProviderBindParams",
+      "result": "BrowserProviderBindResult"
+    },
+    {
+      "name": "browser.provider.unbind",
+      "params": "BrowserProviderUnbindParams",
+      "result": "BrowserAccepted"
+    },
+    {
+      "name": "browser.provider.event",
+      "params": "BrowserProviderEventParams",
+      "result": "BrowserAccepted"
+    },
+    {
+      "name": "browser.command.result",
+      "params": "BrowserCommandResultParams",
+      "result": "BrowserAccepted"
+    },
+    {
+      "name": "browser.screenshot.chunk",
+      "params": "BrowserScreenshotChunkParams",
+      "result": "BrowserAccepted"
+    },
+    {
+      "name": "browser.inventory.result",
+      "params": "BrowserInventoryResultParams",
+      "result": "BrowserAccepted"
+    },
+    {
+      "name": "browser.attachments",
+      "params": "SessionParams",
+      "result": "BrowserAttachmentsResult"
+    },
+    {
+      "name": "browser.tabs",
+      "params": "SessionParams",
+      "result": "BrowserTabsResult"
+    },
+    {
       "name": "trace.page",
       "params": "TracePageParams",
       "result": "TracePageResult"

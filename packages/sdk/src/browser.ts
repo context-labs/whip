@@ -8,7 +8,7 @@ import { checkNetworkInitialize, networkInitialize } from './browser-identity.js
 import type { BrowserOptions } from './browser-identity.js';
 export type { BrowserOptions } from './browser-identity.js';
 export { checkNetworkInitialize, networkInitialize } from './browser-identity.js';
-export { browserDuplex } from './browser-duplex.js';
+export { browserDuplex, browserProviderDuplex } from './browser-duplex.js';
 export { discoverGateway } from './browser-discovery.js';
 
 /** One connection per ordinary call. Every connection verifies the selected host.

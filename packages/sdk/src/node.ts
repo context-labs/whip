@@ -58,4 +58,4 @@ export function unixSocket(path: string): Transport {
   };
 }
 
-export { executorSocket } from './executor-node.js';
+export { executorSocket, browserProviderSocket } from './executor-node.js';

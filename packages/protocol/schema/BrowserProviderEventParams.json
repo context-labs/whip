@@ -1,0 +1,94 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "provider_epoch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "tab_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "tab_generation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "attachment_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "attachment_generation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "sequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "operation_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "document_revision": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "cdp",
+        "state",
+        "document",
+        "closed",
+        "revoked",
+        "preview_disconnected"
+      ]
+    },
+    "method": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "params": true,
+    "url": {
+      "type": "string",
+      "maxLength": 8192
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 512
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserProviderEventParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserProviderEventParams",
+  "required": [
+    "root_id",
+    "provider_epoch",
+    "tab_id",
+    "tab_generation",
+    "attachment_id",
+    "attachment_generation",
+    "sequence",
+    "document_revision",
+    "kind"
+  ],
+  "additionalProperties": false
+}

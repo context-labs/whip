@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { ExecutorClient, DeliveryError } from '../dist/index.js';
-import { browserDuplex } from '../dist/browser.js';
+import { ExecutorClient, BrowserProviderClient, DeliveryError } from '../dist/index.js';
+import { browserDuplex, browserProviderDuplex } from '../dist/browser.js';
 
 const fixtures = JSON.parse(await readFile(new URL('../../protocol/schema/fixtures.json', import.meta.url), 'utf8'));
 const fixture = name => structuredClone(fixtures.find(value => value.type === name && value.valid).value);
@@ -130,4 +130,21 @@ test('successful connection cancels only its connect timer; lifetime abort remai
   lifetime.abort(new Error('lifetime ended'));
   await assert.rejects(peer.events[Symbol.asyncIterator]().next(), /lifetime ended/);
   assert.equal(Socket.instances.at(-1).readyState, 3);
+});
+
+
+test('network browser provider uses the same bounded transport with its own strict event contract', async t => {
+  setup(t, (socket, request) => queueMicrotask(() => socket.message(response(request.id, request.method === 'initialize' ? initial : fixture('BrowserProviderBindResult')))));
+  const transport = await browserProviderDuplex('https://example.test', options);
+  const client = await BrowserProviderClient.connect(transport, options);
+  await client.bind(fixture('BrowserProviderBindParams'));
+  const socket = Socket.instances[0];
+  socket.message(JSON.stringify(fixture('BrowserEvent')));
+  const events = client.events(), event = (await events.next()).value;
+  assert.equal(event.command.deadline_millis, '9007199254740993');
+  assert.equal(socket.sent[0].params.network_client, true);
+  assert.equal(socket.sent[0].params.expected_process_epoch, 'boot_test');
+  socket.message(JSON.stringify(fixture('ExecutorEvent')));
+  await assert.rejects(events.next(), TypeError);
+  assert.equal(socket.readyState, 3); assert.equal(Socket.instances.length, 1);
 });

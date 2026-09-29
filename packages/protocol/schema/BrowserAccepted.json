@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "accepted": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserAccepted",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserAccepted",
+  "required": [
+    "accepted"
+  ],
+  "additionalProperties": false
+}

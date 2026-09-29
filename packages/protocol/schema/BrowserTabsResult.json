@@ -1,0 +1,75 @@
+{
+  "type": "object",
+  "properties": {
+    "tabs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "tab_generation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "document_revision": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "available",
+              "busy",
+              "attached"
+            ]
+          },
+          "requestable": {
+            "type": "boolean"
+          },
+          "attachment_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          }
+        },
+        "required": [
+          "tab_id",
+          "tab_generation",
+          "document_revision",
+          "url",
+          "title",
+          "state",
+          "requestable"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 72
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserTabsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserTabsResult",
+  "required": [
+    "tabs"
+  ],
+  "additionalProperties": false
+}

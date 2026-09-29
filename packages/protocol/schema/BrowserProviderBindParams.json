@@ -1,0 +1,229 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2
+    },
+    "desktop_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "window_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "offer_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "create_profile_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "availability": {
+      "type": "boolean"
+    },
+    "expected_provider_epoch": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "offered_tabs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "tab_generation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "profile_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "document_revision": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "preview": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "host_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "host_identity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "connection_generation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "environment_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "loopback": {
+                "type": "string",
+                "enum": [
+                  "127.0.0.1",
+                  "::1"
+                ]
+              },
+              "ports": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "maxItems": 64,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "host_id",
+              "host_identity",
+              "connection_generation",
+              "environment_id",
+              "loopback",
+              "ports"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "tab_id",
+          "tab_generation",
+          "profile_id",
+          "document_revision",
+          "url",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 32
+    },
+    "offered_preview_hosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "host_identity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "connection_generation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "environment_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "loopback": {
+            "type": "string",
+            "enum": [
+              "127.0.0.1",
+              "::1"
+            ]
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "maxItems": 64,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "host_id",
+          "host_identity",
+          "connection_generation",
+          "environment_id",
+          "loopback",
+          "ports"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 16
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserProviderBindParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserProviderBindParams",
+  "required": [
+    "root_id",
+    "version",
+    "desktop_id",
+    "window_id",
+    "offer_revision",
+    "create_profile_id",
+    "offered_tabs",
+    "offered_preview_hosts"
+  ],
+  "additionalProperties": false
+}

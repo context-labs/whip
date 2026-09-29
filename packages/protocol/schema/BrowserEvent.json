@@ -1,0 +1,654 @@
+{
+  "type": "object",
+  "properties": {
+    "jsonrpc": {
+      "type": "string",
+      "enum": [
+        "2.0"
+      ]
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "browser.command",
+        "browser.inventory",
+        "browser.command.cancel",
+        "browser.provider.revoked",
+        "browser.scopes.retired"
+      ]
+    },
+    "command": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "root_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "agent_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "provider_epoch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "provider_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "provider_epoch": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "tab_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "tab_generation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "profile_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "control_lineage": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "attachment_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "attachment_generation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "preview": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "host_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[^\u0000- ]+$"
+                },
+                "host_identity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[^\u0000- ]+$"
+                },
+                "connection_generation": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[^\u0000- ]+$"
+                },
+                "environment_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[^\u0000- ]+$"
+                },
+                "loopback": {
+                  "type": "string",
+                  "enum": [
+                    "127.0.0.1",
+                    "::1"
+                  ]
+                },
+                "ports": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "maxItems": 64,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "host_id",
+                "host_identity",
+                "connection_generation",
+                "environment_id",
+                "loopback",
+                "ports"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "provider_id",
+            "provider_epoch",
+            "tab_id",
+            "tab_generation",
+            "profile_id",
+            "control_lineage",
+            "attachment_id",
+            "attachment_generation"
+          ],
+          "additionalProperties": false
+        },
+        "expected_document": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "deadline_millis": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "open",
+            "attach",
+            "allow_preview_port",
+            "detach",
+            "begin",
+            "cdp",
+            "end",
+            "transfer"
+          ]
+        },
+        "arguments": true
+      },
+      "required": [
+        "command_id",
+        "operation_id",
+        "root_id",
+        "agent_id",
+        "provider_epoch",
+        "scope",
+        "expected_document",
+        "deadline_millis",
+        "kind",
+        "arguments"
+      ],
+      "additionalProperties": false
+    },
+    "inventory": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "root_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "agent_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "provider_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "provider_epoch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tab_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "tab_generation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              }
+            },
+            "required": [
+              "tab_id",
+              "tab_generation"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 72
+        }
+      },
+      "required": [
+        "request_id",
+        "root_id",
+        "agent_id",
+        "provider_id",
+        "provider_epoch",
+        "tabs"
+      ],
+      "additionalProperties": false
+    },
+    "cancel": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "root_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "provider_epoch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "attachment_generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        }
+      },
+      "required": [
+        "command_id",
+        "root_id",
+        "provider_epoch",
+        "attachment_generation"
+      ],
+      "additionalProperties": false
+    },
+    "revoked": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "provider_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "provider_epoch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "root_id",
+        "provider_id",
+        "provider_epoch",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "retired": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "provider_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "provider_epoch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "provider_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "provider_epoch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "tab_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "tab_generation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "profile_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "control_lineage": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "attachment_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "attachment_generation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "preview": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "host_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\u0000- ]+$"
+                  },
+                  "host_identity": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\u0000- ]+$"
+                  },
+                  "connection_generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\u0000- ]+$"
+                  },
+                  "environment_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\u0000- ]+$"
+                  },
+                  "loopback": {
+                    "type": "string",
+                    "enum": [
+                      "127.0.0.1",
+                      "::1"
+                    ]
+                  },
+                  "ports": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "maxItems": 64,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "host_id",
+                  "host_identity",
+                  "connection_generation",
+                  "environment_id",
+                  "loopback",
+                  "ports"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "provider_id",
+              "provider_epoch",
+              "tab_id",
+              "tab_generation",
+              "profile_id",
+              "control_lineage",
+              "attachment_id",
+              "attachment_generation"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 256
+        }
+      },
+      "required": [
+        "root_id",
+        "provider_id",
+        "provider_epoch",
+        "scopes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserEvent",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserEvent",
+  "required": [
+    "jsonrpc",
+    "method",
+    "command",
+    "inventory",
+    "cancel",
+    "revoked",
+    "retired"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "cancel": {
+          "type": "null"
+        },
+        "command": {
+          "not": {
+            "type": "null"
+          }
+        },
+        "inventory": {
+          "type": "null"
+        },
+        "method": {
+          "enum": [
+            "browser.command"
+          ]
+        },
+        "retired": {
+          "type": "null"
+        },
+        "revoked": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "properties": {
+        "cancel": {
+          "type": "null"
+        },
+        "command": {
+          "type": "null"
+        },
+        "inventory": {
+          "not": {
+            "type": "null"
+          }
+        },
+        "method": {
+          "enum": [
+            "browser.inventory"
+          ]
+        },
+        "retired": {
+          "type": "null"
+        },
+        "revoked": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "properties": {
+        "cancel": {
+          "not": {
+            "type": "null"
+          }
+        },
+        "command": {
+          "type": "null"
+        },
+        "inventory": {
+          "type": "null"
+        },
+        "method": {
+          "enum": [
+            "browser.command.cancel"
+          ]
+        },
+        "retired": {
+          "type": "null"
+        },
+        "revoked": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "properties": {
+        "cancel": {
+          "type": "null"
+        },
+        "command": {
+          "type": "null"
+        },
+        "inventory": {
+          "type": "null"
+        },
+        "method": {
+          "enum": [
+            "browser.provider.revoked"
+          ]
+        },
+        "retired": {
+          "type": "null"
+        },
+        "revoked": {
+          "not": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "cancel": {
+          "type": "null"
+        },
+        "command": {
+          "type": "null"
+        },
+        "inventory": {
+          "type": "null"
+        },
+        "method": {
+          "enum": [
+            "browser.scopes.retired"
+          ]
+        },
+        "retired": {
+          "not": {
+            "type": "null"
+          }
+        },
+        "revoked": {
+          "type": "null"
+        }
+      }
+    }
+  ]
+}

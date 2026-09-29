@@ -49,7 +49,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"workspace":        {"session": true, "capability": true},
 		"executor":         {"session": true},
 		"runtime":          {"browser": true, "browserhost": true, "trace": true, "hostview": true, "theme": true, "computer": true, "computerconfig": true, "mcp": true, "mcpconfig": true, "brandicon": true, "bashrun": true, "shell": true, "executor": true, "lsp": true, "capability": true, "model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true, "instruction": true, "workspace": true},
-		"rpc":              {"hostview": true, "theme": true, "computerconfig": true, "terminal": true, "bashrun": true, "mcp": true, "mcpconfig": true, "shell": true, "executor": true, "lsp": true, "providerhost": true, "account": true, "inferenceaccount": true, "config": true, "session": true, "store": true, "protocol": true, "runtime": true},
+		"rpc":              {"browserhost": true, "hostview": true, "theme": true, "computerconfig": true, "terminal": true, "bashrun": true, "mcp": true, "mcpconfig": true, "shell": true, "executor": true, "lsp": true, "providerhost": true, "account": true, "inferenceaccount": true, "config": true, "session": true, "store": true, "protocol": true, "runtime": true},
 		"client":           {"protocol": true},
 	}
 	for {

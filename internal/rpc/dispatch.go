@@ -50,6 +50,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return nil, ErrMethod
 	}
 	switch method {
+	case "browser.tabs", "browser.attachments":
+		return dispatchBrowserRead(ctx, r, method, raw)
 	case "receipts.match":
 		return dispatchReceiptMatch(ctx, r, raw)
 	case "workspace.inspect", "workspace.set", "run.configure":

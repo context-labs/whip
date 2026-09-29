@@ -595,6 +595,15 @@ export class Client {
     }
   }
 
+  browserAttachments(sessionID: string, options: CallOptions = {}): Promise<Operations['browser.attachments']['result']> {
+    return this.call('browser.attachments', { session_id: sessionID }, options);
+  }
+
+  /** Explicitly asks the offered native provider for bounded current metadata. */
+  browserTabs(sessionID: string, options: CallOptions = {}): Promise<Operations['browser.tabs']['result']> {
+    return this.call('browser.tabs', { session_id: sessionID }, options);
+  }
+
   private identity(requestID: string): RequestIdentity { return { client_id: this.clientID, request_id: requestID }; }
 }
 
@@ -611,3 +620,6 @@ export type { Session as SessionRecord } from '@whip/protocol';
 
 export { framedTransport } from './framed.js';
 export type { FramedConnection, FrameHandlers, FramedConnector } from './framed.js';
+
+export { BrowserProviderClient } from './browser-provider.js';
+export { browserProviderFramed } from './browser-framed.js';

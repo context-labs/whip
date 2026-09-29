@@ -165,3 +165,29 @@ test('tool image parts keep first result and exact bounded structural uniqueness
     assert.equal(validate('HostOperation', operation), false);
   }
 });
+
+test('browser notifications preserve tagged null bodies, exact counters and bounded selected scopes under CSP', () => {
+  const fixture = name => structuredClone(fixtures.find(value => value.type === name && value.valid).value);
+  const event = fixture('BrowserEvent');
+  assert.equal(event.command.deadline_millis, '9007199254740993');
+  assert.equal(event.inventory, null); assert.equal(event.cancel, null); assert.equal(event.revoked, null); assert.equal(event.retired, null);
+  assert.equal(validate('BrowserEvent', event), true);
+  assert.equal(validate('BrowserEvent', { ...event, command: null }), false);
+  assert.equal(validate('BrowserEvent', { ...event, command: { ...event.command, deadline_millis: 9007199254740993 } }), false);
+  assert.equal(validate('BrowserEvent', { ...event, method: 'browser.command.cancel' }), false);
+  assert.equal(validate('BrowserEvent', { ...event, cancel: { command_id: 'command', root_id: 'session_root', provider_epoch: 'epoch', attachment_generation: 'generation' } }), false);
+  assert.equal(validate('BrowserEvent', { ...event, command: { ...event.command, scope: { ...event.command.scope, rights: ['all'] } } }), false);
+  const observation = fixture('BrowserProviderEventParams');
+  assert.equal(observation.sequence, '9007199254740993');
+  assert.equal(validate('BrowserProviderEventParams', { ...observation, sequence: '-1' }), false);
+  const offer = fixture('BrowserProviderBindParams');
+  assert.equal(validate('BrowserProviderBindParams', { ...offer, offered_tabs: Array(32).fill(offer.offered_tabs[0]) }), true);
+  assert.equal(validate('BrowserProviderBindParams', { ...offer, offered_tabs: Array(33).fill(offer.offered_tabs[0]) }), false);
+  assert.equal(validate('BrowserProviderBindParams', { ...offer, offered_tabs: null }), false);
+  assert.equal(validate('BrowserProviderBindParams', { ...offer, offered_tabs: [{ ...offer.offered_tabs[0], title: '🌱'.repeat(512) }] }), true);
+  assert.equal(validate('BrowserProviderBindParams', { ...offer, offered_tabs: [{ ...offer.offered_tabs[0], title: '🌱'.repeat(513) }] }), false);
+  const chunk = fixture('BrowserScreenshotChunkParams');
+  assert.equal(chunk.offset, '9007199254740993');
+  assert.equal(validate('BrowserScreenshotChunkParams', { ...chunk, data_base64: 'a'.repeat(87384) }), true);
+  assert.equal(validate('BrowserScreenshotChunkParams', { ...chunk, data_base64: 'a'.repeat(87385) }), false);
+});

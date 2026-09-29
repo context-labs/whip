@@ -25,6 +25,14 @@ func Operations() []Operation {
 		{"workspace.inspect", reflect.TypeFor[SessionParams](), reflect.TypeFor[WorkspaceInspection]()},
 		{"workspace.set", reflect.TypeFor[WorkspaceSetParams](), reflect.TypeFor[ControlEdit]()},
 		{"run.configure", reflect.TypeFor[RunConfigureParams](), reflect.TypeFor[ControlEdit]()},
+		{"browser.provider.bind", reflect.TypeFor[BrowserProviderBindParams](), reflect.TypeFor[BrowserProviderBindResult]()},
+		{"browser.provider.unbind", reflect.TypeFor[BrowserProviderUnbindParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.provider.event", reflect.TypeFor[BrowserProviderEventParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.command.result", reflect.TypeFor[BrowserCommandResultParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.screenshot.chunk", reflect.TypeFor[BrowserScreenshotChunkParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.inventory.result", reflect.TypeFor[BrowserInventoryResultParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.attachments", reflect.TypeFor[SessionParams](), reflect.TypeFor[BrowserAttachmentsResult]()},
+		{"browser.tabs", reflect.TypeFor[SessionParams](), reflect.TypeFor[BrowserTabsResult]()},
 		{"trace.page", reflect.TypeFor[TracePageParams](), reflect.TypeFor[TracePageResult]()},
 		{"trace.export", reflect.TypeFor[TraceExportParams](), reflect.TypeFor[TraceExportResult]()},
 		{"host.attention", reflect.TypeFor[HostAttentionParams](), reflect.TypeFor[HostAttentionResult]()},
@@ -212,6 +220,7 @@ func Operations() []Operation {
 
 func Types() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
+	result["BrowserEvent"] = reflect.TypeFor[BrowserEvent]()
 	result["ExecutorEvent"] = reflect.TypeFor[ExecutorEvent]()
 	result["RPCError"] = reflect.TypeFor[RPCError]()
 	result["Request"] = reflect.TypeFor[Request]()
@@ -230,6 +239,7 @@ func Types() map[string]reflect.Type {
 
 func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 	schema, err := jsonschema.ForType(t, &jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+		reflect.TypeFor[BrowserToken]():     {Type: "string", MinLength: new(1), MaxLength: new(128), Pattern: "^[^\x00-\x20\x7f]+$"},
 		reflect.TypeFor[AccountTimestamp](): {Type: "string", Format: "account-time"},
 		reflect.TypeFor[ID]():               {Type: "string", Pattern: `^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$`},
 		reflect.TypeFor[Counter]():          {Type: "string", Pattern: `^(0|[1-9][0-9]{0,18})$`, Format: "counter"},
@@ -318,6 +328,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		automaticTitleSchema(schema, t)
 		providerSchema(schema, t)
 		executorSchema(schema, t)
+		browserSchema(schema, t)
 		questionSchema(schema, t)
 		languageServerSchema(schema, t)
 		mcpSchema(schema, t)

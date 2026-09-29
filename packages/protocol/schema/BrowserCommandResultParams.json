@@ -1,0 +1,114 @@
+{
+  "type": "object",
+  "properties": {
+    "command_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "root_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "provider_epoch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "attachment_generation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "document_revision": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "url": {
+      "type": "string",
+      "maxLength": 8192
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "result": true,
+    "error": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "permission_denied",
+            "desktop_unavailable",
+            "host_not_connected",
+            "browser_busy",
+            "stale_document",
+            "attachment_revoked",
+            "tab_closed",
+            "preview_disconnected",
+            "unsupported_operation",
+            "outcome_unknown"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "screenshot": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "size": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "media_type": {
+          "type": "string",
+          "enum": [
+            "image/jpeg"
+          ]
+        }
+      },
+      "required": [
+        "size",
+        "digest",
+        "media_type"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserCommandResultParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserCommandResultParams",
+  "required": [
+    "command_id",
+    "root_id",
+    "provider_epoch",
+    "attachment_generation",
+    "document_revision",
+    "url",
+    "title"
+  ],
+  "additionalProperties": false
+}
