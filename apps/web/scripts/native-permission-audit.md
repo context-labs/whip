@@ -48,3 +48,36 @@ The shared card/composer edge uses the same 0.01 px DOMRect rounding allowance
 as the retained mobile touch-target check: a diagnostic measured the shared
 edge at 778.0000152587891 vs 778 px. The original 9 px maximum gap, width, margins
 and no-overflow assertions remain unchanged.
+
+## Explicit standing authority follow-up
+
+Session details → Permissions now offers explicit standing-grant creation.
+Root selection requires the exact capability and resource; child selection offers
+only active standing grants from its direct parent, with immutable scope and
+32-record replaceable pages. It never selects a grant automatically, widens a
+child scope, creates a host-global wildcard, or turns “Allow once” into remembered
+authority. Existing pending requests retain their independent decision.
+
+The form captures one stable grant ID and exact payload on the first send. An
+uncertain response freezes those fields and offers only explicit same-request
+retry; acknowledgement must match ID, owner, issuer, capability and resource.
+The form labels an exact retry of a since-revoked grant as revoked. It retires
+late results on owner/client changes and explicitly asks the person to keep an
+unresolved form open; this form does not claim a persistent recovery journal.
+The backend’s immutable grant receipt and live delegation check remain the sole
+authority; no configuration revision or synthetic CAS is invented.
+
+Six focused creation tests and 24 existing inspector tests passed, as did the
+shared app typecheck. `standing-grants.mjs` passed Chromium and Firefox against
+production renderer `4a622528f83758ed982c2685685d2392993fc67e8dc23757f7c6a023fedb0c47`:
+actual root creation and effective later write, pending request not auto-approved,
+foreign-root denial, host rejection of missing/foreign child issuers, exact child
+delegation and effective write, then root revocation removing child authority.
+All eight workflow groups reported no page errors or CSP violations.
+
+```sh
+WHIP_GRANT_RESULTS=/tmp/whip-standing-grants-final node apps/web/scripts/standing-grants.mjs
+```
+
+The former inline global “remember” selector is replaced by this explicit exact
+session grant workflow, not reproduced as global wildcard authority.

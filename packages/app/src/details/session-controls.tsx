@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SessionReload } from './session-reload';
+import { StandingGrant } from './standing-grant';
 import { useExecutionView, useSessionView } from '@whip/sdk/react';
 import type { Operations } from '@whip/sdk';
 type GoalRef = NonNullable<Operations['goals.create']['params']['expected_current']>;
@@ -776,6 +777,7 @@ function Grants(props: InspectorProps) {
       description="Grants name exact capabilities and resource scopes. Revoking one also removes dependent authority; Full Access does not widen a child’s delegation."
     >
       <QueryFeedback query={query} connected={props.connected} />
+      <StandingGrant {...props} onCreated={() => query.refetch()} />
       {query.data?.items?.map((grant) => (
         <article key={grant.id} {...stylex.props(layout.column, layout.notice)}>
           <strong>{grant.capability}</strong>
