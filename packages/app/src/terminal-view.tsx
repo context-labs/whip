@@ -1,18 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { matchesKeyboardEvent, type Hotkey } from '@tanstack/react-hotkeys';
 import * as stylex from '@stylexjs/stylex';
 import { Button, ContextMenu } from '@whip/ui';
 import { colors, surface, typography } from '@whip/ui/tokens.stylex';
 import { useTheme } from '@whip/ui/themes';
-import { RemoteError, type Client } from '@whip/sdk';
+import { RemoteError, type Client, type TerminalInfo } from '@whip/sdk';
 import { readTerminalOutput } from './terminal-output';
 const MAX_TERMINAL_WRITE_BYTES = 16384;
 const MAX_PENDING_INPUT_BYTES = 256 << 10;
 import { FitAddon, Ghostty, Terminal } from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
-import { useAppState, useRuntime } from './context';
+import { useAppState, useRuntime, useSessionTabs } from './context';
 import { ErrorNotice } from './error-feedback';
+import { inspectTerminals, sendTerminalOpen, subscribeTerminalOpens, terminalOpenInFlight } from './terminal-open';
+import { selectedSessionTab } from './session-tabs';
 import { tabDestination } from './session-tab-routing';
 import type { TerminalTab } from './session-tabs';
 import { layout } from './styles';
@@ -138,7 +140,89 @@ export function passesToApp(event: KeyboardEvent, shortcuts: readonly string[]):
  * cursor and presentation; the shell lives on the host and survives unmounts,
  * reloads and reconnects. Restart replaces the shell behind the same tab.
  */
-export function TerminalView({ tab, client, focused, connected }: { tab: TerminalTab; client: Client; focused: boolean; connected: boolean }) {
+type TerminalViewProps = { tab: TerminalTab; client: Client; focused: boolean; connected: boolean };
+export function TerminalView(props: TerminalViewProps) {
+  const tabs = useSessionTabs();
+  const current = tabs.workspace.tabs.find(tab => tab.id === props.tab.id);
+  const tab = current?.kind === 'terminal' ? current : props.tab;
+  if (tab.opening || tab.terminalId === null) return <TerminalOpenReview {...props} tab={tab} />;
+  return <AttachedTerminalView {...props} tab={{ ...tab, terminalId: tab.terminalId }} />;
+}
+
+/** The host allocates shell IDs, so a lost open reply cannot be matched from cwd
+ * or timestamps. Even a singleton candidate requires an explicit selection. */
+function TerminalOpenReview({ tab, client, connected }: TerminalViewProps) {
+  const runtime = useRuntime(), navigate = useNavigate();
+  const [items, setItems] = useState<TerminalInfo[]>();
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const lifetime = useRef<AbortController | null>(null);
+  const openingID = tab.opening?.id;
+  const sending = useSyncExternalStore(listener => subscribeTerminalOpens(runtime, listener), () => terminalOpenInFlight(runtime, tab.id));
+  const current = () => connected && runtime.connections.isAttached(client) && client.runtimeID === tab.runtimeId
+    && runtime.tabs.pendingTerminal(tab.runtimeId)?.opening?.id === openingID;
+  const refresh = async (signal: AbortSignal) => {
+    if (!current()) throw new Error('Reconnect this host before inspecting existing shells.');
+    const result = await inspectTerminals(client, signal);
+    if (!current()) throw new Error('This terminal review belongs to an older connection or open attempt.');
+    setItems(result); return result;
+  };
+  useEffect(() => {
+    const controller = new AbortController(); lifetime.current = controller; setItems(undefined); setError(undefined);
+    if (connected && !sending) void refresh(controller.signal).catch(failure => { if (!controller.signal.aborted) setError(failure); });
+    return () => { controller.abort(); if (lifetime.current === controller) lifetime.current = null; };
+  }, [client, connected, openingID, sending]);
+  const navigateCurrent = async () => {
+    const updated = runtime.tabs.workspace().tabs.find(item => item.id === tab.id);
+    if (updated && selectedSessionTab(runtime.tabs.workspace())?.id === tab.id) await navigate({ ...tabDestination(updated), replace: true });
+  };
+  const act = async (choose?: string, create = false) => {
+    if (busyRef.current || terminalOpenInFlight(runtime, tab.id)) return;
+    const controller = lifetime.current;
+    let attempt = openingID;
+    if (!controller || controller.signal.aborted || !current()) return;
+    busyRef.current = true; setBusy(true); setError(undefined);
+    try {
+      const reviewed = items;
+      const listed = await refresh(controller.signal);
+      if (choose) {
+        const selected = listed.find(item => item.id === choose);
+        if (!selected || selected.closing) throw new Error('That shell is no longer available. Review the updated list.');
+        if (!runtime.tabs.updateTerminal(tab.id, { terminalId: selected.id, processEpoch: selected.process_epoch, cwd: selected.cwd, opening: undefined }, openingID)) return;
+        await navigateCurrent();
+      } else if (create) {
+        const identities = (values: TerminalInfo[]) => JSON.stringify(values.map(item => [item.id, item.created_at]).sort());
+        if (!reviewed || identities(reviewed) !== identities(listed)) throw new Error('The host’s shells changed. Review this list before opening another.');
+        const captured = runtime.tabs.beginTerminalOpen(tab.id, client.processEpoch);
+        attempt = captured.opening?.id;
+        await sendTerminalOpen(runtime, client, captured);
+        await navigateCurrent();
+      }
+    } catch (failure) {
+      if (lifetime.current && runtime.connections.isAttached(client) && runtime.tabs.pendingTerminal(tab.runtimeId)?.opening?.id === attempt) setError(failure);
+      else runtime.reportWorkspace(failure);
+    } finally { busyRef.current = false; if (lifetime.current) setBusy(false); }
+  };
+  return <section aria-label="Review terminal open" {...stylex.props(styles.review)}>
+    <p>The shell may have opened, but its acknowledgement is unconfirmed. Inspect this host’s existing shells before creating another.</p>
+    {tab.opening?.processEpoch !== client.processEpoch && <p>The previous host process has ended. The list below belongs to the current process.</p>}
+    {!connected && <p>Reconnect this host to inspect existing shells.</p>}
+    {sending && <p>Waiting for the host’s open reply…</p>}
+    <ErrorNotice type="resource" owner={`terminal-open:${tab.id}`} error={error} />
+    <Button disabled={!connected || busy || sending} onClick={() => void act()}>Check existing shells</Button>
+    {items && <>
+      {items.length === 0 && <p>No shells are currently retained by this host process.</p>}
+      {items.map(item => <div key={item.id}>
+        <span>{item.cwd} · {item.shell} · {item.exited ? 'Exited' : item.closing ? 'Closing' : 'Running'} · {item.id}</span>{' '}
+        <Button disabled={!connected || busy || sending || item.closing} onClick={() => void act(item.id)}>{item.id === tab.terminalId && item.process_epoch === tab.processEpoch ? 'Keep existing shell' : 'Use this shell'}</Button>
+      </div>)}
+      <Button disabled={!connected || busy || sending} onClick={() => void act(undefined, true)}>Open another shell</Button>
+    </>}
+  </section>;
+}
+
+function AttachedTerminalView({ tab, client, focused, connected }: Omit<TerminalViewProps, 'tab'> & { tab: TerminalTab & { terminalId: string } }) {
   const runtime = useRuntime();
   const { preferences } = useAppState();
   const { resolvedTheme } = useTheme();
@@ -322,11 +406,10 @@ export function TerminalView({ tab, client, focused, connected }: { tab: Termina
     try {
       const size = term.current ? { cols: term.current.cols, rows: term.current.rows } : { cols: 80, rows: 24 };
       if (!connected || !runtime.connections.isAttached(client)) throw new Error('Connect this host before restarting the shell.');
-      const opened = await client.openTerminal({ cwd: tab.cwd, ...size });
-      if (opened.process_epoch !== client.processEpoch) throw new Error('The new shell belongs to another host process.');
-      runtime.tabs.updateTerminal(tab.id, { terminalId: opened.id, processEpoch: opened.process_epoch, cwd: opened.cwd });
+      const captured = runtime.tabs.beginTerminalOpen(tab.id, client.processEpoch);
+      await sendTerminalOpen(runtime, client, captured, size);
       const updated = runtime.tabs.workspace().tabs.find(item => item.id === tab.id);
-      if (updated) await navigate({ ...tabDestination(updated), replace: true });
+      if (updated && selectedSessionTab(runtime.tabs.workspace())?.id === tab.id) await navigate({ ...tabDestination(updated), replace: true });
     } catch (error) { runtime.reportWorkspace(error); }
   };
   const notice = status.kind === 'exited' ? `Shell exited${status.signal ? ` (${status.signal})` : status.exitCode ? ` (code ${status.exitCode})` : ''}.`
@@ -347,6 +430,7 @@ export function TerminalView({ tab, client, focused, connected }: { tab: Termina
 }
 
 const styles = stylex.create({
+  review: { display: 'flex', flexDirection: 'column', gap: 12, padding: 16, overflowY: 'auto' },
   frame: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, backgroundColor: colors.background },
   // ghostty-web focuses a contenteditable container for keyboard input; the browser
   // would draw its own caret there beside the shell's cursor. caret-color inherits.

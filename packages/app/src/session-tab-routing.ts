@@ -1,3 +1,4 @@
+import { sendTerminalOpen, terminalLocator } from './terminal-open';
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
 import { isSessionTab, selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind, type ChatViewTarget, type ChildChatOptions, type ChildChatResult, type TabWorkspace, type SplitEdge, sessionPanes, MAX_SESSION_PANES } from './session-tabs';
@@ -40,7 +41,7 @@ export async function openBrowserTab(runtime: AppRuntime, navigate: AnyRouter['n
 export function tabDestination(tab: SessionTab) {
   if (tab.kind === 'browser') return { to: '/browser/$viewId' as const, params: { viewId: tab.id }, search: {}, state: { whipViewId: tab.id } };
   if (tab.kind === 'new') return { to: '/new/$draftId' as const, params: { draftId: tab.id }, search: {}, state: { whipViewId: tab.id } };
-  if (tab.kind === 'terminal') return { to: '/h/$runtimeId/t/$terminalId' as const, params: { runtimeId: tab.runtimeId, terminalId: tab.terminalId }, search: {}, state: { whipViewId: tab.id } };
+  if (tab.kind === 'terminal') return { to: '/h/$runtimeId/t/$terminalId' as const, params: { runtimeId: tab.runtimeId, terminalId: terminalLocator(tab) }, search: {}, state: { whipViewId: tab.id } };
   return { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
 }
 
@@ -103,12 +104,20 @@ export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['
   try {
     const client = runtime.connections.host(options.runtimeId)?.client;
     if (!client || !runtime.connections.isAttached(client)) throw new Error('Connect this host before opening a terminal.');
+    const pending = runtime.tabs.pendingTerminal(options.runtimeId);
+    if (pending) {
+      if (!runtime.tabs.workspace().tabs.some(tab => tab.id === pending.id)) runtime.tabs.reopenView(pending.id);
+      await navigate(tabDestination(pending));
+      return pending.id;
+    }
     if (!runtime.tabs.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening a terminal.');
-    const opened = await client.openTerminal({ cwd: options.cwd ?? '', cols: 80, rows: 24 });
-    if (opened.process_epoch !== client.processEpoch) throw new Error('The opened terminal belongs to a different host process.');
-    const id = runtime.tabs.openTerminal(options.runtimeId, opened.id, opened.cwd, options.paneId, opened.process_epoch);
-    const tab = runtime.tabs.workspace().tabs.find(item => item.id === id)!;
-    await navigate(tabDestination(tab));
+    const id = runtime.tabs.openTerminal(options.runtimeId, null, options.cwd ?? '', options.paneId, client.processEpoch);
+    const captured = runtime.tabs.workspace().tabs.find(tab => tab.id === id)!;
+    if (captured.kind !== 'terminal') throw new Error('The terminal recovery view could not be saved.');
+    await navigate(tabDestination(captured));
+    await sendTerminalOpen(runtime, client, captured);
+    const tab = runtime.tabs.workspace().tabs.find(item => item.id === id);
+    if (tab && selectedSessionTab(runtime.tabs.workspace())?.id === id) await navigate({ ...tabDestination(tab), replace: true });
     return id;
   } catch (error) { runtime.reportWorkspace(error); }
 }
@@ -212,7 +221,7 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
       if (terminal) {
         // A terminal URL selects an open tab; it never starts a shell, so a
         // stale link shows the missing state instead of creating one.
-        const tab = runtime.tabs.workspace().tabs.find(tab => tab.kind === 'terminal' && tab.runtimeId === terminal.runtimeId && tab.terminalId === terminal.terminalId);
+        const tab = runtime.tabs.workspace().tabs.find(tab => tab.kind === 'terminal' && tab.runtimeId === terminal.runtimeId && terminalLocator(tab) === terminal.terminalId);
         if (tab) runtime.tabs.activate(tab.id);
         return;
       }

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { RemoteError, type Client } from '@whip/sdk';
+import { validate } from '@whip/protocol';
 import { providerFixture } from './provider-fixture';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
@@ -55,15 +56,16 @@ async function fakeClient() {
   const state = { start: 0n, text: '', exited: false, exitCode: 0, signal: '' };
   const info = (id = 'term-1') => ({ process_epoch: 'boot', id, cwd: '/work', shell: '/bin/zsh', cols: 80, rows: 24, closing: false, exited: state.exited, exit_code: state.exitCode, signal: state.signal, start: String(state.start), end: String(state.start + BigInt(state.text.length)), created_at: '2026-09-28T00:00:00Z' });
   f.data.handlers['terminal.read'] = request => {
-    if (request.method !== 'terminal.read') throw new Error('Wrong request');
+    if (request.method !== 'terminal.read' || !validate('TerminalReadParams', request.params)) throw new Error('Wrong request');
     const requested = BigInt(request.params.cursor), from = requested < state.start ? state.start : requested;
     const text = state.text.slice(Number(from - state.start), Number(from - state.start) + request.params.limit);
     return { terminal: info(), from: String(from), next: String(from + BigInt(text.length)), end: info().end, truncated: from !== requested, data_base64: btoa(text) };
   };
   f.data.handlers['terminal.write'] = f.data.handlers['terminal.resize'] = f.data.handlers['terminal.close'] = () => ({ accepted: true });
   f.data.handlers['terminal.open'] = () => info('term-2');
+  f.data.handlers['terminal.list'] = () => ({ process_epoch: 'boot', items: [] });
   const terminals = { read: vi.spyOn(f.client, 'readTerminal'), write: vi.spyOn(f.client, 'writeTerminal'), resize: vi.spyOn(f.client, 'resizeTerminal'), close: vi.spyOn(f.client, 'closeTerminal'), open: vi.spyOn(f.client, 'openTerminal') };
-  return { ...f, terminals,
+  return { ...f, terminals, info,
     emitOutput: async (id: string, cursor: number, text: string) => {
       if (id !== 'term-1') return;
       if (BigInt(cursor) !== state.start + BigInt(state.text.length)) { state.start = BigInt(cursor); state.text = ''; }
@@ -307,4 +309,100 @@ it('lets app shortcuts through and copies a selection with the platform chord', 
   expect(instance.keyHandler!(key({ key: 'c', code: 'KeyC', metaKey: true }))).toBe(true);
   await waitFor(() => expect(runtime.platform.copy).toHaveBeenCalledWith('selected text'));
   expect(instance.keyHandler!(key({ key: 'a', code: 'KeyA' }))).toBe(false);
+});
+
+it('waits for the original open reply before offering recovery or another open', async () => {
+  const fake = await fakeClient(); const f = mount(fake.client); await ready();
+  await fake.emitExited({ id: 'term-1', exitCode: 0 });
+  let reject!: (error: Error) => void;
+  fake.terminals.open.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+  fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
+  await screen.findByText('Waiting for the host’s open reply…');
+  expect((screen.getByRole('button', { name: 'Check existing shells' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Open another shell' })).toBeNull();
+  expect(fake.terminals.open).toHaveBeenCalledOnce();
+  await act(async () => reject(new Error('reply lost')));
+  await screen.findByText('No shells are currently retained by this host process.');
+  expect(f.tab()).toMatchObject({ terminalId: 'term-1', opening: { processEpoch: 'boot' } });
+  expect(fake.terminals.open).toHaveBeenCalledOnce();
+});
+
+it('requires an explicit choice even for one candidate and preserves the original shell', async () => {
+  const fake = await fakeClient(); const f = mount(fake.client); const renderer = await ready();
+  fake.data.handlers['terminal.list'] = () => ({ process_epoch: 'boot', items: [fake.info()] });
+  act(() => { f.runtime.tabs.beginTerminalOpen(f.id, 'boot'); });
+  const choose = await screen.findByRole('button', { name: 'Keep existing shell' });
+  expect(f.tab()).toHaveProperty('opening');
+  expect(fake.terminals.open).not.toHaveBeenCalled(); expect(fake.terminals.close).not.toHaveBeenCalled();
+  expect(renderer.dispose).toHaveBeenCalledOnce();
+  renderer.emit('data', 'stale keystroke');
+  expect(fake.terminals.write).not.toHaveBeenCalled();
+  fireEvent.click(choose);
+  await waitFor(() => expect(f.tab()).not.toHaveProperty('opening'));
+  expect(f.tab()).toMatchObject({ terminalId: 'term-1', processEpoch: 'boot' });
+  expect(fake.terminals.open).not.toHaveBeenCalled(); expect(fake.terminals.write).not.toHaveBeenCalled();
+});
+
+it('shows all ambiguous candidates without choosing by their identical directory or time', async () => {
+  const fake = await fakeClient(); const f = mount(fake.client); await ready();
+  fake.data.handlers['terminal.list'] = () => ({ process_epoch: 'boot', items: [fake.info('a'), fake.info('b')] });
+  act(() => { f.runtime.tabs.beginTerminalOpen(f.id, 'boot'); });
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'Use this shell' })).toHaveLength(2));
+  expect(f.tab()).toMatchObject({ terminalId: 'term-1' });
+  fireEvent.click(screen.getAllByRole('button', { name: 'Use this shell' })[1]!);
+  await waitFor(() => expect(f.tab()).toMatchObject({ terminalId: 'b' }));
+  expect(fake.terminals.open).not.toHaveBeenCalled();
+});
+
+it('requires a fresh successful list and another review if candidates changed before replacement', async () => {
+  const fake = await fakeClient(); const f = mount(fake.client); await ready();
+  const list = vi.spyOn(fake.client, 'listTerminals');
+  list.mockRejectedValueOnce(new Error('inspection unavailable'));
+  act(() => { f.runtime.tabs.beginTerminalOpen(f.id, 'boot'); });
+  await screen.findByText('inspection unavailable');
+  expect(screen.queryByRole('button', { name: 'Open another shell' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Check existing shells' }));
+  await screen.findByRole('button', { name: 'Open another shell' });
+  fake.data.handlers['terminal.list'] = () => ({ process_epoch: 'boot', items: [fake.info('arrived')] });
+  fireEvent.click(screen.getByRole('button', { name: 'Open another shell' }));
+  await screen.findByText('The host’s shells changed. Review this list before opening another.');
+  expect(fake.terminals.open).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Open another shell' }));
+  await waitFor(() => expect(fake.terminals.open).toHaveBeenCalledOnce());
+  await waitFor(() => expect(f.tab()).toMatchObject({ terminalId: 'term-2' }));
+  expect(list).toHaveBeenCalledTimes(4);
+});
+
+it('retains the uncertain marker if an explicitly reviewed replacement also loses its reply', async () => {
+  const fake = await fakeClient(); const f = mount(fake.client); await ready();
+  act(() => { f.runtime.tabs.beginTerminalOpen(f.id, 'boot'); });
+  await screen.findByRole('button', { name: 'Open another shell' });
+  fake.terminals.open.mockRejectedValueOnce(new Error('second reply lost'));
+  fireEvent.click(screen.getByRole('button', { name: 'Open another shell' }));
+  await screen.findByText('second reply lost');
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Check existing shells' }) as HTMLButtonElement).disabled).toBe(false));
+  expect(f.tab()).toHaveProperty('opening'); expect(fake.terminals.open).toHaveBeenCalledOnce();
+});
+
+it('inspects current process candidates without sending a marker retained from the ended process', async () => {
+  const fake = await fakeClient(); const f = mount(fake.client, true, 'old-process');
+  await screen.findByText('This shell has ended.');
+  fake.data.handlers['terminal.list'] = () => ({ process_epoch: 'boot', items: [fake.info('current')] });
+  act(() => { f.runtime.tabs.beginTerminalOpen(f.id, 'old-process'); });
+  await screen.findByText('The previous host process has ended. The list below belongs to the current process.');
+  fireEvent.click(await screen.findByRole('button', { name: 'Use this shell' }));
+  await waitFor(() => expect(f.tab()).toMatchObject({ terminalId: 'current', processEpoch: 'boot' }));
+  expect(fake.terminals.open).not.toHaveBeenCalled(); expect(fake.terminals.write).not.toHaveBeenCalled();
+});
+
+it('waits for reconnect to inspect an uncertain open and never repeats open on reconnect', async () => {
+  const fake = await fakeClient(); const f = mount(fake.client); await ready();
+  f.setConnected(false);
+  const list = vi.spyOn(fake.client, 'listTerminals');
+  act(() => { f.runtime.tabs.beginTerminalOpen(f.id, 'boot'); });
+  await screen.findByText('Reconnect this host to inspect existing shells.');
+  expect(list).not.toHaveBeenCalled(); expect(fake.terminals.open).not.toHaveBeenCalled();
+  f.setConnected(true);
+  await screen.findByRole('button', { name: 'Open another shell' });
+  expect(list).toHaveBeenCalledOnce(); expect(fake.terminals.open).not.toHaveBeenCalled();
 });

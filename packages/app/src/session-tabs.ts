@@ -52,7 +52,9 @@ export interface TerminalTab {
   readonly kind: 'terminal';
   readonly runtimeId: string;
   /** Daemon-owned shell identity; the tab reattaches to it after a reload. */
-  readonly terminalId: string;
+  readonly terminalId: string | null;
+  /** A saved UI recovery marker, never a native terminal/request identity. */
+  readonly opening?: Readonly<{ id: string; processEpoch: string }>;
   /** Missing only for retained descriptors whose shell lifetime cannot be verified. */
   readonly processEpoch?: string;
   readonly cwd: string;
@@ -74,7 +76,7 @@ export const viewSearch = (kind: SessionViewKind): SessionSearch['view'] => kind
 export const kindFromSearch = (view: unknown): SessionViewKind => view === 'repl' || view === 'trace' ? view : 'chat';
 /** Tab title suffix for a non-chat view. */
 export const viewSuffix = (kind: SessionTab['kind']) => kind === 'repl' ? ' · REPL' : kind === 'trace' ? ' · Trace' : '';
-export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'processEpoch' | 'cwd' | 'titleHint'>>;
+export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'processEpoch' | 'cwd' | 'titleHint' | 'opening'>>;
 export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition' | 'unresolvedDefinition' | 'model' | 'provider' | 'effort'>>;
 /** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
 export const definitionIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
@@ -166,7 +168,7 @@ function freeze(workspace: Omit<TabWorkspace, 'tabs'>): TabWorkspace {
   return Object.freeze({ ...workspace, layout, focusedPaneId: panes.some(p => p.id === workspace.focusedPaneId) ? workspace.focusedPaneId : panes[0]!.id,
     tabs: Object.freeze(panes.flatMap(p => p.tabs)), closed: Object.freeze(workspace.closed.map(item => Object.freeze({ ...item, tab: Object.freeze(isSessionTab(item.tab) ? { ...item.tab, location: location(item.tab.location) } : { ...item.tab }) }))) });
 }
-function removeViews(workspace: TabWorkspace, viewIds: readonly string[], remember: boolean): TabWorkspace {
+function removeViews(workspace: TabWorkspace, viewIds: readonly string[], remember: boolean, retainTerminals: readonly string[] = []): TabWorkspace {
   const removed = sessionPanes(workspace.layout).flatMap(p => p.tabs.flatMap((tab, index) => viewIds.includes(tab.id) ? [{ tab, index, paneId: p.id }] : []));
   if (!removed.length) return workspace;
   let layout = mapPanes(workspace.layout, p => {
@@ -177,8 +179,14 @@ function removeViews(workspace: TabWorkspace, viewIds: readonly string[], rememb
   });
   layout = prune(layout) ?? { type: 'pane', id: workspace.focusedPaneId, tabs: [] };
   const closed = workspace.closed.filter(item => !viewIds.includes(item.tab.id));
-  const next = freeze({ ...workspace, layout, // A closed terminal's shell is gone, so it never enters Reopen history.
-  closed: remember ? [...closed, ...removed.filter(item => item.tab.kind !== 'terminal')].slice(-20) : closed });
+  // Unacknowledged opens stay recoverable even after their view closes. Never
+  // evict one to make room for ordinary closed-tab history.
+  const records = remember ? [...closed, ...removed.filter(item => item.tab.kind !== 'terminal' || item.tab.opening || retainTerminals.includes(item.tab.id))] : closed;
+  const pending = records.filter(item => item.tab.kind === 'terminal' && item.tab.opening);
+  if (pending.length > 20) throw new Error('Review pending terminal opens before closing another.');
+  const ordinary = pending.length === 20 ? [] : records.filter(item => !pending.includes(item)).slice(-(20 - pending.length));
+  const retained = new Set([...pending, ...ordinary]);
+  const next = freeze({ ...workspace, layout, closed: records.filter(item => retained.has(item)) });
   return freeze({ ...next, restoreSelection: workspace.restoreSelection && !!selectedSessionTab(next) });
 }
 function purgeRoot(workspace: TabWorkspace, runtimeId: string, rootId: string): TabWorkspace {
@@ -213,8 +221,10 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
     try { return { id: value.id, kind: 'browser', url: browserURL(value.url), titleHint: browserTitle(typeof value.titleHint === 'string' ? value.titleHint : ''), ...(value.environmentId === undefined ? {} : { environmentId: value.environmentId as string }) }; } catch { return; }
   }
   if (object(value) && value.kind === 'terminal' && !legacy) {
-    if (!identity(value.id) || !identity(value.runtimeId) || !identity(value.terminalId) || (value.processEpoch !== undefined && !identity(value.processEpoch)) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd)) return;
-    return { id: value.id, kind: 'terminal', runtimeId: value.runtimeId, terminalId: value.terminalId, ...(value.processEpoch ? { processEpoch: value.processEpoch as string } : {}), cwd: value.cwd, titleHint: title(value.titleHint) };
+    if (!identity(value.id) || !identity(value.runtimeId) ||
+      (value.terminalId === null ? !value.opening : !identity(value.terminalId)) ||
+      (value.opening !== undefined && (!object(value.opening) || !identity(value.opening.id) || !identity(value.opening.processEpoch))) || (value.processEpoch !== undefined && !identity(value.processEpoch)) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd)) return;
+    return { id: value.id, kind: 'terminal', runtimeId: value.runtimeId, terminalId: value.terminalId as string | null, ...(object(value.opening) ? { opening: Object.freeze({ id: value.opening.id as string, processEpoch: value.opening.processEpoch as string }) } : {}), ...(value.processEpoch ? { processEpoch: value.processEpoch as string } : {}), cwd: value.cwd, titleHint: title(value.titleHint) };
   }
   if (!object(value) || !identity(value.rootId) || (!legacy && !identity(value.id))) return;
   const kind = legacy && value.kind === undefined ? 'chat' : value.kind;
@@ -364,13 +374,13 @@ export class SessionTabs {
   }
   private write(workspace: Omit<TabWorkspace, 'tabs'>, previous = this.snapshot.previous, migrated = this.migrated, durable = false) {
     let next = freeze(workspace);
-    if (!durable && bytes(serialize(next, migrated)) > MAX_BYTES) next = freeze({ ...next, closed: [] });
+    if (!durable && bytes(serialize(next, migrated)) > MAX_BYTES) next = freeze({ ...next, closed: next.closed.filter(item => item.tab.kind === 'terminal' && item.tab.opening) });
     if (bytes(serialize(next, migrated)) > MAX_BYTES) throw new Error('This window’s tab layout is full. Close an open tab before adding another.');
     if (durable && this.storage) {
       // Production window storage can silently fall back to memory during a write.
       // A store without storage remains useful for isolated in-memory consumers.
       const requirePersistent = () => {
-        if (this.storage?.persistent === false) throw new Error('New Chat could not be saved. Window storage is unavailable.');
+        if (this.storage?.persistent === false) throw new Error('This tab could not be saved. Window storage is unavailable.');
       };
       requirePersistent();
       this.storage.setItem(TAB_STORAGE_KEY, serialize(next, migrated));
@@ -458,7 +468,7 @@ export class SessionTabs {
   }
   canOpen(runtimeId?: string, rootId?: string) {
     const workspace = this.workspace();
-    return workspace.tabs.length < MAX_SESSION_TABS || workspace.tabs.some(item => isSessionTab(item) && item.runtimeId === runtimeId && item.rootId === rootId);
+    return workspace.tabs.length + workspace.closed.filter(item => item.tab.kind === 'terminal' && item.tab.opening).length < MAX_SESSION_TABS || workspace.tabs.some(item => isSessionTab(item) && item.runtimeId === runtimeId && item.rootId === rootId);
   }
   preferred(runtimeId: string, rootId: string): SessionBackedTab | undefined {
     const workspace = this.workspace();
@@ -553,10 +563,11 @@ export class SessionTabs {
       layout: replaceNode(workspace.layout, sourcePane.id, node => splitNode(node, pane, 'right')) });
     return { tab, companion: { source, tab, sourcePaneId: sourcePane.id, paneId: pane.id } };
   }
-  /** Insert a tab for a shell the host already started, after the pane's selected tab. */
-  openTerminal(runtimeId: string, terminalId: string, cwd: string, paneId?: string, processEpoch?: string): string {
+  /** Insert an acknowledged shell or save a pending-open view before dispatch. */
+  openTerminal(runtimeId: string, terminalId: string | null, cwd: string, paneId?: string, processEpoch?: string): string {
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
-    const tab = parseTab({ id: newId(), kind: 'terminal', runtimeId, terminalId, processEpoch, cwd, titleHint: '' });
+    if (terminalId === null && this.pendingTerminal(runtimeId)) throw new Error('Review the previous terminal open on this host first.');
+    const tab = parseTab({ id: newId(), kind: 'terminal', runtimeId, terminalId, processEpoch, ...(terminalId === null ? { opening: { id: newId(), processEpoch } } : {}), cwd, titleHint: '' });
     if (!tab) throw new Error('Invalid terminal identity');
     const workspace = this.workspace();
     const target = sessionPanes(workspace.layout).find(p => p.id === (paneId ?? workspace.focusedPaneId)) ?? sessionPanes(workspace.layout)[0]!;
@@ -565,18 +576,35 @@ export class SessionTabs {
       const tabs = [...pane.tabs];
       tabs.splice(pane.tabs.findIndex(item => item.id === pane.selected) + 1, 0, tab);
       return { ...pane, tabs, selected: tab.id };
-    }) });
+    }) }, undefined, undefined, terminalId === null);
     return tab.id;
   }
   /** Title changes and in-place restarts keep the view identity and its pane position. */
-  updateTerminal(id: string, patch: TerminalOptions): boolean {
+  updateTerminal(id: string, patch: TerminalOptions, expectedOpening?: string): boolean {
     const workspace = this.workspace();
-    const current = workspace.tabs.find(tab => tab.id === id);
-    if (!current || current.kind !== 'terminal') return false;
+    const current = workspace.tabs.find(tab => tab.id === id) ?? (expectedOpening ? workspace.closed.find(item => item.tab.id === id)?.tab : undefined);
+    if (!current || current.kind !== 'terminal' || expectedOpening && current.opening?.id !== expectedOpening) return false;
     const tab = parseTab({ ...current, ...patch, id, kind: 'terminal' });
     if (!tab) throw new Error('Invalid terminal options');
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(item => item.id === id ? tab : item) })) });
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(item => item.id === id ? tab : item) })),
+      closed: workspace.closed.map(item => item.tab.id === id ? { ...item, tab } : item),
+    }, undefined, undefined, !!current.opening || !!patch.opening);
     return true;
+  }
+  pendingTerminal(runtimeId: string): TerminalTab | undefined {
+    const workspace = this.workspace();
+    return [...workspace.tabs, ...workspace.closed.map(item => item.tab)].find((tab): tab is TerminalTab => tab.kind === 'terminal' && tab.runtimeId === runtimeId && !!tab.opening);
+  }
+  /** Capture a new explicit open attempt before HTTP. The old native handle is
+   * retained until acknowledgement or an explicit selection from a fresh list. */
+  beginTerminalOpen(id: string, processEpoch: string): TerminalTab {
+    const tab = this.workspace().tabs.find(item => item.id === id);
+    if (!tab || tab.kind !== 'terminal') throw new Error('This terminal view is no longer open.');
+    const pending = this.pendingTerminal(tab.runtimeId);
+    if (pending && pending.id !== id) throw new Error('Review the previous terminal open on this host first.');
+    const opening = Object.freeze({ id: newId(), processEpoch });
+    this.updateTerminal(id, { opening });
+    return { ...tab, opening };
   }
   canOpenBrowser(): boolean { return this.canOpen() && this.workspace().tabs.filter(isBrowserTab).length < MAX_BROWSER_TABS; }
   openBrowser(input: Omit<BrowserTab, 'kind'>, paneId?: string, options: { background?: boolean } = {}): BrowserTab {
@@ -689,12 +717,12 @@ export class SessionTabs {
     const workspace = this.workspace();
     this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => isSessionTab(t) && t.runtimeId === runtimeId && titles.has(t.rootId) ? { ...t, titleHint: title(titles.get(t.rootId)) } : t) })) });
   }
-  closeViews(viewIds: readonly string[], activeViewId?: string): string | null | undefined {
+  closeViews(viewIds: readonly string[], activeViewId?: string, retainTerminals: readonly string[] = []): string | null | undefined {
     const workspace = this.workspace();
-    const next = removeViews(workspace, viewIds, true);
+    const next = removeViews(workspace, viewIds, true, retainTerminals);
     if (next === workspace) return;
     const selected = selectedSessionTab(next);
-    this.write(next);
+    this.write(next, undefined, undefined, retainTerminals.length > 0 || workspace.tabs.some(tab => viewIds.includes(tab.id) && tab.kind === 'terminal' && !!tab.opening));
     return activeViewId && viewIds.includes(activeViewId) ? selected?.id ?? null : undefined;
   }
   /** Deleted roots cannot remain in open views or Reopen closed tab history. */
@@ -725,12 +753,12 @@ export class SessionTabs {
   reopenView(viewId?: string): string | undefined {
     const workspace = this.workspace(), closed = viewId === undefined ? workspace.closed.at(-1) : workspace.closed.find(item => item.tab.id === viewId);
     if (!closed) return;
-    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before reopening another.');
+    if (!this.canOpen() && !(closed.tab.kind === 'terminal' && closed.tab.opening)) throw new Error('There are 32 open session tabs. Close a tab before reopening another.');
     const pane = sessionPanes(workspace.layout).find(p => p.id === closed.paneId) ?? sessionPanes(workspace.layout).find(p => p.id === workspace.focusedPaneId)!;
     if (closed.tab.kind === 'browser' && !this.canOpenBrowser()) throw new Error('Close a Browser tab before reopening another (8 Browser tabs).');
     const reopened = closed.tab.kind === 'browser' ? { ...closed.tab, id: newId() } : closed.tab;
     const tabs = [...pane.tabs]; tabs.splice(Math.min(closed.index, tabs.length), 0, reopened);
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs } : p), closed: workspace.closed.filter(item => item !== closed) });
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs } : p), closed: workspace.closed.filter(item => item !== closed) }, undefined, undefined, closed.tab.kind === 'terminal' && !!closed.tab.opening);
     return reopened.id;
   }
   reorderPane(paneId: string, order: readonly string[]) {

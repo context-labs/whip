@@ -1,3 +1,4 @@
+import { terminalLocator } from './terminal-open';
 import { RemoteError } from '@whip/sdk';
 import { typography } from '@whip/ui/tokens.stylex';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type Ref } from 'react';
@@ -59,7 +60,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   // Keep other panes mounted during the route commit before onResolved admits a new tab.
   const matched = (!!destination && tabs.length > 0 && runtime.tabs.canOpen(destination.runtimeId, destination.rootId)) || !!tabs.find(tab => tab.id === draftDestination(route.pathname))
     || !!tabs.find(tab => tab.kind === 'browser' && tab.id === browserDestination(route.pathname))
-    || (!!terminalRoute && tabs.some(tab => tab.kind === 'terminal' && tab.runtimeId === terminalRoute.runtimeId && tab.terminalId === terminalRoute.terminalId));
+    || (!!terminalRoute && tabs.some(tab => tab.kind === 'terminal' && tab.runtimeId === terminalRoute.runtimeId && terminalLocator(tab) === terminalRoute.terminalId));
   const active = matched ? selectedSessionTab(workspace) : undefined;
   const navigate = useNavigate();
   const [picker, setPicker] = useState(false);
@@ -108,7 +109,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     setPicker(false);
     const location = route.search as { agent?: string; panel?: string; view?: 'repl' | 'trace' };
     if (isSessionTab(tab) && destination?.runtimeId === tab.runtimeId && destination.rootId === tab.rootId && route.state.whipViewId === viewId && location.agent === tab.location.agent && location.panel === tab.location.panel && location.view === sessionSearch(tab).view) return;
-    if (tab.kind === 'terminal' && terminalRoute?.runtimeId === tab.runtimeId && terminalRoute.terminalId === tab.terminalId && route.state.whipViewId === viewId) return;
+    if (tab.kind === 'terminal' && terminalRoute?.runtimeId === tab.runtimeId && terminalRoute.terminalId === terminalLocator(tab) && route.state.whipViewId === viewId) return;
     if (tab.kind === 'browser' && browserDestination(route.pathname) === viewId) return;
     const target = JSON.stringify(tabDestination(tab));
     if (pendingNavigation.current === target) return;
@@ -134,7 +135,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     const restoreFocus = viewIds.some(id => document.getElementById(workspaceTabId(id))?.closest('[data-workspace-tab]')?.contains(focused));
     // Closing a terminal tab ends its shell; a late failure has nowhere truthful to show.
     const shells = runtime.tabs.workspace().tabs.filter(tab => tab.kind === 'terminal' && viewIds.includes(tab.id));
-    for (const tab of shells) if (tab.kind === 'terminal' && tab.processEpoch) {
+    for (const tab of shells) if (tab.kind === 'terminal' && tab.processEpoch && tab.terminalId && !tab.opening) {
       try {
         const host = runtime.connections.host(tab.runtimeId);
         if (host?.state !== 'connected' || !host.client) throw new Error('Reconnect the owning host before closing this shell.');
@@ -148,8 +149,12 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     const selected = selectedSessionTab(runtime.tabs.workspace());
     const closing = selected && viewIds.includes(selected.id) ? selected : undefined;
     const closingCwd = closing?.kind === 'terminal' ? closing.cwd : closing ? knownCwd(closing) : undefined;
-    const next = runtime.tabs.closeViews(viewIds, selected?.id);
-    setNotice(shells.length === viewIds.length ? (shells.length === 1 ? 'Terminal closed. Its shell has ended.' : 'Terminals closed. Their shells have ended.') : viewIds.length === 1 ? 'Tab closed. Work and drafts are kept.' : 'Tabs closed. Work and drafts are kept.');
+    let next: string | null | undefined;
+    // An ACK may arrive while another selected shell is closing. Preserve handles
+    // whose open was pending when this close began, even if it has since settled.
+    try { next = runtime.tabs.closeViews(viewIds, selected?.id, shells.filter(tab => tab.kind === 'terminal' && tab.opening).map(tab => tab.id)); }
+    catch (error) { runtime.reportWorkspace(error); return; }
+    setNotice(shells.some(tab => tab.kind === 'terminal' && tab.opening) ? 'Terminal view closed. Reopen closed tab to inspect its retained shell state.' : shells.length === viewIds.length ? (shells.length === 1 ? 'Terminal closed. Its shell has ended.' : 'Terminals closed. Their shells have ended.') : viewIds.length === 1 ? 'Tab closed. Work and drafts are kept.' : 'Tabs closed. Work and drafts are kept.');
     if (next === null) openAfterLastClose(runtime, navigate, closing, closingCwd);
     else if (next) go(next, true);
     if (restoreFocus || focusAfterMenu || viewIds.includes(active?.id ?? '')) requestAnimationFrame(() => {
@@ -296,7 +301,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
         if (tab.kind === 'terminal') {
           const host = hosts.find(h => h.runtimeId === tab.runtimeId);
           return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
-            content: host?.client ? <TerminalView key={tab.terminalId} tab={tab} client={host.client} connected={host.state === 'connected'} focused={pane.id === workspace.focusedPaneId} />
+            content: host?.client ? <TerminalView key={tab.id} tab={tab} client={host.client} connected={host.state === 'connected'} focused={pane.id === workspace.focusedPaneId} />
               : <div {...stylex.props(layout.empty)}><p role="status">{hostName(tab)} is unavailable. Connect it to continue this terminal.</p><Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> };
         }
         const owner = { runtimeId: tab.runtimeId, rootId: tab.rootId, sessionId: tab.location.agent ?? tab.rootId };

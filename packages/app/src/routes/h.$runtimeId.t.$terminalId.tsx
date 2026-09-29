@@ -1,3 +1,4 @@
+import { terminalLocator } from '../terminal-open';
 import { createFileRoute } from '@tanstack/react-router';
 import { EmptyWorkspace } from '../empty-workspace';
 import { useRuntime, useSessionTabs } from '../context';
@@ -6,6 +7,6 @@ export const Route = createFileRoute('/h/$runtimeId/t/$terminalId')({ component:
   const { runtimeId, terminalId } = Route.useParams();
   const runtime = useRuntime();
   useSessionTabs();
-  if (runtime.tabs.workspace().tabs.some(tab => tab.kind === 'terminal' && tab.runtimeId === runtimeId && tab.terminalId === terminalId)) return null;
+  if (runtime.tabs.workspace().tabs.some(tab => tab.kind === 'terminal' && tab.runtimeId === runtimeId && terminalLocator(tab) === terminalId)) return null;
   return <EmptyWorkspace missing subject="terminal" />;
 } });
