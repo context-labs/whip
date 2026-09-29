@@ -6147,3 +6147,18 @@ protocol, CLI/TUI/ACP, mobile bundles and disposable desktop lifecycle evidence
 are recorded in [the UX progress record](frontend-ux-restoration-progress.md).
 Permission/reading-position acceptance and package-boundary cleanup remain open;
 no merge, deployment or installed runtime change is authorized or performed.
+
+## 2026-09-29 — complete frontend restoration and local acceptance
+
+Restored the approved latest-development interaction and presentation over the
+native SDK through stacked draft #298. Final integration fixes exact permission
+and question recovery, same-owner reconnect retention, cached-child and Projects
+reading anchors, explicit read-only history retry and atomic idle rewind. Final
+renderer 1,480 tests, SDK 223, protocol 18/drift, native client checks, mobile
+contracts/bundles and isolated packaged-desktop workflows pass. Browser evidence
+covers ordinary comparison, actual transport faults and retained reading state;
+its exact checkpoints and limits are in the
+[acceptance index](frontend-ux-restoration-acceptance.md). Hosted draft CI is not
+implied by local checks. Broader old Remember authority and missing historical
+reasoning remain explicit limits. The original checkout's HEAD and 14 captured
+file hashes are unchanged; no installed runtime, merge or deployment occurred.

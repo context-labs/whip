@@ -1,7 +1,10 @@
 # Frontend UX restoration implementation record
 
-Status: in progress. This is not a claim of complete UX parity or release acceptance.
+Status: restoration implementation complete; final local acceptance and explicit
+limits are recorded in the [acceptance index](frontend-ux-restoration-acceptance.md).
 The [approved plan](frontend-ux-restoration-plan.md) defines scope and A1–A12.
+Entries below preserve each checkpoint’s state; later entries supersede earlier
+remaining-work notes. This is not merge or release approval.
 
 ## Reference and authority
 
@@ -206,7 +209,7 @@ history-confirmation checks pass (77 tests); app types pass. The REPL leaf tests
 verify the same article and selected code through partial ID/commit/cell/result,
 persisted expansion, failed reseed and imported output. Comparative browser runs
 are in progress. Inspection also found an immediate source-eviction body-retention
-hole; that bounded SDK follow-up is being fixed before final acceptance.
+hole; the bounded SDK fix is recorded in increment 10.
 
 Projects/polish is draft [#295](https://github.com/context-labs/whip/pull/295).
 
@@ -231,9 +234,9 @@ work or reset its kernel. No stop/restart sequence or mutation replay was added.
 
 Current combined evidence:
 
-- Renderer: 1,472 tests across 117 files pass after the Projects fix. Later
-  recovery/handover changes pass 57 focused tests and app types; final full
-  renderer rerun follows the remaining acceptance fixes.
+- Renderer: final combined 1,480 tests across 117 files pass, with app types
+  and the production build. Recovery/handover, exact decisions and explicit
+  read-only history retry regressions are included.
 - SDK: all 223 tests, source/test types and packed consumer/browser/native smoke
   pass. Protocol: 18 interop tests and generator drift pass.
 - Native CLI/TUI/ACP: the complete `check:native-cli` gate passes, including real
@@ -244,8 +247,10 @@ Current combined evidence:
   all 21 Expo doctor checks pass.
 - Native backend: full store race suite passes. Full runtime race suite found
   three provider-work package boundary violations; all other runtime cases pass.
-  Boundary corrections are in progress. Model/runner/providerhost/hostview/
-  terminal/protocol/RPC race suites pass. Idle-rewind follow-up race suites pass.
+  Boundary corrections now pass the unchanged architecture gate and affected
+  account/provider/configuration/RPC race checks. Model/runner/providerhost/
+  hostview/terminal/protocol/RPC race suites pass. Idle-rewind follow-up races
+  pass; independent review found no correctness issue.
 - A1/A2/A3/A11: reference and native Chromium/Firefox comparison passes. See
   `apps/web/scripts/frontend-migration-parity.md` for exact scenario coverage;
   focused fault tests supplement it.
@@ -266,14 +271,45 @@ Current combined evidence:
 The original development HEAD and all 14 captured file hashes are unchanged.
 No installed runtime, deployment, merge, signing or notarization occurred.
 
-## Remaining acceptance work
+## Increment 11 — final reading and decision recovery
 
-Complete actual approval fault recovery, REPL/history action browser checks,
-and the original cached-child/Back reading-position criterion. A12 exposed a
-Projects reading-anchor regression under a real scrolled reorder; it is being
-fixed without weakening the original threshold. Finish the provider package
-boundary correction, then rerun affected combined checks and refresh the
-isolated desktop package. Publish the final artifact matrix and dispositions.
-Broader historical Remember scopes and absent pre-migration reasoning remain
-explicit parity limits. Reference baseline contrast/focus defects are recorded
-separately from migration regressions. This record is not release approval.
+The exact cached-child/Back failure came from delayed execution evidence changing
+an existing execute row into a differently identified activity row. Keeping its
+canonical display ID fixes the original 20-switch/Forward criterion within 2px.
+Projects captured a null anchor from the virtualizer's previous visible range;
+using the existing complete bounded row offsets fixes actual scrolled recency
+reorder, retaining the same row and the original 2px assertion.
+
+Approval and question cards now retain exact attempted decisions across query
+cache eviction and same-owner client replacement. Authored question drafts are
+bounded to the four displayed cards. Lost replies require explicit read-check or
+retry of the original decision. Actual pre/post-publication socket faults pass
+in Chromium and Firefox. No broader permission authority was introduced.
+
+A failed observation also disabled an otherwise valid explicit history read.
+History paging now requires the current attached client and SDK-owned captured
+revision; mutations still require live observation. The regression fails before
+and passes after. Both browsers pass held/failed older-page recovery over 10,000
+real messages with DOM/selection/draft/anchor retention and canonical Latest.
+
+Final renderer is `a78d2ad301fe33eb545ff565b51b363fccb8aa68dbc9d6e28442c8ad3536c2ce`.
+Final A4 and A5/A6 fault suites, all six retained settings suites, actual response
+history actions, queue/turn-outcome/content checks and the refreshed unsigned
+packaged-desktop lifecycle checks pass. The desktop bundle is retained under
+`/private/tmp/whip-ux-desktop-final-acceptance`. The repeatable browser fault task
+is `check:product-ux-restoration`; the acceptance index records checkpoint-specific
+browser, source, native runtime and package identities.
+
+Fixture ports preserve product assertions: tab actions use reference context
+menus, Projects selectors include both host and session, stable display IDs
+replace retired prefixes, and hover/wheel tests use actual reference interactions.
+Observer checkpoint `fde8bd220` was reused, not recreated. Connection diagnostics
+retain bounded active/recent samples and exact aggregate counts; the transport's
+per-RPC sockets are not mistaken for multiple active session observers.
+
+The final [acceptance index](frontend-ux-restoration-acceptance.md) records the
+remaining parity limits and unattributed historical/intermittent test findings.
+Broader old Remember scopes remain a product decision; missing old reasoning
+cannot be reconstructed. The original development HEAD and all 14 overlay file
+hashes remain unchanged. No installed runtime, merge, deployment, signing or
+notarization was changed.

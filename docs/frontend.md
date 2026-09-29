@@ -19,8 +19,9 @@ boundaries and do not waive retained-feature parity.
 The [frontend UX restoration plan](frontend-ux-restoration-plan.md) records the
 approved latest-development reference, proposed minimal compatibility work and
 comparative acceptance criteria. This guide describes implemented ownership;
-the [implementation record](frontend-ux-restoration-progress.md) tracks validation
-and remaining acceptance work.
+the [implementation record](frontend-ux-restoration-progress.md) and
+[acceptance index](frontend-ux-restoration-acceptance.md) track completed validation
+and explicit parity limits.
 
 ## Start here
 
