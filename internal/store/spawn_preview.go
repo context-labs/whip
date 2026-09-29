@@ -10,10 +10,11 @@ import (
 // ChildPreview is an observation, never admission or a reusable grant. The
 // committed spawn resolves and narrows the same request again in its transaction.
 type ChildPreview struct {
-	Definition       session.DefinitionRef `json:"definition"`
-	Configuration    session.Configuration `json:"configuration"`
-	WorkingDirectory string                `json:"working_directory"`
-	GrantIDs         []session.GrantID     `json:"grant_ids"`
+	Definition         session.DefinitionRef `json:"definition"`
+	Configuration      session.Configuration `json:"configuration"`
+	WorkingDirectory   string                `json:"working_directory"`
+	GrantIDs           []session.GrantID     `json:"grant_ids"`
+	PermissionRevision *session.Revision     `json:"permission_revision,string"`
 }
 
 func resolveChild(ctx context.Context, q querier, parent session.Session, request SpawnSession) (ChildPreview, error) {
@@ -85,7 +86,8 @@ func (s *Store) PreviewChildOperation(ctx context.Context, spec session.Operatio
 		for _, grant := range grants {
 			result.GrantIDs = append(result.GrantIDs, grant.ID)
 		}
-		return nil
+		result.PermissionRevision, err = childPermissionRevision(ctx, tx, parent, result.WorkingDirectory, request.GrantIDs)
+		return err
 	})
 	return
 }

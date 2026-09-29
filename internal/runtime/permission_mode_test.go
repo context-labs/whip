@@ -1,9 +1,12 @@
 package runtime
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,6 +165,132 @@ func TestBothEnginesPermissionModeUsesSavedPolicyAndRetiresWaitingPrompt(t *test
 			denyRuntimeFilePermission(t, r, ask, "ask")
 			if grants, err := r.Grants(t.Context(), owner.ID, "", 100); err != nil || len(grants) != 0 {
 				t.Fatal("mode fabricated grants", grants, err)
+			}
+		})
+	}
+}
+
+func TestBothEnginesAutomaticModeDefaultChildReadsAndReportsWithoutGrants(t *testing.T) {
+	for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
+		t.Run(string(engine), func(t *testing.T) {
+			for _, test := range []struct {
+				name     string
+				explicit bool
+			}{{name: "omitted_grants"}, {name: "explicit_empty_grants", explicit: true}} {
+				t.Run(test.name, func(t *testing.T) {
+					spawn := `child=agents.spawn(prompt="read-and-report")`
+					if test.explicit {
+						spawn = `child=agents.spawn(prompt="read-and-report", grant_ids=[])`
+					}
+					codes := map[string]string{"spawn": spawn + "\nagents.wait_after_cell(input_ids=[child[\"input_id\"]])\nprint(\"child finished\")"}
+					if engine == session.QuickJS {
+						spawn = `var child=await agents.spawn({prompt:"read-and-report"});`
+						if test.explicit {
+							spawn = `var child=await agents.spawn({prompt:"read-and-report",grant_ids:[]});`
+						}
+						codes["spawn"] = spawn + `await agents.wait_after_cell({input_ids:[child.input_id]}); console.log("child finished");`
+					}
+					base := cellProvider(codes)
+					provider := providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
+						last := request.Messages[len(request.Messages)-1]
+						if _, scripted := codes[last.Parts[0].Text]; last.Role != session.Tool && !scripted {
+							// Consume actual child completion/mail without inventing more work.
+							return model.Response{Parts: []session.Part{{Type: "text", Text: "report received"}}}, nil
+						}
+						return base(ctx, request)
+					})
+					r := openEngineTest(t, t.TempDir(), provider)
+					root := createEngineSession(t, r, engine)
+					const proof = "disposable child workspace proof"
+					if err := os.WriteFile(filepath.Join(root.WorkingDirectory, "proof.txt"), []byte(proof), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					codes["read-and-report"] = fmt.Sprintf("read=files.read(path=\"proof.txt\")\nmail.send(recipient_id=%q,subject=\"workspace proof\",body=read[\"output\"])\nprint(read[\"output\"])", root.ID)
+					if engine == session.QuickJS {
+						codes["read-and-report"] = fmt.Sprintf(`var read=await files.read({path:"proof.txt"}); await mail.send({recipient_id:%q,subject:"workspace proof",body:read.output}); console.log(read.output);`, root.ID)
+					}
+					setRuntimeMode(t, r, root.ID, "full-access", 1, session.PermissionAutomatic)
+					if grants, err := r.Grants(t.Context(), root.ID, "", 100); err != nil || len(grants) != 0 {
+						t.Fatal("Full Access fixture must have zero standing grants", grants, err)
+					}
+					submitTest(t, r, root.ID, "spawn")
+					finished := waitTestWithin(t, r, "spawn", terminal, 30*time.Second)
+					if finished.Turn.State != session.Succeeded {
+						t.Fatalf("parent spawn/wait failed: %+v runtime=%v", finished.Turn, r.Err())
+					}
+					children, err := r.Sessions(t.Context(), root.TreeID, "", 100)
+					if err != nil || len(children) != 2 {
+						t.Fatal("expected one spawned child", children, err)
+					}
+					child := children[0]
+					if child.ID == root.ID {
+						child = children[1]
+					}
+					if child.ParentID == nil || *child.ParentID != root.ID || child.WorkingDirectory != root.WorkingDirectory {
+						t.Fatal("spawn changed child ownership or workspace", child)
+					}
+					cell, err := r.store.LatestCell(t.Context(), child.ID)
+					if err != nil || cell == nil {
+						t.Fatal("child did not execute", cell, err)
+					}
+					operations, err := r.Operations(t.Context(), cell.TurnID, "", 100)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if test.explicit {
+						if cell.State != session.CellFailed || len(operations) != 1 || operations[0].Capability != "files.read" || operations[0].State != session.OperationDenied || operations[0].DispatchedAt != nil {
+							t.Fatalf("explicit empty grants inherited automatic authority: cell=%+v operations=%+v", cell, operations)
+						}
+					} else {
+						if cell.State != session.CellSucceeded || len(operations) != 2 {
+							t.Fatalf("default child could not read and report: cell=%+v operations=%+v", cell, operations)
+						}
+						seen := map[string]bool{}
+						for _, op := range operations {
+							if op.State != session.OperationSucceeded || op.GrantID != nil || op.PermissionRevision == nil || *op.PermissionRevision != 2 || op.DispatchedAt == nil {
+								t.Fatalf("child operation lost inherited policy authority: %+v", op)
+							}
+							seen[op.Capability] = true
+						}
+						if !seen["files.read"] || !seen["mail.send"] {
+							t.Fatal("missing actual read or internal report operation", operations)
+						}
+					}
+					if grants, err := r.Grants(t.Context(), child.ID, "", 100); err != nil || len(grants) != 0 {
+						t.Fatal("default spawn fabricated standing grants", grants, err)
+					}
+					if !test.explicit {
+						// Queued mail is consumed by a later parent turn, not by the
+						// already captured spawn turn's final model response.
+						submitTest(t, r, root.ID, "receive-report")
+						received := waitTestWithin(t, r, "receive-report", terminal, 30*time.Second)
+						if received.Turn.State != session.Succeeded {
+							t.Fatalf("parent report turn failed: %+v", received.Turn)
+						}
+					}
+					mails, err := r.ListMail(t.Context(), root.ID, "", "", 100)
+					if err != nil {
+						t.Fatal(err)
+					}
+					reports := 0
+					for _, item := range mails {
+						if item.Subject != "workspace proof" {
+							continue
+						}
+						report, err := r.ReadMail(t.Context(), root.ID, item.ID)
+						if err != nil || !strings.Contains(report.Body, proof) || report.State != session.MailDelivered {
+							t.Fatal("parent did not receive successful child report", report, err)
+						}
+						reports++
+					}
+					wantReports := 1
+					if test.explicit {
+						wantReports = 0
+					}
+					if reports != wantReports {
+						t.Fatalf("child reports=%d, want %d", reports, wantReports)
+					}
+				})
 			}
 		})
 	}

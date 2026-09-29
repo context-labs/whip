@@ -94,7 +94,7 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 }
 
 // AdmitStandingOperation admits optional diagnostics only with current standing
-// authority, including current root automatic policy. A zero operation means skipped; no permission or intent is written.
+// authority, including eligible current automatic policy. A zero operation means skipped; no permission or intent is written.
 func (s *Store) AdmitStandingOperation(ctx context.Context, spec session.OperationSpec) (session.Operation, error) {
 	if spec.Capability != "lsp.diagnostics" {
 		return session.Operation{}, session.ErrInvalid
@@ -199,13 +199,13 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 				if err != nil {
 					return err
 				}
-				if owner.ParentID == nil && !requiresExplicitHostGrant(spec.Capability) {
-					policy, err := readPermissionPolicy(ctx, tx, owner.ID)
+				if !requiresExplicitHostGrant(spec.Capability) {
+					revision, err := automaticPermissionRevision(ctx, tx, owner)
 					if err != nil {
 						return err
 					}
-					if policy.Mode == session.PermissionAutomatic && !policy.DenyInteractive {
-						permissionRevision, state = &policy.Revision, session.OperationReady
+					if revision != nil {
+						permissionRevision, state = revision, session.OperationReady
 					}
 				}
 			}
@@ -371,14 +371,14 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 		if err != nil {
 			return err
 		}
-		if owner.ParentID != nil || operation.GrantID != nil {
+		if operation.GrantID != nil {
 			return ErrConflict
 		}
-		policy, err := readPermissionPolicy(ctx, q, operation.SessionID)
+		revision, err := automaticPermissionRevision(ctx, q, owner)
 		if err != nil {
 			return err
 		}
-		if policy.DenyInteractive || policy.Mode != session.PermissionAutomatic || policy.Revision != *operation.PermissionRevision {
+		if revision == nil || *revision != *operation.PermissionRevision {
 			return ErrConflict
 		}
 		return nil

@@ -88,7 +88,8 @@ type SpawnSession struct {
 }
 
 // ChildRequest preserves the original request for idempotency. Nil GrantIDs
-// inherits live standing grants; an explicit empty slice delegates none.
+// inherits live standing grants and eligible automatic policy in the same
+// workspace; an explicit empty slice delegates none.
 type ChildRequest struct {
 	SpawnSession
 	BrowserAttachments []string                `json:"browser_attachments,omitempty"`
@@ -247,6 +248,19 @@ func spawnChildAccepted(ctx context.Context, tx *sql.Tx, childID session.Session
 	child, err := spawnSessionID(ctx, tx, childID, request.SpawnSession, captured)
 	if err != nil {
 		return ChildAdmission{}, err
+	}
+	parent, err := readSession(ctx, tx, request.ParentID)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	revision, err := childPermissionRevision(ctx, tx, parent, child.WorkingDirectory, request.GrantIDs)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	if revision != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO child_permission_policies(session_id,policy_revision) VALUES (?,?)", child.ID, *revision); err != nil {
+			return ChildAdmission{}, err
+		}
 	}
 	for _, limit := range request.Resources {
 		if _, err := setResource(ctx, tx, child.ID, 0, limit); err != nil {
