@@ -443,7 +443,12 @@ pages. It is display-only: exact UTF-8 text ranges, streamed reasoning and tool
 slots scoped by the owning session and source attempt. Imported source identities
 never grant local execution authority. Old messages may lack this metadata;
 canonical prose/calls remain authoritative, including when presentation truncates.
-SDK/app consumption is tracked in the [restoration record](frontend-ux-restoration-progress.md).
+The app projects those slots directly into existing transcript rows. Preview and
+settled slots use the same owner/attempt/slot identity, including partial call IDs.
+Canonical text/calls omitted from truncated metadata receive fallback rows; copy
+still uses canonical prose once. Failed attempts stay labeled display evidence,
+outside completed-response copy and history authority. Imported source-message
+provenance can position a failed retry but never authorize local execution.
 SessionView retains failed-attempt presentation only for its selected bounded
 history groups. ExecutionView shares that source and owns bounded exact call/result
 bodies for retained cells. `session.history.message` validates owner, identity,
@@ -526,6 +531,12 @@ execute arguments never become a fake cell. The recorded result supplies output,
 explicit JSON null values, engine metrics, restart and checkpoint warnings.
 Formatting/collapsing never changes copied text; unsafe numeric JSON remains
 verbatim. Explicit text content reads cap at 1 MiB and downloads at 4 MiB.
+Writing, committed calls and actual cells share one display card and stable key;
+partial arguments decode to code. Existing live-clock, output expansion, copying
+and reading state remain with that card. Ordinary transitions do not expose raw
+JSON arguments or protocol/checkpoint banners; actual uncertainty and unavailable
+records remain explicit. Imported calls may show canonical output without a local
+cell, clock or execution control.
 
 ### Session trace viewer
 

@@ -162,6 +162,7 @@ it.each(['rewind', 'fork'] as const)(
         title: null,
       });
     expect(command.id).toBeTruthy();
+    await waitFor(() => expect(within(dialog).getByRole('alert').textContent).toContain('Lost acknowledgement'));
     expect(
       within(dialog).getByRole('button', { name: `Confirm ${action}` }),
     ).toHaveProperty('disabled', true);

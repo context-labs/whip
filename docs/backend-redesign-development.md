@@ -6127,3 +6127,11 @@ remote folder creation, compact agent editor and tab/dialog refinements. Bounded
 native ownership stays behind the restored UI. Combined protocol, SDK build, app
 types and47 focused tests pass; leaf UI browser/CSP/theme checks pass. End-to-end
 comparative app checks remain in the restoration record.
+
+## 2026-09-29 — ordered chat presentation and stable REPL cards
+
+Restored reference REPL cards and consumed durable ordered presentation in chat
+with stable owner/attempt/slot identity, exact canonical fallback and copy. Failed
+and imported evidence stays truthful. Combined77 focused tests and app types
+pass. Comparative acceptance is running; an immediate source-eviction SDK
+retention hole is tracked for the final integration fixes.

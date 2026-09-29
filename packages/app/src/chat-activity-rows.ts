@@ -128,7 +128,7 @@ export function responseCopies(
     assistantSeq = undefined; sequence = undefined; incomplete = false; uncertain = false; bytes = 0;
   };
   for (const row of rows) {
-    if (row.queued) continue;
+    if (row.queued || row.attemptState) continue;
     if (row.historyGap) { incomplete = true; uncertain = true; finish(); incomplete = true; uncertain = true; continue; }
     if (row.role === 'user') finish(); else last = row.id;
     if (row.live || row.seq === undefined) uncertain = true;
@@ -270,6 +270,7 @@ export function conversationActivityRows(
     output.push({
       id,
       role: 'activity',
+      attemptState: members[0]?.attemptState,
       assistantSeq: latestAssistant?.assistantSeq,
       sentAt: latestAssistant?.sentAt,
       text: '',

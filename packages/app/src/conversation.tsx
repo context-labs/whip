@@ -349,9 +349,10 @@ export function SessionContent({
             inbox,
             localInputs,
             deliveries,
+            state.attemptPresentations,
           )
         : [],
-    [kind, state.history, state.preview, inbox, localInputs, deliveries],
+    [kind, state.history, state.preview, state.attemptPresentations, inbox, localInputs, deliveries],
   );
   const cells = useMemo(
     () => cellExecutionRows(evidence, state.history.messages),
@@ -840,10 +841,10 @@ export function SessionContent({
                 turnId={activeTurn}
                 startedAt={active?.started_at}
               />
-              {evidence.truncated && (
+              {(!!evidence.unavailableMessageIDs?.length || state.attemptPresentationsTruncated) && (
                 <p {...stylex.props(layout.notice)}>
-                  Some execution details are outside this bounded window. Open
-                  REPL to inspect older work.
+                  Some execution details are unavailable. Open REPL to inspect
+                  the recorded work.
                 </p>
               )}
               <AgentTurnNotice
