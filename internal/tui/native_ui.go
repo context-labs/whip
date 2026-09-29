@@ -61,6 +61,8 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
 	localFilesystem                 bool
+	lsp                             *nativeLSPStatus
+	panelOffsets                    [3]int
 	execution                       *nativeExecution
 	replBefore, replFocus           *protocol.ID
 	replGeneration                  uint64
@@ -141,6 +143,7 @@ type nativeModel struct {
 type (
 	nativePoll struct{}
 	nativeRead struct {
+		lsp                 *nativeLSPStatus
 		execution           *nativeExecution
 		executionGeneration uint64
 		agents              *nativeAgentTree
@@ -206,6 +209,7 @@ func (m *nativeModel) read() tea.Cmd {
 	observer, handle, generation, owner := m.observer, m.handle, m.generation, m.owner
 	evidence := m.polls%5 == 0
 	agentsVisible, selectedAgent := m.agentsVisible(), m.agentSelection
+	lspVisible := m.sidebarVisible() && m.openPane() == paneLSP
 	replVisible, replBefore, replFocus, replGeneration := m.replVisible(), m.replBefore, m.replFocus, m.replGeneration
 	m.polls++
 	return func() tea.Msg {
@@ -275,6 +279,13 @@ func (m *nativeModel) read() tea.Cmd {
 			} else {
 				result.evidenceError = errors.Join(result.evidenceError, err)
 			}
+			if lspVisible {
+				current := owner
+				if result.owner != nil {
+					current = *result.owner
+				}
+				result.lsp = readNativeLSP(ctx, m.connection, current)
+			}
 			if agentsVisible {
 				result.agents, err = readNativeAgents(ctx, m.connection, owner, selectedAgent)
 				result.evidenceError = errors.Join(result.evidenceError, err)
@@ -316,6 +327,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectionClick = nativeSelectionClick{}
 	}
 	if mouse, ok := message.(tea.MouseMsg); ok {
+		if command, handled := m.panelMouse(mouse); handled {
+			return m, command
+		}
 		if command, handled := m.selectionMouse(mouse); handled {
 			return m, command
 		}
@@ -377,6 +391,12 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready, m.observer, m.activity = true, value.observer, value.activity
 		if value.owner != nil && value.owner.ID == m.owner.ID && value.owner.ConfigRevision >= m.owner.ConfigRevision {
 			m.owner = *value.owner
+		}
+		if value.lsp != nil && value.lsp.matches(m.owner) {
+			m.lsp = value.lsp
+		}
+		if m.lsp != nil && !m.lsp.matches(m.owner) {
+			m.lsp = nil
 		}
 		m.history.output(value.output)
 		if m.browse != nil && m.browse.transcript.snapshot.Revision != m.history.snapshot.Revision {

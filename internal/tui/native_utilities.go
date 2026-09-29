@@ -33,16 +33,17 @@ Schedules: /schedule list [cursor] · /schedule @every <duration> <text> · /sch
 Instructions: /me · /memory · /permissions
 Integrations: /lsp · /mcp · /browser · /computer · /pwd · /cd <path>
 Agents: /agents [list|open <ID>|stop <ID>|delete <child ID>|revoke <grant ID>]
-Display: /sidebar · /dock · /repl [older|latest|turn <ID>|focus] · /tools expand|collapse · /reasoning on|off · /report
+Display: /sidebar · /panel agents|context|lsp · /dock · /repl [older|latest|turn <ID>|focus] · /tools expand|collapse · /reasoning on|off · /report
 Exit: /quit (accepted host work continues)
 
 Enter sends; Ctrl+J/Shift+Enter inserts a newline; Escape cancels the exact active input.
-Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
+Ctrl+X 1/2/3 expands Agents/Context/LSP; sidebar headings select a panel; wheel scrolls it.
+Click an agent row in the sidebar/dock to open that owner. Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
 Drag selects displayed transcript/input/REPL text; release offers it to the clipboard. Double-click selects a word; triple-click a row.
 Ctrl+E toggles the latest loaded tool output; clicking a tool block toggles that block.
 Ctrl+R toggles REPL; PageUp/PageDown scroll the focused pane; Ctrl+C twice exits.
 Ctrl+P opens commands; Ctrl+O toggles live reasoning. Tab completes commands, @host files, $authorized skills, or host paths.
-Ctrl+X then M/L/N/B/R/T/C/G/S opens model/sessions/clear/sidebar/REPL/theme/compact/rewind or stops a selected child; Y offers the last loaded assistant text to the clipboard.
+Ctrl+X then 1/2/3 changes sidebar panels; Ctrl+X then M/L/N/B/R/T/C/G/S opens model/sessions/clear/sidebar/REPL/theme/compact/rewind or stops a selected child; Y offers the last loaded assistant text to the clipboard.
 Paste collapse is opt-in in /settings; original text is restored before sending.
 Commands act on the displayed owner. Export writes a private local file. Direct shell uses the host's normal permission and receipt path.`
 

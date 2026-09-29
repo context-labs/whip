@@ -185,6 +185,8 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.observer, m.ready, m.cancelling = nil, false, false
 	m.history = nativeTranscript{owner: owner.ID}
 	m.execution = nil
+	m.lsp = nil
+	m.panelOffsets = [3]int{}
 	m.replBefore, m.replFocus = nil, nil
 	m.replFocused = false
 	m.replGeneration++

@@ -51,6 +51,7 @@ var nativeCommandChoices = []nativeCommandChoice{
 	{"/model-for-session", "Select this session's model", true},
 	{"/newer", "Read newer canonical history", true},
 	{"/older", "Read older canonical history", true},
+	{"/panel", "Expand the agents, context, or LSP sidebar", false},
 	{"/permissions", "Inspect permission policy and grants", true},
 	{"/pwd", "Show this owner's host directory", true},
 	{"/queue", "Queue a prompt instead of steering", false},

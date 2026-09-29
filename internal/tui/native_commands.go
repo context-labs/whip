@@ -75,6 +75,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/panel":
+		return m.panelCommand(args)
 	case "/redraft":
 		return m.redraftCommand(args)
 	case "/copy":
