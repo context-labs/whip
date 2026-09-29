@@ -20,7 +20,7 @@ test('creation delivery preserves caller identity and explicit recovery, includi
     result.creation.id = 'MiXeD:Creation';
     return success(request, result);
   }, { clientID: 'creation-client' });
-  const { creation_id, ...params } = fixture('CreateTreeParams');
+  const { creation_id, ...params } = fixture('CreateTreeParams', value => value.creation_id === 'MiXeD:Creation');
   await assert.rejects(client.createTree(params, creation_id), DeliveryError);
   assert.equal(requests.length, 1, 'no hidden retry or regenerated identity');
   const accepted = await client.getTreeCreation(creation_id);
