@@ -108,39 +108,13 @@ func (c ServerConfig) ToolTimeoutDuration() time.Duration {
 }
 
 // Valid reports a config error, if any; "" means usable.
-func (c ServerConfig) Valid() string {
-	if len(c.Command) > 128 || len(c.Env) > 128 || len(c.Headers) > 64 || len(c.URL) > 8192 || len(c.Cwd) > 4096 || len(c.Note) > 4096 || c.StartupTimeout < 0 || c.StartupTimeout > 300 || c.ToolTimeout < 0 || c.ToolTimeout > 300 {
-		return "configuration exceeds bounds"
-	}
-	raw, err := json.Marshal(c)
-	if err != nil || len(raw) > 128<<10 {
-		return "configuration exceeds byte limit"
-	}
-	for index, part := range c.Command {
-		if index == 0 && len(part) == 0 || len(part) > 16384 || strings.ContainsRune(part, 0) {
-			return "invalid command argument"
-		}
-	}
-	for key, value := range c.Env {
-		if len(key) == 0 || len(key) > 256 || len(value) > 16384 || strings.ContainsRune(key+value, 0) {
-			return "invalid environment declaration"
-		}
-	}
-	for key, value := range c.Headers {
-		if len(key) == 0 || len(key) > 256 || len(value) > 16384 || strings.ContainsAny(key+value, "\r\n\x00") {
-			return "invalid header declaration"
-		}
-	}
+func (c ServerConfig) Valid() string { return c.Declaration().Valid() }
 
-	switch {
-	case c.Remote() && len(c.Command) > 0:
-		return "both command and url set"
-	case !c.Remote() && len(c.Command) == 0:
-		return "neither command nor url set"
-	case c.Remote() && c.URL != "" && !strings.HasPrefix(c.URL, "http://") && !strings.HasPrefix(c.URL, "https://"):
-		return "url must start with http:// or https://"
-	}
-	return ""
+// Declaration returns an independent host configuration value. Trust is never
+// serialized; only native discovery can create trusted normalized entries.
+func (c ServerConfig) Declaration() config.Server {
+	c = cloneConfig(c)
+	return config.Server{Origin: c.Origin, Source: c.Source, Command: c.Command, Env: c.Env, Cwd: c.Cwd, URL: c.URL, Headers: c.Headers, Enabled: c.Enabled, Note: c.Note, StartupTimeout: c.StartupTimeout, ToolTimeout: c.ToolTimeout}
 }
 
 var notNameChar = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
@@ -504,6 +478,11 @@ func whipConfigPath() string {
 // shape, defined in the shared declaration leaf) into
 // normalized server configs.
 func FromConfigMap(in map[string]config.Server) map[string]ServerConfig {
+	return NativeConfigs(in, whipConfigPath())
+}
+
+// NativeConfigs accepts the explicit owning host file; it does not discover a default path.
+func NativeConfigs(in map[string]config.Server, source string) map[string]ServerConfig {
 	if len(in) == 0 {
 		return nil
 	}
@@ -523,7 +502,7 @@ func FromConfigMap(in map[string]config.Server) map[string]ServerConfig {
 			ToolTimeout:    c.ToolTimeout,
 		})
 		if value := out[name]; value.Trusted {
-			value.Origin, value.Source = "whip", whipConfigPath()
+			value.Origin, value.Source = "whip", source
 			out[name] = value
 		}
 	}

@@ -33,6 +33,9 @@ func SameContract(a, b any) bool {
 // Definition provenance can differ for an explicitly selected child template;
 // its reference is validated independently against registered declarations.
 func NarrowBindings(ceiling, candidate Configuration) error {
+	if err := narrowMCP(ceiling.MCPServers, candidate.MCPServers); err != nil {
+		return err
+	}
 	for _, name := range candidate.Modules {
 		if !slices.Contains(ceiling.Modules, name) {
 			return fmt.Errorf("%w: host module exceeds initial binding ceiling", ErrInvalid)

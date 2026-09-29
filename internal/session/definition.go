@@ -94,6 +94,7 @@ func (r DefinitionRef) Validate() error {
 }
 
 type Configuration struct {
+	MCPServers      *MCPSelection              `json:"mcp_servers"`
 	Modules         []string                   `json:"modules"`
 	ToolsDefinition *DefinitionRef             `json:"tools_definition"`
 	HooksDefinition *DefinitionRef             `json:"hooks_definition"`
@@ -113,6 +114,7 @@ type Configuration struct {
 // clears. A present Output policy with no schema clears structured output.
 // This avoids recursive merge rules and implicit inheritance of credentials.
 type ConfigPatch struct {
+	MCPServers     *MCPSelection              `json:"mcp_servers"`
 	Modules        []string                   `json:"modules"`
 	AutomaticTitle *bool                      `json:"automatic_title"`
 	GoalsEnabled   *bool                      `json:"goals_enabled"`
@@ -153,6 +155,9 @@ func Builtins() []DefinitionDocument {
 }
 
 func (c Configuration) Clone() Configuration {
+	if c.MCPServers != nil {
+		c.MCPServers = &MCPSelection{All: c.MCPServers.All, Servers: append([]string{}, c.MCPServers.Servers...)}
+	}
 	c.Modules = slices.Clone(c.Modules)
 	if c.ToolsDefinition != nil {
 		c.ToolsDefinition = new(*c.ToolsDefinition)
@@ -204,6 +209,9 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 		if patch.Modules != nil {
 			resolved.Modules = patch.Modules
 		}
+		if patch.MCPServers != nil {
+			resolved.MCPServers = patch.MCPServers
+		}
 		if patch.GoalsEnabled != nil {
 			resolved.GoalsEnabled = *patch.GoalsEnabled
 		}
@@ -247,6 +255,9 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 	}
 	if resolved.Modules == nil {
 		resolved.Modules = hostmodule.Names()
+	}
+	if resolved.MCPServers == nil {
+		resolved.MCPServers = &MCPSelection{All: true, Servers: []string{}}
 	}
 	if resolved.ReportMode == "" {
 		resolved.ReportMode = ReportNotice
@@ -320,7 +331,7 @@ func (c Configuration) Validate() error {
 		return err
 	}
 	return (ConfigPatch{
-		Modules: c.Modules, Compaction: &c.Compaction, Instructions: &c.Instructions, Tools: c.Tools, Children: c.Children,
+		MCPServers: c.MCPServers, Modules: c.Modules, Compaction: &c.Compaction, Instructions: &c.Instructions, Tools: c.Tools, Children: c.Children,
 		Hooks: c.Hooks, Output: &OutputPolicy{Schema: c.OutputSchema},
 	}).Validate()
 }
@@ -328,6 +339,11 @@ func (c Configuration) Validate() error {
 var toolIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 func (p ConfigPatch) Validate() error {
+	if p.MCPServers != nil {
+		if err := p.MCPServers.Validate(); err != nil {
+			return err
+		}
+	}
 	if len(p.Modules) > len(hostmodule.Names()) {
 		return fmt.Errorf("%w: too many host modules", ErrInvalid)
 	}
