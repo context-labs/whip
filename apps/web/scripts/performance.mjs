@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { createSessionView } from '../../../packages/sdk/dist/state.js';
 import { checkComposerReading } from './composer-reading.mjs';
 import { traceInput } from './performance-trace.mjs';
+import { sampleBrowserRetention } from './performance-retention.mjs';
 import { deadline, eventually } from './native-fixture.mjs';
 import { startHistoryFixture } from './native-history-fixture.mjs';
 
@@ -712,11 +713,8 @@ const frame = () =>
   }
   for (const { command } of [...concurrent, { command: live }]) assert.equal((await command.wait(deadline())).turn.state, 'cancelled');
   assert.ok(!(await fixture.effects()).some(text => text.startsWith('accepted-probe-')), 'Cancelled admission probe contacted the provider');
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('HeapProfiler.collectGarbage');
   metrics.browserRetained = {
-    ...(await cdp.send('Runtime.getHeapUsage')),
-    ...(await cdp.send('Memory.getDOMCounters')),
+    ...(await sampleBrowserRetention(context, page)),
     currentTranscriptRows: await page.locator('[data-reading-id]').count(),
   };
   if (desktop) {
@@ -724,7 +722,14 @@ const frame = () =>
     assert.equal(traffic.overflow, false); assert(traffic.maximumObservations <= 16);
     metrics.requestCounts = traffic.requestCounts;
     metrics.desktopTrafficProbe = { retainedRecords: traffic.requests.length, prunedRecords: traffic.prunedRequests, totalFrames: traffic.requestTotal, boundary: 'Full bounded per-method counters; at most 8192 recent metadata records. Timed probes require complete retained intervals.' };
-    metrics.desktopAfterWork = await host.processMemory('after-streams-and-transfer');
+    metrics.desktopAfterWork = await host.processMemory('after-streams-and-transfer-natural');
+  }
+  if (process.env.WHIP_WEB_PERFORMANCE_GC_DIAGNOSTIC === '1') {
+    metrics.garbageCollectionDiagnostic = {
+      boundary: 'Optional forced collection after all natural end-of-work measurements; these values are excluded from memory acceptance.',
+      browserRetained: await sampleBrowserRetention(context, page, { collectGarbage: true }),
+      ...(desktop ? { desktopAfterCollection: await host.processMemory('diagnostic-after-forced-gc') } : {}),
+    };
   }
   assert.equal(requestOverflow, false, 'Performance request counters exceeded bounds');
   metrics.requestCounts ??= requestCounts;

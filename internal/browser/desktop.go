@@ -3,13 +3,11 @@ package browser
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
@@ -39,7 +37,7 @@ func NewDesktopBackend(ctx context.Context, client rod.CDPClient, targetID strin
 		return nil, err
 	}
 	return &desktopBackend{
-		Browser:  &Browser{mode: Mode("desktop"), obtained: ObtainedLive, browser: rb, page: page},
+		Browser:  &Browser{mode: Mode("desktop"), browser: rb, page: page},
 		targetID: targetID, closeTransport: closeTransport,
 	}, nil
 }
@@ -70,56 +68,6 @@ func (b *desktopBackend) UseTab(ctx context.Context, target string) error {
 
 func (b *desktopBackend) UploadFiles(context.Context, string, []string) error {
 	return &DesktopError{Kind: "unsupported_operation", Message: "agent file upload requires authorized byte transfer; filesystem paths are not accepted"}
-}
-
-// Fill uses trusted text insertion, not legacy ASCII native key codes (which
-// are platform-specific and silently lose characters in macOS Electron).
-func (b *desktopBackend) Fill(ctx context.Context, selector, text string) error {
-	return fillDesktop(ctx, b, selector, text)
-}
-
-func fillDesktop(ctx context.Context, b Backend, selector, text string) error {
-	sel, err := json.Marshal(selector)
-	if err != nil {
-		return err
-	}
-	focused, err := b.Eval(ctx, fmt.Sprintf(`(()=>{const e=document.querySelector(%s);if(!e)return false;e.focus();if(typeof e.select==='function')e.select();else{const s=window.getSelection(),r=document.createRange();r.selectNodeContents(e);s.removeAllRanges();s.addRange(r)}return true})()`, sel))
-	if err != nil {
-		return err
-	}
-	if focused != "true" {
-		return fmt.Errorf("fill: element not found: %s", selector)
-	}
-	if text == "" {
-		return b.PressKey(ctx, "Backspace")
-	}
-	return b.TypeText(ctx, text)
-}
-
-func (b *desktopBackend) PressKey(ctx context.Context, key string) error {
-	def, named := keyDefs[key]
-	if !named && utf8.RuneCountInString(key) != 1 {
-		return fmt.Errorf("unknown key %q", key)
-	}
-	p := b.page.Context(ctx)
-	down := proto.InputDispatchKeyEvent{Type: proto.InputDispatchKeyEventTypeKeyDown, Key: key}
-	if named {
-		down.Code, down.WindowsVirtualKeyCode = def.Code, def.Key
-	}
-	if err := down.Call(p); err != nil {
-		return err
-	}
-	if !named || key == " " {
-		if err := b.TypeText(ctx, key); err != nil {
-			return err
-		}
-	} else if def.Text != "" {
-		if err := (proto.InputDispatchKeyEvent{Type: proto.InputDispatchKeyEventTypeChar, Key: key, Code: def.Code, Text: def.Text}).Call(p); err != nil {
-			return err
-		}
-	}
-	down.Type = proto.InputDispatchKeyEventTypeKeyUp
-	return down.Call(p)
 }
 
 // Screenshot enforces physical JPEG pixel bounds after capture. CSS viewport

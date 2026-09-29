@@ -163,12 +163,16 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: WorkspaceDrag
       destination.setAttribute('data-tab-settling', ''); hidden.current = destination;
       const rect = destination.getBoundingClientRect();
       const zoom = element.getBoundingClientRect().width / element.offsetWidth || 1;
-      const animation = element.animate([{ transform: element.style.transform }, { transform: `translate(${rect.left / zoom}px, ${rect.top / zoom}px)` }], {
+      const transform = `translate(${rect.left / zoom}px, ${rect.top / zoom}px)`;
+      const animation = element.animate([{ transform: element.style.transform }, { transform }], {
         duration: prefersReducedMotion() ? 0 : 100, easing: 'ease-out', fill: 'forwards',
       });
       settling.current = animation;
       void animation.finished.catch(() => {}).then(() => {
         if (settling.current !== animation) return;
+        // React can batch this removal with the next drag's presentation. Keep
+        // the settled position, but release the effect before losing its owner.
+        element.style.transform = transform; animation.cancel();
         settling.current = null; releaseHidden(); setPresentation(null);
       });
     });

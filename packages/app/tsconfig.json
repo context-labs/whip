@@ -6,5 +6,5 @@
     "allowImportingTsExtensions": true, "resolveJsonModule": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "../ui/src", "../../apps/web/src"]
+  "include": ["src", "../ui/src", "../../apps/web/src", "../../apps/web/scripts/fixtures"]
 }

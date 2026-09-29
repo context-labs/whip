@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -151,10 +152,7 @@ func OpenNative(ctx, lifetime context.Context, options NativeOptions) (result *N
 	if err = rb.Connect(); err != nil {
 		return nil, errors.New("external browser initialization failed")
 	}
-	base := &Browser{mode: Mode(options.Config.Mode), browser: rb, obtained: ObtainedLive}
-	if options.Config.Mode == "dedicated" || options.Config.Mode == "headless" {
-		base.obtained = ObtainedLaunched
-	}
+	base := &Browser{mode: Mode(options.Config.Mode), browser: rb, closeTransport: connection.Close}
 	if err = base.attachPage(); err != nil {
 		return nil, errors.New("external browser tab acquisition failed")
 	}
@@ -162,7 +160,7 @@ func OpenNative(ctx, lifetime context.Context, options NativeOptions) (result *N
 	connection.Backend = base
 	if options.Driver == DriverChromedp {
 		executor := &desktopExecutor{ctx: owned, client: connection.wire, sessionID: string(base.page.SessionID)}
-		connection.Backend = &nativeChromeDP{chromedpBackend: &chromedpBackend{mode: base.mode, obtained: base.obtained, executor: executor}, control: base, executor: executor}
+		connection.Backend = &nativeChromeDP{chromedpBackend: &chromedpBackend{mode: base.mode, executor: executor}, control: base, executor: executor}
 	}
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -175,6 +173,8 @@ type nativeChromeDP struct {
 	control  *Browser
 	executor *desktopExecutor
 }
+
+func (b *nativeChromeDP) Close() error { return b.control.Close() }
 
 func (b *nativeChromeDP) Tabs(ctx context.Context) ([]Tab, error) { return b.control.Tabs(ctx) }
 func (b *nativeChromeDP) UseTab(ctx context.Context, target string) error {
@@ -284,6 +284,11 @@ func (c *NativeConnection) launch(ctx context.Context, options NativeOptions) (s
 		return "", err
 	}
 	args := []string{"--user-data-dir=" + profile, "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "about:blank"}
+	// These profiles are private automation state, never an existing user profile.
+	// Avoid consulting the user's Keychain (and its blocking permission prompt).
+	if runtime.GOOS == "darwin" {
+		args = append(args, "--use-mock-keychain")
+	}
 	if options.Config.Mode == "headless" {
 		args = append(args, "--headless=new")
 	}

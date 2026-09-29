@@ -76,7 +76,7 @@ func TestNativeLiveBothDriversNoFallbackOrReplay(t *testing.T) {
 			if err != nil || value != `"Example"` {
 				t.Fatalf("%s %v", value, err)
 			}
-			if connection.Mode() != ModeLive || connection.Obtained() != ObtainedLive {
+			if connection.Mode() != ModeLive {
 				t.Fatal("mode changed")
 			}
 			if err := connection.Close(); err != nil {

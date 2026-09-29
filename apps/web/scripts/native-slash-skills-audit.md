@@ -101,3 +101,40 @@ once without another submission. It fails against the preceding transport and
 passes after the repair; all3 transport tests pass.
 
 Actual repaired matrix: `WHIP_SLASH_SKILLS_RESULTS=/tmp/whip-native-slash-readiness-results node apps/web/scripts/slash-skills.mjs` passed all14workflow groups in both Chromium153.0.8010.12 and Firefox155.0. Production renderer digest remained `85b21e7e63c3226d8f683ca46cfe6e4c43ba527466a228730fb8c60f00d934d9`; no product source changed. Both browsers report zero page/CSP/proxy errors and retained metadata within the existing bound. All owned browser/runtime processes joined. This repairs the observed admission-readiness assumption; it does not claim unrelated hosted timing issues are fixed.
+
+## Completion selection race (2026-09-29)
+
+Hosted run36581778862, conversation job109451533933, passed the admission-readiness
+boundary above, then failed the unchanged Escape assertion at native runner
+line264: replacing the selected `$accept-alpine ` completion with `/accept-al`
+produced `$accept-alpine /accept-al`. This is a separate product selection race.
+The completion hook deferred caret restoration to an animation frame. A newer
+select-all could occur while the text still matched that callback's value guard;
+the callback then collapsed the newer range before replacement text arrived.
+
+The hook now restores the insertion caret during the controlled value's layout
+commit, with the existing exact scope, element, value and focus guards. It leaves
+no later animation callback that can override a subsequent selection. The
+pending restoration is discarded when blocked, disconnected or mismatched.
+Catalog reads, keyboard filtering, submission rules and ownership are unchanged.
+Two deterministic regressions fail against the previous implementation for mouse
+and keyboard completion, then pass with the fix: a newer select-all survives and
+replacement produces exactly `/accept-al`, without submitting. Two further
+regressions prove immediate middle-of-text editing for session and global drafts.
+
+Executed on base0265ab26cb71cf98754302f8187b5800c183832e plus this repair:
+
+- Four focused completion suites:71testsPASS; full shared-app TypeScript check
+  and `npm run pack:web`PASS. Red regression evidence is retained in
+  `/tmp/whip-native-slash-selection-red.log`.
+- `WHIP_SLASH_SKILLS_RESULTS=/tmp/whip-native-slash-selection-results node apps/web/scripts/slash-skills.mjs`:
+  Chromium153.0.8010.12 and Firefox155.0 each passed all14 original workflow
+  groups. No browser assertion, geometry check or deadline changed.
+- Production renderer digest
+  `3e18ccd8ca5376ea08892974771b1fff9faf6ab8cc0987483fc84656206f04f2`.
+  Both reports contain zero page/CSP errors; metadata evidence is458,661 and
+  464,341bytes within the existing bound. Proxy retirement checks passed and all
+  owned browser/runtime processes joined.
+
+This proves the repaired completion race locally; a fresh hosted run remains
+separate evidence. It makes no Safari, signed Desktop or latency claim.

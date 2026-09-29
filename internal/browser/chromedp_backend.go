@@ -1,7 +1,5 @@
-// chromedp.go implements the Backend interface on chromedp — the spike
-// driver for the head-to-head against rod (.ai-docs/plans/chromedp-spike).
-// Same raw-CDP posture as the rod backend: most methods are thin wrappers
-// over cdproto calls run through chromedp.Run on a target-bound context.
+// ChromeDP operations execute over the same captured, bounded native transport
+// as Rod. The native owner controls acquisition, revocation and process lifetime.
 
 package browser
 
@@ -10,9 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
@@ -24,87 +22,14 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-// chromedpBackend holds a chromedp allocator (browser-level) plus a
-// target-bound context for the controlled tab.
+// chromedpBackend executes exclusively through a captured native transport.
 type chromedpBackend struct {
-	executor  cdp.Executor
-	mode      Mode
-	allocCtx  context.Context
-	allocStop context.CancelFunc
-	targetCtx context.Context
-	targetOff context.CancelFunc
-	closed    bool
-	obtained  Obtained
-}
-
-// openChromedp connects per mode: live attaches via the discovered WS URL
-// (remote allocator), falling back hermes-style to a launched dedicated
-// instance when none is debuggable; dedicated/headless reattach to a
-// still-running whipcode Chrome for the profile, else launch via the default
-// allocator (chromedp's own launcher, headed off in headless mode).
-func openChromedp(ctx context.Context, mode Mode, sessionName string, env []string) (*chromedpBackend, error) {
-	b := &chromedpBackend{mode: mode}
-	var allocCtx context.Context
-	var cancel context.CancelFunc
-	switch mode {
-	case ModeLive:
-		ws, err := DiscoverLiveWS(ctx)
-		if err != nil {
-			if !errors.Is(err, ErrNoLiveBrowser) {
-				return nil, err
-			}
-			return openChromedp(ctx, ModeDedicated, sessionName, env) // fallback
-		}
-		allocCtx, cancel = chromedp.NewRemoteAllocator(ctx, ws)
-		b.obtained = ObtainedLive
-	case ModeDedicated, ModeHeadless:
-		if env != nil {
-			return nil, errors.New("chromedp cannot launch with an isolated environment; use the rod driver")
-		}
-		// Note: chromedp dedicated does NOT reattach — Close kills its Chrome
-		// (ExecAllocator cancel kills the process; there's no detach-only
-		// path as with rod). A prior detached dedicated Chrome belongs to the
-		// rod driver; chromedp just launches fresh.
-		opts := append(chromedp.DefaultExecAllocatorOptions[:],
-			chromedp.Flag("headless", mode == ModeHeadless),
-			chromedp.Flag("remote-debugging-port", "0"), // string — int hits "invalid exec pool flag"
-		)
-		if home, err := os.UserHomeDir(); err == nil {
-			opts = append(opts, chromedp.UserDataDir(dedicatedProfileDir(home, sessionName)))
-		}
-		if bin := os.Getenv("ROD_BROWSER_BIN"); bin != "" { // same override hook
-			opts = append(opts, chromedp.ExecPath(bin))
-		}
-		allocCtx, cancel = chromedp.NewExecAllocator(ctx, opts...)
-		b.obtained = ObtainedLaunched
-	default:
-		return nil, fmt.Errorf("unknown browser mode %q", mode)
-	}
-	b.allocCtx, b.allocStop = allocCtx, cancel
-
-	targetCtx, targetOff := chromedp.NewContext(allocCtx)
-	b.targetCtx, b.targetOff = targetCtx, targetOff
-	// Ensure the browser + first tab exist.
-	if err := chromedp.Run(targetCtx); err != nil {
-		_ = b.Close()
-		return nil, fmt.Errorf("chromedp connect: %w", err)
-	}
-	return b, nil
+	executor cdp.Executor
+	mode     Mode
 }
 
 func (b *chromedpBackend) run(ctx context.Context, actions ...chromedp.Action) error {
-	if b.executor != nil {
-		return chromedp.Tasks(actions).Do(cdp.WithExecutor(ctx, b.executor))
-	}
-	// chromedp.Run executes on the target-bound context; the caller's ctx
-	// bounds it via a deadline wrap when present.
-	c := b.targetCtx
-	if d, ok := ctx.Deadline(); ok {
-		var off context.CancelFunc
-		c, off = context.WithDeadline(b.targetCtx, d)
-		defer off()
-	}
-	return chromedp.Run(c, actions...)
+	return chromedp.Tasks(actions).Do(cdp.WithExecutor(ctx, b.executor))
 }
 
 func (b *chromedpBackend) Info(ctx context.Context) (PageInfo, error) {
@@ -126,10 +51,25 @@ func (b *chromedpBackend) Info(ctx context.Context) (PageInfo, error) {
 }
 
 func (b *chromedpBackend) Navigate(ctx context.Context, url string) error {
-	if err := b.run(ctx, chromedp.Navigate(url)); err != nil {
+	if err := b.navigate(ctx, url); err != nil {
 		return err
 	}
 	return b.WaitLoad(ctx)
+}
+
+// navigate uses the captured executor directly. chromedp.Navigate requires an
+// allocator-owned target context, which neither native nor Desktop borrows.
+func (b *chromedpBackend) navigate(ctx context.Context, url string) error {
+	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		_, _, failure, _, err := page.Navigate(url).Do(ctx)
+		if err != nil {
+			return err
+		}
+		if failure != "" {
+			return errors.New("browser navigation failed")
+		}
+		return nil
+	}))
 }
 
 func (b *chromedpBackend) Back(ctx context.Context) error {
@@ -208,85 +148,33 @@ func (b *chromedpBackend) TypeText(ctx context.Context, text string) error {
 	}))
 }
 
-// cdKeys mirrors the rod backend's keyDefs table.
-var cdKeys = map[string]struct {
-	code string
-	key  int64
-	text string
-}{
-	"Enter":      {"Enter", 13, "\r"},
-	"Tab":        {"Tab", 9, "\t"},
-	"Backspace":  {"Backspace", 8, ""},
-	"Escape":     {"Escape", 27, ""},
-	"Delete":     {"Delete", 46, ""},
-	" ":          {"Space", 32, " "},
-	"ArrowLeft":  {"ArrowLeft", 37, ""},
-	"ArrowUp":    {"ArrowUp", 38, ""},
-	"ArrowRight": {"ArrowRight", 39, ""},
-	"ArrowDown":  {"ArrowDown", 40, ""},
-	"Home":       {"Home", 36, ""},
-	"End":        {"End", 35, ""},
-	"PageUp":     {"PageUp", 33, ""},
-	"PageDown":   {"PageDown", 34, ""},
-}
-
 func (b *chromedpBackend) PressKey(ctx context.Context, key string) error {
-	def, ok := cdKeys[key]
-	if !ok && len(key) == 1 {
-		def = struct {
-			code string
-			key  int64
-			text string
-		}{key, int64(key[0]), key}
-		ok = true
-	}
-	if !ok {
+	def, named := keyDefs[key]
+	if !named && utf8.RuneCountInString(key) != 1 {
 		return fmt.Errorf("unknown key %q", key)
 	}
-	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		down := &input.DispatchKeyEventParams{
-			Type:                  input.KeyDown,
-			Key:                   key,
-			Code:                  def.code,
-			WindowsVirtualKeyCode: def.key,
-			NativeVirtualKeyCode:  def.key,
-		}
-		if err := down.Do(ctx); err != nil {
+	down := input.DispatchKeyEvent(input.KeyDown).WithKey(key)
+	if named {
+		down = down.WithCode(def.Code).WithWindowsVirtualKeyCode(int64(def.Key))
+	}
+	if err := b.run(ctx, down); err != nil {
+		return err
+	}
+	if !named || key == " " {
+		if err := b.TypeText(ctx, key); err != nil {
 			return err
 		}
-		if def.text != "" {
-			ch := &input.DispatchKeyEventParams{Type: input.KeyChar, Text: def.text, Key: key, Code: def.code}
-			if err := ch.Do(ctx); err != nil {
-				return err
-			}
+	} else if def.Text != "" {
+		if err := b.run(ctx, input.DispatchKeyEvent(input.KeyChar).WithKey(key).WithCode(def.Code).WithText(def.Text)); err != nil {
+			return err
 		}
-		up := &input.DispatchKeyEventParams{Type: input.KeyUp, Key: key, Code: def.code, WindowsVirtualKeyCode: def.key, NativeVirtualKeyCode: def.key}
-		return up.Do(ctx)
-	}))
+	}
+	down.Type = input.KeyUp
+	return b.run(ctx, down)
 }
 
 func (b *chromedpBackend) Fill(ctx context.Context, selector, text string) error {
-	sel, _ := json.Marshal(selector)
-	focused, err := b.Eval(ctx, fmt.Sprintf(`(()=>{const e=document.querySelector(%s);if(!e)return false;e.focus();return true})()`, sel))
-	if err != nil {
-		return err
-	}
-	if focused != "true" {
-		return fmt.Errorf("fill: element not found: %s", selector)
-	}
-	if _, err := b.Eval(ctx, fmt.Sprintf(`(()=>{const e=document.querySelector(%s);if(!e)return;const s=window.getSelection(),r=document.createRange();e.select&&e.select();r.selectNodeContents(e);s.removeAllRanges();s.addRange(r)})()`, sel)); err != nil {
-		return err
-	}
-	if err := b.PressKey(ctx, "Backspace"); err != nil {
-		return err
-	}
-	for _, ch := range text {
-		if err := b.PressKey(ctx, string(ch)); err != nil {
-			return err
-		}
-	}
-	_, err = b.Eval(ctx, fmt.Sprintf(`(()=>{const e=document.querySelector(%s);if(!e)return;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`, sel))
-	return err
+	return fillInput(ctx, b, selector, text)
 }
 
 func (b *chromedpBackend) Scroll(ctx context.Context, dy float64) error {
@@ -451,13 +339,6 @@ func (b *chromedpBackend) Tabs(ctx context.Context) ([]Tab, error) {
 	return out, nil
 }
 
-func (b *chromedpBackend) UseTab(ctx context.Context, targetID string) error {
-	b.targetOff()
-	targetCtx, targetOff := chromedp.NewContext(b.allocCtx, chromedp.WithTargetID(target.ID(targetID)))
-	b.targetCtx, b.targetOff = targetCtx, targetOff
-	return chromedp.Run(targetCtx)
-}
-
 func (b *chromedpBackend) UploadFiles(ctx context.Context, selector string, paths []string) error {
 	var nodeID cdp.NodeID
 	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
@@ -479,37 +360,8 @@ func (b *chromedpBackend) UploadFiles(ctx context.Context, selector string, path
 	}))
 }
 
-// chromedp's ExecAllocator kills Chrome when its context is cancelled —
-// there's no detach-only path as there is with rod (see detach.go), and
-// whip's default driver is rod. So chromedp dedicated keeps kill-on-Close
-// semantics and does NOT reattach: reattach is a rod-driver behavior. This
-// preserves chromedp's role as the spike backup without the reflection
-// machinery the rod detach requires.
-func (b *chromedpBackend) Close() error {
-	if b.closed {
-		return nil
-	}
-	b.closed = true
-	if b.targetOff != nil {
-		b.targetOff()
-	}
-	if b.allocStop != nil {
-		b.allocStop() // cancels + Allocator.Wait
-	}
-	// The allocator's Wait returns before the Chrome process has fully
-	// exited; give it a beat so profile dirs are releasable (tests clean
-	// up TempDirs right after Close; real sessions can relaunch).
-	if b.mode != ModeLive {
-		time.Sleep(150 * time.Millisecond)
-	}
-	return nil
-}
-
 // Mode returns the backend's mode.
 func (b *chromedpBackend) Mode() Mode { return b.mode }
-
-// Obtained reports how this connection was established (Backend).
-func (b *chromedpBackend) Obtained() Obtained { return b.obtained }
 
 // HandleDialog answers a pending native dialog. chromedp surfaces dialogs
 // through page events; answer the current one if any.

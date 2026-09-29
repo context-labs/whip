@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
-	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/page"
-	"github.com/chromedp/chromedp"
 	"github.com/go-rod/rod"
 )
 
@@ -24,7 +21,7 @@ func NewDesktopChromeDPBackend(ctx context.Context, client rod.CDPClient, target
 	}
 	lifetime, cancel := context.WithCancel(ctx)
 	b := &desktopChromeDP{ctx: lifetime, cancel: cancel, targetID: targetID, closeTransport: closeTransport}
-	b.chromedpBackend = &chromedpBackend{mode: Mode("desktop"), obtained: ObtainedLive, executor: &desktopExecutor{ctx: lifetime, client: client, sessionID: attachmentID}}
+	b.chromedpBackend = &chromedpBackend{mode: Mode("desktop"), executor: &desktopExecutor{ctx: lifetime, client: client, sessionID: attachmentID}}
 	b.events.Go(func() {
 		defer cancel()
 		for {
@@ -129,16 +126,7 @@ func (b *desktopChromeDP) Info(ctx context.Context) (PageInfo, error) {
 }
 
 func (b *desktopChromeDP) Navigate(ctx context.Context, url string) error {
-	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		_, _, failure, _, err := page.Navigate(url).Do(ctx)
-		if err != nil {
-			return err
-		}
-		if failure != "" {
-			return errors.New("browser navigation failed")
-		}
-		return nil
-	}))
+	err := b.navigate(ctx, url)
 	if err != nil {
 		return err
 	}
@@ -180,35 +168,6 @@ func (b *desktopChromeDP) UseTab(ctx context.Context, target string) error {
 
 func (*desktopChromeDP) UploadFiles(context.Context, string, []string) error {
 	return &DesktopError{Kind: "unsupported_operation", Message: "agent file upload requires authorized byte transfer; filesystem paths are not accepted"}
-}
-
-func (b *desktopChromeDP) Fill(ctx context.Context, selector, text string) error {
-	return fillDesktop(ctx, b, selector, text)
-}
-
-func (b *desktopChromeDP) PressKey(ctx context.Context, key string) error {
-	def, named := keyDefs[key]
-	if !named && utf8.RuneCountInString(key) != 1 {
-		return fmt.Errorf("unknown key %q", key)
-	}
-	down := input.DispatchKeyEvent(input.KeyDown).WithKey(key)
-	if named {
-		down = down.WithCode(def.Code).WithWindowsVirtualKeyCode(int64(def.Key))
-	}
-	if err := b.run(ctx, down); err != nil {
-		return err
-	}
-	if !named || key == " " {
-		if err := b.TypeText(ctx, key); err != nil {
-			return err
-		}
-	} else if def.Text != "" {
-		if err := b.run(ctx, input.DispatchKeyEvent(input.KeyChar).WithKey(key).WithCode(def.Code).WithText(def.Text)); err != nil {
-			return err
-		}
-	}
-	down.Type = input.KeyUp
-	return b.run(ctx, down)
 }
 
 func (b *desktopChromeDP) Screenshot(ctx context.Context, maxDim int) ([]byte, error) {

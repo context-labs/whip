@@ -3,22 +3,23 @@ package browser
 import (
 	"context"
 	"fmt"
-	"net"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/context-labs/whip/internal/browser/extrelay"
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/go-rod/rod"
 )
 
-// TestExtensionRealChrome is the goal's acceptance path: a real Chrome with
+// TestExtensionRealChrome is an explicit private extension acceptance path: a real Chrome with
 // the whipcode extension loaded (autoAttach pins the active tab — no human
 // click), driven through the chrome.debugger tunnel via the relay, using
-// whip's real *Browser (the Backend browser_exec calls) against a live page.
+// whip's real *Browser (the Backend native batches call) against a live page.
 //
 // Branded Google Chrome ignores --load-extension ("not allowed in Google
 // Chrome" in its logs), so this uses Chrome for Testing (Playwright's full
@@ -30,7 +31,7 @@ func TestExtensionRealChrome(t *testing.T) {
 	}
 	bin := chromeForTestingPath()
 	if bin == "" {
-		t.Skip("Chrome for Testing not installed (npx playwright install chromium --no-shell)")
+		t.Skip("set WHIP_BROWSER_NATIVE_TEST_EXTENSION=1 and explicit private WHIP_BROWSER_NATIVE_TEST_BINARY for the headed extension fixture")
 	}
 
 	rel, err := extrelay.NewRelay()
@@ -52,30 +53,23 @@ func TestExtensionRealChrome(t *testing.T) {
 
 	url := testPage(t)
 	prof := t.TempDir()
-	portLn, err := net.Listen("tcp", "127.0.0.1:0")
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	manager := capability.NewProcessManager()
+	defer manager.Close()
+	args := []string{"--user-data-dir=" + prof, "--load-extension=" + dir, "--disable-extensions-except=" + dir, "--no-first-run", "--no-default-browser-check", "--app=" + url + "/set-cookie"}
+	if runtime.GOOS == "darwin" {
+		args = append(args, "--use-mock-keychain")
+	}
+	info, err := os.Stat(prof)
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := portLn.Addr().(*net.TCPAddr).Port
-	portLn.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin,
-		fmt.Sprintf("--remote-debugging-port=%d", port),
-		"--user-data-dir="+prof,
-		"--load-extension="+dir,
-		"--disable-extensions-except="+dir,
-		"--no-first-run", "--no-default-browser-check",
-		"--app="+url+"/set-cookie",
-	)
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("launch chrome: %v", err)
+	process, err := manager.Start(ctx, "extension-test", bin, args, capability.ProcessOptions{Cwd: prof, CwdIdentity: info, Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard})
+	if err != nil {
+		t.Fatalf("launch private extension Chrome: %v", err)
 	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	}()
+	defer func() { process.Stop(); _ = process.Wait() }()
 
 	// Wait for the extension to pin a tab and connect to the relay.
 	if err := rel.WaitAttached(ctx); err != nil {
@@ -86,10 +80,14 @@ func TestExtensionRealChrome(t *testing.T) {
 	}
 	t.Log("extension attached to relay")
 
-	// Drive whip's real Backend through the relay (same wiring openExtension
+	// Drive whip's real Backend through the relay (same explicit transport OpenNative
 	// uses, against this test relay).
-	b := &Browser{mode: ModeExtension, obtained: ObtainedLive}
-	b.browser = rod.New().ControlURL(rel.CDPURL())
+	wire, err := dialNativeWire(ctx, ctx, rel.CDPURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Browser{mode: ModeExtension, closeTransport: wire.Close}
+	b.browser = rod.New().Context(ctx).Client(wire)
 	if err := b.browser.Connect(); err != nil {
 		t.Fatalf("connect through relay: %v", err)
 	}
@@ -114,7 +112,7 @@ func TestExtensionRealChrome(t *testing.T) {
 	}
 	t.Log("pinned tab is the test page")
 
-	// The goal's action set, against the real page through the tunnel.
+	// The retained action set, against the real page through the tunnel.
 	if err := b.Navigate(ctx, url+"/set-cookie"); err != nil {
 		t.Errorf("Navigate: %v", err)
 	}

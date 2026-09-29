@@ -36,6 +36,16 @@ try {
       await page.addInitScript(() => {
         window.__cspErrors = [];
         document.addEventListener('securitypolicyviolation', event => window.__cspErrors.push(`${event.violatedDirective}: ${event.blockedURI}`));
+        window.__previewAnimations = [];
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (...args) {
+          const animation = animate.apply(this, args);
+          if (window.__recordPreviewAnimations && this.hasAttribute('data-workspace-drag-preview')) {
+            if (window.__previewAnimations.length >= 16) throw new Error('Unbounded preview animations');
+            window.__previewAnimations.push(animation);
+          }
+          return animation;
+        };
       });
       const visit = async (theme = 'dark') => { await page.goto(`${origin}/?theme=${theme}`); await expect(page.getByRole('tabpanel')).toHaveCount(3); await expect(page.getByLabel('Compact layout')).toHaveText('false'); };
       const tab = value => page.locator(`[role="tab"][id="whip-workspace-tab-${value}"]`);
@@ -77,13 +87,20 @@ try {
       await expect(page.getByRole('menu')).toHaveCount(0);
       await expect(page.locator('[data-workspace-frame]')).toHaveCount(2);
       // This transfer prunes the source pane and remounts the surviving left header.
+      await page.evaluate(() => { window.__recordPreviewAnimations = true; });
       for (let attempt = 0; attempt < 3; attempt++) {
         const target = await tab('beta').boundingBox();
         await drag('delta', { x: target.x + 30, y: target.y + 12 });
         await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
         await page.keyboard.press('Escape'); await page.mouse.up();
-      await expect(page.locator('[data-dragging]')).toHaveCount(0);
+        await expect(page.locator('[data-dragging]')).toHaveCount(0);
+        await expect(page.locator('[data-workspace-drag-preview]')).toHaveCount(0);
+        assert.equal(await page.evaluate(() => {
+          const animations = window.__previewAnimations.splice(0);
+          return animations.length > 0 && animations.every(animation => animation.playState === 'idle');
+        }), true, 'Finished preview animations retained their fill after the drag ended');
       }
+      await page.evaluate(() => { window.__recordPreviewAnimations = false; });
       // Pointer transfer uses one shared drag context and retains the selected view.
       await visit();
       await page.evaluate(() => { window.__draft = document.querySelector('[aria-label="Draft alpha"]'); });
@@ -253,6 +270,22 @@ try {
           window.__edgeDraft = document.querySelector('textarea[aria-label="Draft gamma"]');
           window.__edgeScroll = document.querySelector('[data-view-scroll="gamma"]');
           window.__edgeScroll.scrollTop = 160;
+          // Observe every committed width, including styles replaced before the next paint.
+          const section = window.__edgeScroll.closest('[data-workspace-view]');
+          let minimumWidth = parseFloat(section.style.width);
+          const record = style => {
+            const width = /(?:^|;)\s*width:\s*([\d.]+)px/.exec(style ?? '');
+            if (width) minimumWidth = Math.min(minimumWidth, Number(width[1]));
+          };
+          const consume = records => {
+            for (const entry of records) record(entry.oldValue);
+            record(section.getAttribute('style'));
+          };
+          const observer = new MutationObserver(consume);
+          observer.observe(section, { attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+          window.__finishEdgeGeometry = () => {
+            consume(observer.takeRecords()); observer.disconnect(); return minimumWidth;
+          };
         });
         await externalDrag(await edgePoint('two', edge));
         await expect(page.locator(`[data-workspace-drop="${edge}"]`)).toBeVisible();
@@ -269,6 +302,8 @@ try {
           : edge === 'right' ? oldBox.x + oldBox.width <= newBox.x + 1
           : edge === 'top' ? newBox.y + newBox.height <= oldBox.y + 1
           : oldBox.y + oldBox.height <= newBox.y + 1, `${edge}: wrong split placement`);
+        assert((await page.evaluate(() => window.__finishEdgeGeometry())) >= 320,
+          `${edge}: split registration temporarily collapsed the existing reading pane`);
         assert.equal(await page.evaluate(() => window.__edgeDraft === document.querySelector('textarea[aria-label="Draft gamma"]')
           && window.__edgeScroll === document.querySelector('[data-view-scroll="gamma"]')
           && window.__edgeScroll.scrollTop === 160), true, `${edge}: original view remounted or lost reading position`);

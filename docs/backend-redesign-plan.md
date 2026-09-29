@@ -367,7 +367,9 @@ permanent skip lists, blanket retries, and compatibility shims built just to kee
 old assertions alive. `go test -run` still compiles all tests in selected packages;
 remove or port obsolete tests that no longer compile.
 
-Maintain one compact table here as families are addressed:
+Current family disposition (2026-09-29, through `0265ab26c`). “Implemented” is
+not phase completion; exact checkpoint results and remaining requirements are in
+[the current gate audit](backend-native-gate-audit.md#current-acceptance-snapshot).
 
 | Feature/test family | Guarantee retained or retirement decision | Replacement evidence | Target phase / status |
 | --- | --- | --- | --- |
@@ -378,22 +380,22 @@ Maintain one compact table here as families are addressed:
 | Reusable capacity | Shared subtree admission and lifecycle release; old per-target queue semantics intentionally replaced with ancestor aggregation | `store/resources_test.go`, `runtime/resources_test.go`, `rpc/resources_test.go`, turn-permit race tests, both-engine recursion and SDK restart fixture; counters derived rather than repaired | 4 implemented |
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the audited evidence-sharing obligation | 4 complete; repair passes local and hosted Linux/macOS gates |
-| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds, bounded context-rejection recovery, fork/rewind and separate scoped workspace actions implemented; integrated workspace validation in progress | 3 complete; 5 in progress |
+| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines, immutable summaries/pins and incremental image-bearing compaction have native runner/store/runtime evidence; history and workspace controls are mounted in supported clients | 3 complete; 5 final acceptance open |
 | Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling, reasoning previews and stateless helpers/batch implemented; live-provider smoke remains | 5 in progress |
-| Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement and durable formulation implemented; product-client adoption remains | 5 in progress |
-| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; independent Inference.net credential manager and explicit gateway binding implemented. Explicit env/file/command/no-auth API sources and bounded Inference.net device/team/project/key flows with public RPC/SDK implemented. Pasted/named-key setup, scoped catalogs/readiness and explicit live defaults now have tested core/RPC/SDK checkpoints and passing integrated phase/analysis gates; product clients remain | 5–6 in progress |
-| Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Immediate authored fallback, immutable decisions, captured maintenance helper and billed candidate/tree CAS implemented with RPC/SDK and both-engine crash evidence; integrated phase/analysis gates passed after queue-clock/process-shutdown repairs; hosted validation and product title observation remain | 5–6 in progress |
+| Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Ordinary-input admission, continuation/cursor settlement, restart and both-engine fixtures; shared/mobile/terminal controls use the native services | 5 implemented; final gates open |
+| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | One host authority owns API sources, ChatGPT and Inference.net flows, catalogs/defaults and CAS. Shared Settings/onboarding and native terminal setup are integrated; real-account evidence remains separate | 5–6 implemented; live evidence open |
+| Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Captured maintenance accounting/tree CAS, restart tests and native session-title browser probes cover catalog observation | 5–6 implemented; final gates open |
 | Fork/rewind/workspace | Revision/tail CAS, recoverable identities, scoped imports, empty REPL, separate uncertain workspace effects | Public rewind passes local and hosted gates; bounded fork core, imported runner context and RPC/SDK pass local phase/analysis gates and process acceptance. Fork hosted validation passed; separate workspace capture/restore/release pass integrated phase/analysis gates and process acceptance | 5 in progress |
 | Definition modules and executors | Captured declarations, connection-bound handlers, schema validation and child authority | Immutable module/tool/hook ceilings, exact separate provenance, captured turn enforcement, child narrowing, empty worker bindings and alias/model/restart preservation pass full phase/analysis. Live exact-definition executors, bounded persistent peer transport and both-engine schema/lifetime acceptance are implemented | 5 |
-| Required/optional hooks | Validated bounded rewrites and explicit disconnect/failure behavior | Required denial/unavailability, optional skipped evidence, validated rewrites, child-policy recheck, cancellation and connection-loss replacement coverage implemented; browser persistent SDK transport follows | 5 |
-| Human questions and permission modes | Questions/dismissal/cancellation, durable pending snapshots, saved Ask/Full Access semantics | Root-only questions now use durable ordinary operation intent/answer, bounded live wait, exact answer retries and interruption closure, with Go/RPC/SDK and both-engine fixture coverage; integrated phase/analysis gates passed. Saved root policy, exact edit receipts, host defaults, captured dispatch revision and LSP retirement interaction are integrated; expanded phase/analysis gates pass and product clients remain | 5 |
-| Workspace files and language services | List/search/read/write/patch, path revalidation and mutation ordering | Bounded list/search/read/write/patch and separate standing/explicit diagnostic operations integrated; captured content, workspace identity, child revocation and joined LSP lifetimes covered. Expanded phase/analysis gates pass; saved-mode interaction follows separately | 5 in progress |
-| Agent shell and human terminals | Background jobs and PTYs have separate ownership, bounded output, detach/replay and joined shutdown | Session shell foreground/jobs and exact-operation interactive input implemented with real-process cancellation, output/content bounds and joined groups; independent human terminal controls implemented with process-epoch identities, bounded ring reads and joined shutdown; direct human action audit remains | 5 |
-| MCP | Configuration/import trust, bounded discovery, delegated catalogs, refresh/reconnect without unrelated state loss | Native captured selection, delegated discovery, trusted versus explicit-consent calls, fingerprinted imports, bounded connections/results and public controls implemented; typed image-to-model handoff follows | 5 |
-| Browser/computer/native helper | Human resource ownership separate from revocable agent access; no reconnect replay | Computer/helper wiring, typed images, captured browser authority and connection-bound public browser peers implemented against fake helpers; atomic child transfer, desktop bridge adoption and actual native platform evidence remain pending | 5 |
-| Host/gateway trust | Socket execution owner, Host/Origin validation, network restrictions and scoped content | New pure v4 gateway, exact Host/Origin checks, pinned runtime/epoch/network handshake, server-side human-terminal restrictions, bounded scoped HTTP content and browser SDK transport implemented with passing focused/production fixtures; persistent browser executors implemented with bounded duplex transport; product assets/adoption remain | 5–6 |
-| All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; shared app host/recovery/settings/transcript adoption is underway; complete desktop/mobile/CLI/TUI/ACP migration remains | 2 complete; 6 in progress |
-| Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
+| Required/optional hooks | Validated bounded rewrites and explicit disconnect/failure behavior | Validated rewrites, required denial/unavailability, optional skipped evidence, child-policy recheck and connection-loss tests; persistent Node/browser SDK executor transport is integrated | 5 implemented; final gates open |
+| Human questions and permission modes | Questions/dismissal/cancellation, durable pending snapshots, saved Ask/Full Access semantics | Root-only questions, exact pending decisions, saved policy, scoped standing grants and child delegation have Go/RPC/SDK and supported-client coverage | 5–6 implemented; final gates open |
+| Workspace files and language services | List/search/read/write/patch, path revalidation and mutation ordering | Bounded files/diagnostics, captured cwd, saved-mode interaction, revocation and joined LSP lifetime tests; workspace/run controls and passive terminal inspection are integrated | 5 implemented; final gates open |
+| Agent shell and human terminals | Background jobs and PTYs have separate ownership, bounded output, detach/replay and joined shutdown | Native foreground/jobs, typed direct human actions, exact interactive input and separate human PTYs; compiled CLI, terminal and staged Desktop fixtures cover owned cleanup | 5–6 implemented; final gates open |
+| MCP | Configuration/import trust, bounded discovery, delegated catalogs, refresh/reconnect without unrelated state loss | Native configuration/import trust, captured generations, delegated discovery, typed image results and explicit controls; real self-host and SDK/process fixtures replace old Handler/bridge paths | 5 implemented; final gates open |
+| Browser/computer/native helper | Human resource ownership separate from revocable agent access; no reconnect replay | Offered Desktop tabs, external Chrome modes, atomic child transfer, typed images and human controls are integrated across clients. Both ambient wrappers are removed; native driver/lifetime evidence remains, with opt-in platform checks separate | 5–6 implemented; platform evidence open |
+| Host/gateway trust | Socket execution owner, Host/Origin validation, network restrictions and scoped content | Native socket/gateway identity, Host/Origin/network restrictions, scoped content, persistent executors and production assets are integrated; compiled web and staged Desktop fixtures cover ownership | 5–6 implemented; final gates open |
+| All client surfaces | Correct submission, observation, recovery and resource cleanup | SDK, shared Web/Desktop, mobile, Go client, CLI/TUI, ACP and examples use native services. Exact local CLI/TUI/UI/Desktop passes and outstanding device/performance/hosted evidence are in the current gate audit | 6 final acceptance open |
+| Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Deleted with old execution roots, legacy SDK/protocol, contract generator and ambient wrappers; whole-module discovery is restored | 7 deletion implemented; final acceptance open |
 
 ### Test fixture and diagnostics
 
@@ -638,7 +640,7 @@ Compaction implementation decisions:
   skip them. Before introducing omissions, provide bounded own-history metadata,
   exact reads and search against a fixed raw-history boundary.
 
-Goal implementation decisions (work remains open):
+Goal implementation decisions (implemented; final acceptance remains below):
 
 - A stable goal ID identifies immutable text and continuation allowance. Its row
   owns revision, state and consumed continuations. The current goal derives from
@@ -876,7 +878,8 @@ Bounded fork imports, imported runner context and public RPC/SDK now have focuse
 race and real-process acceptance; integrated phase/analysis gates pass. Separate
 workspace capture/restore/release now have SQL claims, scoped Git pins, explicit
 uncertain recovery, safe metadata and public RPC/SDK with focused race and process
-acceptance. Its integrated phase and analysis gates passed; hosted validation is pending.
+acceptance. Those backend checkpoints are recorded in the development log;
+final combined client/platform validation remains open.
 
 Retain replacement evidence for these history/workspace behaviors. Acceptance includes
 source deletion/double forks, opaque handles, exact retries, concurrent stale
@@ -944,16 +947,16 @@ share its byte budget and disappear at the attempt boundary without persistence
 or replay into context. Host ChatGPT account flows now use command-owned
 credentials and revisioned route setup through public RPC/SDK controls. Inference.net now has bounded host-owned device/team/project/key flows,
 local-first logout and independent retained cleanup projections through RPC/SDK.
-Explicit provider setup, safe presets, scoped catalogs and readiness now have
-Go/RPC/SDK coverage; product-client adoption remains open. Stateless
+Explicit provider setup, safe presets, scoped catalogs and readiness have
+Go/RPC/SDK coverage and mounted shared Settings/onboarding, mobile and terminal
+controls. Deterministic account fixtures do not establish live-account acceptance. Stateless
 model helpers now use that same recorded-attempt path. Captured sampling belongs to the complete model
 selection, including explicit zero and provider-default null values. Existing
 per-route sampling fallback is retired: host defaults, definitions and overrides
 resolve once into revisioned session configuration. Compaction and future helpers
 use the full captured selection, intentionally retaining effort and sampling
-where legacy helper calls omitted them. All retained inference protocols now
-have adapters and host setup controls; their supported product UI remains
-client integration work. Legacy uncertain
+where legacy helper calls omitted them. All retained inference protocols have adapters, host setup controls and supported
+client UI; representative live-provider and managed-account evidence remains open. Legacy uncertain
 partial-stream regeneration is explicitly retired under the new no-replay
 accounting policy; all dispatched attempts must still settle truthful evidence.
 This progress does not narrow Phases 5–7.
@@ -1004,28 +1007,22 @@ Acceptance:
 - [ ] Examples, SDK docs and canonical frontend/protocol guides describe shipped
       behavior. All supported client targets are now in required CI.
 
-Current client follow-through (2026-09-29): the native terminal is the default;
-provider/account menus, root/child controls, REPL, original input, completion,
-selection, captured history actions, instruction audit, local links, passive
-panels and orphaned pending-request controls have integrated race coverage.
-The shared app supports exact standing grants and archived search. Native browser
-probes cover bounded history, content, queue/dock, failures, metadata actions,
-activity and budget inspection; Electron activity also covers zoom/drag regions.
-#272's exact head passes all required hosted gates on Linux and macOS. Protocol,
-runtime, architecture, setup and package guides now describe native ownership.
-Terminal input recall, interactive shell focus and terminal theme detection now
-have integrated native coverage; Mermaid uses the native production fixture.
-The audit found external Chrome live/dedicated/headless/extension mode ownership
-missing from the native host. Its native backend, public operations and SDK are
-now integrated, with explicit controls across shared Web/Desktop, mobile and
-CLI/TUI. Unused browser-wrapper removal remains required. The retired terminal model has been removed with its supported behaviors
-mapped in the [terminal disposition](native-terminal-retirement.md). Remaining
-work includes unused browser-wrapper removal, actual Safari execution, hosted
-history-fixture followthrough, platform evidence and 50 ms input/RSS acceptance.
-Native REPL/slash/chat probes and attachment/queue/resize repairs have both-browser
-evidence. The old core is deleted in draft #276; its restored complete gate still
-needs a passing final revision. Exact checkpoints and
-limitations remain in the development record; this does not complete the phase.
+Current client follow-through (2026-09-29): provider/account setup, model and
+permission controls, native root/child views, REPL, input recovery, completion,
+interactive shell, history actions and passive panels are mounted in supported
+clients. External Chrome configuration and root generation controls cover shared
+Web/Desktop, mobile, CLI and TUI. The retired terminal model, browser wrappers
+and computer helper wrapper are removed with their supported behavior mapped in
+[the family disposition](backend-native-core-retirement.md).
+
+The complete native CLI/TUI gate and staged Desktop gate pass at `1fa8dbfb2`.
+The complete UI gate passes at `d9545097d`, including the two workspace repairs
+and typed native model-picker fixture. These are exact local checkpoints, not a
+final combined hosted pass. Native REPL/skills/chat, content and recovery probes
+have replacement evidence; current slash-input follow-through remains open. The previously failing hosted
+Settings history seed passes at `b1c9ca965`, without an optimization claim. The [current acceptance snapshot](backend-native-gate-audit.md#current-acceptance-snapshot)
+separates those gates from quiet performance, actual Safari, physical-device,
+signed-release and live-provider requirements. No Phase 5–7 completion is claimed.
 
 ### Phase 7 — Cut over and remove the retired core
 

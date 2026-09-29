@@ -63,7 +63,7 @@ jobs:
         run: |
           # The native browser package exercises dedicated headed sessions.
           # Use the runner's sandbox-capable Chrome and an isolated X display.
-          if [[ "$RUNNER_OS" == Linux && ( "${{ matrix.gate }}" == build || "${{ matrix.gate }}" == race-other ) ]]; then
+          if [[ "$RUNNER_OS" == Linux && ( "${{ matrix.gate }}" == build || "${{ matrix.gate }}" == race-other || "${{ matrix.gate }}" == native-browser ) ]]; then
             xvfb-run --auto-servernum task check:${{ matrix.gate }}
           else
             task check:${{ matrix.gate }}

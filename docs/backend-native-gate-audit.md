@@ -5,7 +5,42 @@ normal automated gate from milestone evidence; it does not declare Phases 5–7
 complete. No installed runtime, user profile, accessibility permission or live
 provider was changed. The original development checkout was not used.
 
-## Restored omissions
+## Current acceptance snapshot
+
+Reconciled through native source `0265ab26c` on2026-09-29. “Implemented” and a
+passing checkpoint are distinct from final milestone acceptance. The complete
+normal CLI/TUI and staged Desktop results are from `1fa8dbfb2`; the complete UI
+result is from `d9545097d`. Neither includes every subsequent source change.
+The [plan checklist](backend-redesign-plan.md#phase-5--port-retained-product-capabilities)
+remains open, and [the chronological record](backend-redesign-development.md)
+retains the earlier failures and intermediate results.
+
+| Retained family | Current native replacement and evidence | Acceptance still required |
+| --- | --- | --- |
+| Execution, engines, accounting, recursion, mail and state | [Family disposition](backend-native-core-retirement.md#behavior-and-test-disposition), both-engine store/runtime tests and [real process fixture](../scripts/redesign/v4-fixture.test.mjs); complete package discovery replaces the retired allowlist. | Complete final-head build/race/invariant gates on both hosted OSes. Earlier package passes do not imply aggregate success. |
+| Providers, accounts, definitions, hooks, goals and schedules | [Provider setup](models-providers.md#provider-connections-in-settings), immutable declarations and native operation/maintenance paths are mounted in shared/mobile/terminal clients. Settings, executor and ordinary-input fixtures use the real host with deterministic transports. | Current combined client gate and representative live-provider/managed-account workflows; synthetic onboarding is not live readiness. |
+| Context, instructions, skills, history and workspace | Exact raw-history/summary boundaries and scoped originals; [image compaction regression](../internal/runtime/compaction_content_test.go), actual REPL/skills/history/restore fixtures. Published/default skill roots and explicit body grants are separate shipped controls. | Current slash-input investigation and final combined browser gates. Hosted Settings history follow-through now passes on `b1c9ca965`; no seed optimization is claimed. |
+| Files, LSP, shell, permissions/questions and MCP | [Native family tests](backend-native-core-retirement.md#behavior-and-test-disposition), joined process/LSP ownership, direct human actions, scoped grants and real MCP self-host fixtures; mounted controls preserve root/child distinctions. | Final-head automated/lifecycle validation; live external servers remain explicit opt-in evidence. |
+| Browser/computer and native helpers | External Chrome and offered Desktop tabs have distinct scoped owners and human controls across clients. Both ambient wrappers are removed: [browser driver disposition](browser-computer-use.md#native-browser-test-ownership), [computer disposition](backend-native-computer-retirement.md). Actual private Chrome covers both drivers/engines; Desktop bridge fixtures cover real IPC. | Headed dedicated/real extension opt-ins, real accessibility/TCC and applicable platform checks are not established by headless or fake-helper tests. |
+| SDK, shared app and mobile | At `1fa8dbfb2`: protocol18 checks, SDK205/example5 tests, app types/1382 tests, mobile types/226 tests. [Mobile readiness](backend-native-mobile-readiness.md) separately records exports, simulator and Android compilation provenance. | Final combined gates, physical-device UI/lifecycle/accessibility and signed-device checks. Simulator storage evidence does not prove Android or physical-device behavior. |
+| Go CLI, TUI and ACP | Complete normal `check:native-cli` passes at `1fa8dbfb2`, including real compiled entrypoints, SSH/update fixtures, both native TUI partitions and pure presentation complement; [CLI](backend-native-cli-disposition.md) and [terminal](native-terminal-retirement.md) dispositions retain exact semantics. | Newly reported hosted SSH/askpass fixture failures require causal diagnosis and final Linux/macOS reruns despite local passes. |
+| Shared UI | Complete `check:product-ui` passes at `d9545097d`: Storybook,66 themes/14 interactions, strict CSP, isolated packed consumers, tabs/layout in both browsers and30 model-picker scenarios. Workspace regressions fail before their repairs; no tolerance changes. | Repeat the complete gate on the final combined source. This is not all application browser workflows or actual Safari. |
+| Desktop and distribution | Complete [staged Desktop gate](backend-native-desktop-readiness.md) passes at `1fa8dbfb2`, including166 tests,116 distribution checks, onboarding, normal/failure workspace flows and terminal/editor/browser IPC. | Signed/quarantined release, target/minimum-OS execution, real SSH hardware/account scenarios and quiet performance remain distinct. |
+
+Current hosted run36581778862 at `b1c9ca965` is not green. Its Settings job passes
+all four actual Chromium/Firefox history scenarios, with exact recorded counts
+and joined cleanup (Firefox/body seed49.047s). The model-picker and eval assertion
+failures have separate tested fixes; three Go jobs failed Task dependency proxy/
+sumdb HTTP/2 setup before product checks. Both client jobs expose SSH/askpass
+fixture failures under investigation. Preserve these outcomes until a final-head
+rerun passes; a setup failure is neither a product regression nor passing evidence.
+
+The command boundaries below remain the normal complete gate; do not replace them
+with selected passing subsets. Source work still in progress includes slash-input
+follow-through and passive performance instrumentation. Those leaves are not
+included in the snapshot or retroactively covered by its results.
+
+## Gate restoration at the initial checkpoint
 
 The Swift manifest previously omitted its entire XCTest target. The advertised
 `task driver-test` did not swap manifests and failed with “no tests found”. The
@@ -42,7 +77,7 @@ They prove denied creation, ordinary cleanup and forced joining after a stalled
 delete. They do not start Safari. Actual Safari remains `check:product-safari`
 with an explicitly enabled Remote Automation prerequisite.
 
-## Focused validation
+## Historical gate-restoration validation at the initial checkpoint
 
 - Existing Swift XCTest target: all 13 passed on macOS/arm64, Xcode 26.6,
   Swift 6.3.3; `/tmp/whip-native-ci-swift.log`. The actual `task driver-test`
@@ -82,10 +117,15 @@ The following checks remain distinct from a green automated aggregate:
 - **Staged Desktop performance:** run the existing performance entrypoint with
   `WHIP_WEB_PERFORMANCE_HOST=desktop` during a quiet measurement interval.
   The normal `product-performance` job measures web, not staged Desktop. The
-  previously recorded Desktop sample had Event Timing p95 72 ms and aggregate
-  RSS 1,581,968 KiB; all functional groups passing did not close the 50 ms target
-  or memory investigation. The 350 MiB figure is an investigation trigger, not
-  a newly invented hard pass threshold. The performance owner is recording
+  corrected-viewport Desktop sample had Event Timing p95 72 ms and natural peak
+  aggregate RSS 1,581,968 KiB; all functional groups passing did not close the
+  50 ms target or memory investigation. Its final retention sample followed
+  forced GC, so that sample is diagnostic and cannot stand in for natural
+  end-of-work memory. The peak/after-typing samples preceded GC and remain valid.
+  Passive natural-memory/phase instrumentation and a new quiet full workload
+  are pending; `/tmp/whip-desktop-performance-readonly-analysis.md` records the
+  exact boundary and does not claim a dominant cause. The 350 MiB figure is an
+  investigation trigger, not a newly invented hard pass threshold. The performance owner is recording
   subsequent measurements separately.
 - **Physical mobile and signed artifacts:** native exports and backend fixtures
   do not prove suspension/process death, Wi-Fi/cellular transitions, SecureStore
@@ -104,18 +144,19 @@ The following checks remain distinct from a green automated aggregate:
 
 The retirement table's named native test files were checked against the source
 tree and exist (the table abbreviates the common `internal/` prefix and package
-prefixes). Final documentation should still reconcile the plan's old progress
-paragraphs and links to removed daemon/legacy-SDK files with immutable historical
-links. The driver README now describes explicit native Controller/Connection and helper
+prefixes). Current progress summaries distinguish implemented controls from
+remaining gates; the removed fixture link is pinned to immutable history. The
+driver README describes explicit native Controller/Connection and helper
 publication; the unused automatic helper wrapper is removed. Its replacement
 coverage is recorded in [the computer disposition](backend-native-computer-retirement.md).
 
 The separate history-seed investigation remains unchanged: the hosted 120-second
 failure was real but not reproduced locally. The exact durable workload passed
 on macOS and constrained Linux/arm64; no count, timeout, FULL synchronous setting
-or production store API was changed. Its detailed evidence remains in
-`/tmp/whip-native-history-seed-diagnosis-2026-09-29.md`. A later hosted pass must
-not be described as proof of an unimplemented optimization.
+or production store API was changed. The exact hosted Settings workload now
+passes at `b1c9ca965`, as recorded above. This is follow-through, not proof of an
+unimplemented optimization or an explanation of the earlier timeout. Detailed
+diagnosis remains in `/tmp/whip-native-history-seed-diagnosis-2026-09-29.md`.
 
 ## Hosted workflow contract follow-up
 
