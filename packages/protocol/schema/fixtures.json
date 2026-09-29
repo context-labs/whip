@@ -2207,6 +2207,53 @@
     "valid": true
   },
   {
+    "type": "SessionActivity",
+    "value": {
+      "session_id": "session_child",
+      "lifecycle": "active",
+      "active_turn": null,
+      "active_input_id": null,
+      "queued_input_count": "9007199254740993",
+      "pending_permission_count": "0",
+      "pending_question_count": "0",
+      "execution_permit": false,
+      "active_workspace_action_id": null
+    },
+    "valid": true
+  },
+  {
+    "type": "InputPageParams",
+    "value": {
+      "session_id": "session_child",
+      "state": "queued",
+      "after": "9007199254740993",
+      "limit": 100
+    },
+    "valid": true
+  },
+  {
+    "type": "InputPageResult",
+    "value": {
+      "items": [
+        {
+          "id": "queued_fixture",
+          "session_id": "session_child",
+          "ordinal": "9007199254740993",
+          "source": "user",
+          "kind": "prompt",
+          "state": "queued",
+          "turn_id": null,
+          "created_at": "2026-09-27T12:00:00.123456Z",
+          "text_preview": "Preview",
+          "preview_truncated": true,
+          "attachment_count": "1"
+        }
+      ],
+      "next_cursor": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
     "type": "SessionObservation",
     "value": {
       "snapshot": {

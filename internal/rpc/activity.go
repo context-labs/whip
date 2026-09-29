@@ -1,0 +1,36 @@
+package rpc
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/runtime"
+	"github.com/context-labs/whip/internal/session"
+)
+
+func dispatchActivity(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
+	switch method {
+	case "sessions.activity":
+		return decode(raw, func(p protocol.SessionParams) (any, error) {
+			value, err := r.Activity(ctx, session.SessionID(p.SessionID))
+			return protocol.ActivityFromDomain(value), err
+		})
+	case "inputs.page":
+		return decode(raw, func(p protocol.InputPageParams) (any, error) {
+			var after int64
+			if p.After != nil {
+				after = int64(*p.After)
+			}
+			value, err := r.InputPage(ctx, session.SessionID(p.SessionID), p.State, after, p.Limit)
+			return protocol.InputPageFromDomain(value), err
+		})
+	case "inputs.get":
+		return decode(raw, func(p protocol.SessionInputParams) (any, error) {
+			value, err := r.SessionInput(ctx, session.SessionID(p.SessionID), session.InputID(p.InputID))
+			return protocol.InputFromDomain(value), err
+		})
+	default:
+		return nil, ErrMethod
+	}
+}

@@ -2731,6 +2731,30 @@ export type Input =
         scheduled_for: string;
       };
     };
+export interface InputPageParams {
+  session_id: string;
+  state: "queued" | "all";
+  after?: null | string;
+  limit: number;
+}
+export interface InputPageResult {
+  items:
+    | null
+    | {
+        id: string;
+        session_id: string;
+        ordinal: string;
+        source: "user" | "agent" | "schedule" | "goal";
+        kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        text_preview: string;
+        preview_truncated: boolean;
+        attachment_count: string;
+      }[];
+  next_cursor: null | string;
+}
 export interface InputParams {
   input_id: string;
 }
@@ -6785,6 +6809,35 @@ export interface Session {
   lifecycle: "active" | "stopped";
   created_at: string;
 }
+export interface SessionActivity {
+  session_id: string;
+  lifecycle: "active" | "stopped";
+  active_turn: null | {
+    history_revision: string;
+    goal: null | {
+      id: string;
+      revision: string;
+    };
+    id: string;
+    session_id: string;
+    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
+    config_revision: string;
+    state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+    failure: null | string;
+    started_at: string;
+    finished_at: null | string;
+  };
+  active_input_id: null | string;
+  queued_input_count: string;
+  pending_permission_count: string;
+  pending_question_count: string;
+  execution_permit: boolean;
+  active_workspace_action_id: null | string;
+}
+export interface SessionInputParams {
+  session_id: string;
+  input_id: string;
+}
 export interface SessionObservation {
   snapshot: {
     revision: string;
@@ -7984,6 +8037,8 @@ export interface ContractTypes {
   InitializeParams: InitializeParams;
   InitializeResult: InitializeResult;
   Input: Input;
+  InputPageParams: InputPageParams;
+  InputPageResult: InputPageResult;
   InputParams: InputParams;
   InstructionManifestResult: InstructionManifestResult;
   LanguageServersResult: LanguageServersResult;
@@ -8074,6 +8129,8 @@ export interface ContractTypes {
   SelectCompactionParams: SelectCompactionParams;
   SendMailParams: SendMailParams;
   Session: Session;
+  SessionActivity: SessionActivity;
+  SessionInputParams: SessionInputParams;
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
   SetBudgetParams: SetBudgetParams;
@@ -8279,6 +8336,9 @@ export interface Operations {
   "turns.get": { params: TurnParams; result: Turn };
   "turns.attempts": { params: ModelAttemptsParams; result: ModelAttemptsResult };
   "turns.cancel": { params: TurnParams; result: Turn };
+  "sessions.activity": { params: SessionParams; result: SessionActivity };
+  "inputs.page": { params: InputPageParams; result: InputPageResult };
+  "inputs.get": { params: SessionInputParams; result: Input };
   "inputs.cancel": { params: InputParams; result: Input };
   "receipts.get": { params: RequestIdentity; result: Admission };
   "content.put": { params: PutContentParams; result: ContentReference };

@@ -177,6 +177,9 @@ func Operations() []Operation {
 		{"turns.get", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
 		{"turns.attempts", reflect.TypeFor[ModelAttemptsParams](), reflect.TypeFor[ModelAttemptsResult]()},
 		{"turns.cancel", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
+		{"sessions.activity", reflect.TypeFor[SessionParams](), reflect.TypeFor[SessionActivity]()},
+		{"inputs.page", reflect.TypeFor[InputPageParams](), reflect.TypeFor[InputPageResult]()},
+		{"inputs.get", reflect.TypeFor[SessionInputParams](), reflect.TypeFor[Input]()},
 		{"inputs.cancel", reflect.TypeFor[InputParams](), reflect.TypeFor[Input]()},
 		{"receipts.get", reflect.TypeFor[RequestIdentity](), reflect.TypeFor[Admission]()},
 		{"content.put", reflect.TypeFor[PutContentParams](), reflect.TypeFor[ContentReference]()},
@@ -280,6 +283,9 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		mcpSchema(schema, t)
 		terminalSchema(schema, t)
 		hostOperationSchema(schema, t)
+		if t == reflect.TypeFor[InputSummary]() {
+			schema.Properties["text_preview"].MaxLength = new(512)
+		}
 		discoverySchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{

@@ -770,6 +770,21 @@ export const manifest = {
       "result": "Turn"
     },
     {
+      "name": "sessions.activity",
+      "params": "SessionParams",
+      "result": "SessionActivity"
+    },
+    {
+      "name": "inputs.page",
+      "params": "InputPageParams",
+      "result": "InputPageResult"
+    },
+    {
+      "name": "inputs.get",
+      "params": "SessionInputParams",
+      "result": "Input"
+    },
+    {
       "name": "inputs.cancel",
       "params": "InputParams",
       "result": "Input"
