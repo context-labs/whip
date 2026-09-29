@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/net/publicsuffix"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	config "github.com/context-labs/whip/internal/mcpconfig"
 )
 
 // CandidateState says what the import screen (or `whipcode mcp import`) can do
@@ -158,13 +158,13 @@ func brandKey(cfg ServerConfig) string {
 	return domain
 }
 
-// Apply copies the named candidates into cfg.MCPServers as native entries:
+// Apply copies the named candidates into (*native) as native entries:
 // import provenance dropped (so they load trusted, like `whipcode mcp import` has
 // always written them) and Enabled cleared, because choosing a server is the
 // decision to run it even when its source had it off. A name no source
 // defines is an error before anything is written; names already native or
 // unsupported come back in skipped with a reason. Returns the entries added.
-func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[string]config.MCPServer, skipped map[string]string, err error) {
+func Apply(native *map[string]config.Server, cands []Candidate, names []string) (added map[string]config.Server, skipped map[string]string, err error) {
 	byName := make(map[string]Candidate, len(cands))
 	for _, c := range cands {
 		byName[c.Name] = c
@@ -174,13 +174,13 @@ func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[str
 			return nil, nil, fmt.Errorf("%s is not a discovered MCP server", name)
 		}
 	}
-	added, skipped = map[string]config.MCPServer{}, map[string]string{}
+	added, skipped = map[string]config.Server{}, map[string]string{}
 	for _, name := range names {
 		if _, done := added[name]; done {
 			continue // the same name twice is one import
 		}
 		c := byName[name]
-		_, owned := cfg.MCPServers[name]
+		_, owned := (*native)[name]
 		switch {
 		case owned || c.State == CandidateNative:
 			skipped[name] = "already in Whip"
@@ -189,15 +189,16 @@ func Apply(cfg *config.Config, cands []Candidate, names []string) (added map[str
 			skipped[name] = c.Note
 			continue
 		}
-		if cfg.MCPServers == nil {
-			cfg.MCPServers = map[string]config.MCPServer{}
+		if (*native) == nil {
+			(*native) = map[string]config.Server{}
 		}
-		entry := config.MCPServer{
-			Command: c.config.Command, Env: c.config.Env, Cwd: c.config.Cwd,
-			URL: c.config.URL, Headers: c.config.Headers,
+		copied := cloneConfig(c.config)
+		entry := config.Server{
+			Command: copied.Command, Env: copied.Env, Cwd: c.config.Cwd,
+			URL: c.config.URL, Headers: copied.Headers,
 			Note: c.config.Note, StartupTimeout: c.config.StartupTimeout, ToolTimeout: c.config.ToolTimeout,
 		}
-		cfg.MCPServers[name] = entry
+		(*native)[name] = entry
 		added[name] = entry
 	}
 	return added, skipped, nil

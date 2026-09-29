@@ -476,7 +476,7 @@ func TestRunDropsRedundantReconnect(t *testing.T) {
 	if gen2 != gen || !live {
 		t.Errorf("live session disturbed: gen %d→%d, live=%v", gen, gen2, live)
 	}
-	out := tools.Execute(context.Background(), m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"still here"}`))
+	out := tools.Execute(context.Background(), legacyTools(m.Tools()), "mcp__docs__greet", json.RawMessage(`{"name":"still here"}`))
 	if out != "hi still here" {
 		t.Errorf("greet after redundant reconnect = %q", out)
 	}
@@ -544,7 +544,7 @@ func TestReconnectDropsLiveSession(t *testing.T) {
 	if status != StatusReady || !live || gen2 <= gen {
 		t.Fatalf("after reconnect: status=%v live=%v gen %d→%d", status, live, gen, gen2)
 	}
-	out := tools.Execute(context.Background(), m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"again"}`))
+	out := tools.Execute(context.Background(), legacyTools(m.Tools()), "mcp__docs__greet", json.RawMessage(`{"name":"again"}`))
 	if out != "hi again" {
 		t.Errorf("greet after reconnect = %q", out)
 	}

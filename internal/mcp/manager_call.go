@@ -14,7 +14,6 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/tools"
 )
 
 func (s *server) unavailableLocked() error {
@@ -185,8 +184,8 @@ func (m *Manager) ValidateArguments(call capability.MCPCall) error {
 // CallChecked checks the advertised schema before queueing, then rechecks the
 // exact definition and authority after acquiring the server's serialized slot.
 // Cancellation retires local work; effects already transmitted are never retried.
-func (m *Manager) CallChecked(ctx context.Context, call capability.MCPCall, before func(context.Context) error) (tools.MCPResult, error) {
-	var none tools.MCPResult
+func (m *Manager) CallChecked(ctx context.Context, call capability.MCPCall, before func(context.Context) error) (capability.MCPResult, error) {
+	var none capability.MCPResult
 	if err := ctx.Err(); err != nil {
 		return none, err
 	}

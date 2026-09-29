@@ -48,7 +48,7 @@ func TestAgentLoopWithMCPTool(t *testing.T) {
 	defer srv.Close()
 
 	ag := agent.NewRuntime(llm.New(srv.URL, "k"), "m", 100, "sys", tools.NewServices())
-	ag.Tools = append(tools.All(), m.Tools()...)
+	ag.Tools = append(tools.All(), legacyTools(m.Tools())...)
 
 	final, err := ag.Turn(context.Background(), "greet me", agent.Events{})
 	if err != nil {

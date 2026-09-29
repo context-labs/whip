@@ -58,7 +58,7 @@ func TestServeInProcess(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, "test", services) }()
+	go func() { done <- Serve(ctx, "test", legacyProvider{services}) }()
 
 	// Restore stdio only after Serve has returned, so the swap can't race
 	// the server's reads under -race.

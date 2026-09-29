@@ -63,7 +63,7 @@ func (s *ProviderService) MCPImportApply(p protocol.MCPImportApplyParams) (proto
 	// A second Skip or an apply with nothing new leaves the file alone.
 	_, _, err := config.UpdateVersionedIfChanged("", func(cfg *config.Config) error {
 		cands, _ := mcp.Candidates(p.CWD, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-		added, skipped, err := mcp.Apply(cfg, cands, p.Names)
+		added, skipped, err := mcp.Apply(&cfg.MCPServers, cands, p.Names)
 		if err != nil {
 			return err
 		}

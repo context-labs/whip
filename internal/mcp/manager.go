@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -25,9 +26,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools"
+	"github.com/context-labs/whip/internal/secretref"
 )
 
 // Status is a server's lifecycle state, mirroring opencode's discriminated
@@ -515,16 +514,8 @@ type managedInput struct {
 func (w *managedInput) Close() error {
 	w.once.Do(func() {
 		closeErr := w.WriteCloser.Close()
-		done := make(chan error, 1)
-		go func() { done <- w.process.Wait() }()
-		select {
-		case waitErr := <-done:
-			_ = w.process.Kill()
-			w.err = errors.Join(closeErr, waitErr)
-		case <-time.After(3 * time.Second):
-			killErr := w.process.Kill()
-			w.err = errors.Join(closeErr, killErr, <-done)
-		}
+		w.process.Stop()
+		w.err = errors.Join(closeErr, w.process.Wait())
 	})
 	return w.err
 }
@@ -770,7 +761,7 @@ func (s *server) setState(st Status, errMsg string) {
 	s.mu.Lock()
 	s.setStateLocked(st, errMsg)
 	s.mu.Unlock()
-	logf("server %s -> %s %s", s.name, st, errMsg)
+	logf("server %s -> %s", s.name, st)
 }
 
 func (s *server) setStateLocked(st Status, errMsg string) {
@@ -786,14 +777,14 @@ func (s *server) setStateLocked(st Status, errMsg string) {
 
 // Tools returns one tool per listed MCP tool on every ready server, for
 // discovery and execution through the daemon host.
-func (m *Manager) Tools() []tools.Tool {
+func (m *Manager) Tools() []Handler {
 	m.mu.Lock()
 	servers := make([]*server, 0, len(m.servers))
 	for _, s := range m.servers {
 		servers = append(servers, s)
 	}
 	m.mu.Unlock()
-	var out []tools.Tool
+	var out []Handler
 	for _, s := range servers {
 		s.mu.Lock()
 		defs, sess := s.defs, s.sess
@@ -850,11 +841,11 @@ func (m *Manager) Call(ctx context.Context, serverName, toolName string, argumen
 	return result.Text, err
 }
 
-// bridge converts one listed MCP tool into the agent-loop tools.Tool. The
+// bridge converts one listed MCP tool into the agent-loop Handler. The
 // name follows claude-code's mcp__server__tool convention; the schema passes
 // through verbatim with the object-typed shape providers require (opencode
 // forces type:object + properties, catalog.ts convertTool).
-func (s *server) bridge(d *sdkmcp.Tool) tools.Tool {
+func (s *server) bridge(d *sdkmcp.Tool) Handler {
 	name := ToolName(s.name, d.Name)
 	schema := normalizeSchema(d.InputSchema)
 	desc := d.Description
@@ -864,8 +855,8 @@ func (s *server) bridge(d *sdkmcp.Tool) tools.Tool {
 	s.mu.Lock()
 	call, _, resolveErr := s.descriptorLocked(d.Name)
 	s.mu.Unlock()
-	return tools.Tool{
-		Def: llm.NewTool(name, fmt.Sprintf("[MCP %s] %s", s.name, desc), schema),
+	return Handler{
+		Def: newDefinition(name, fmt.Sprintf("[MCP %s] %s", s.name, desc), schema),
 		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
 			if resolveErr != nil {
 				return "", resolveErr
@@ -919,9 +910,9 @@ func (s *server) call(ctx context.Context, tool string, args json.RawMessage) (s
 // travel alongside as attachments so the caller can store them as handles
 // instead of losing them. IsError prefixes "Error: " so the model sees
 // failure, per the MCP spec's own guidance that tool errors belong in content.
-func flattenResult(res *sdkmcp.CallToolResult) tools.MCPResult {
+func flattenResult(res *sdkmcp.CallToolResult) capability.MCPResult {
 	var b strings.Builder
-	var attachments []tools.MCPAttachment
+	var attachments []capability.MCPAttachment
 	attach := func(kind, mime string, data []byte, detail string) {
 		if mime == "" {
 			mime = "application/octet-stream"
@@ -931,7 +922,7 @@ func flattenResult(res *sdkmcp.CallToolResult) tools.MCPResult {
 			placeholder = fmt.Sprintf("[%s %d: %s, %d bytes]", kind, len(attachments)+1, mime, len(data))
 		}
 		b.WriteString("\n" + placeholder)
-		attachments = append(attachments, tools.MCPAttachment{MIME: mime, Data: data, Placeholder: placeholder})
+		attachments = append(attachments, capability.MCPAttachment{MIME: mime, Data: data, Placeholder: placeholder})
 	}
 	for _, c := range res.Content {
 		switch c := c.(type) {
@@ -969,7 +960,7 @@ func flattenResult(res *sdkmcp.CallToolResult) tools.MCPResult {
 	if res.IsError {
 		out = "Error: " + out
 	}
-	return tools.MCPResult{Text: out, Attachments: attachments}
+	return capability.MCPResult{Text: out, Attachments: attachments}
 }
 
 // normalizeSchema passes the server's input schema through as a JSON string,
@@ -1318,15 +1309,15 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 // unresolvable header is dropped so the connect fails cleanly upstream instead
 // of sending the literal reference.
 func connectSecrets(ctx context.Context, cfg ServerConfig) (env, headers map[string]string, err error) {
-	env, err = config.ResolveEnvMapContext(ctx, cfg.Env)
+	env, err = secretref.ResolveEnvMapContext(ctx, cfg.Env)
 	if err != nil {
 		return nil, nil, fmt.Errorf("env: %w", err)
 	}
 	headers = make(map[string]string, len(cfg.Headers))
 	for k, v := range cfg.Headers {
-		rv, herr := config.ResolveHeaderContext(ctx, v)
+		rv, herr := secretref.ResolveHeaderContext(ctx, v)
 		if herr != nil {
-			logf("header %s: %v (dropped)", k, herr)
+			logf("unresolved header %s dropped", k)
 			continue
 		}
 		headers[k] = rv
@@ -1375,5 +1366,5 @@ func (h headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // status transitions) so "why didn't my server come up?" is answerable from
 // ~/.whipcode/whip.log.
 func logf(format string, args ...any) {
-	config.LogEvent("mcp", fmt.Sprintf(format, args...))
+	slog.Debug("MCP lifecycle", "detail", fmt.Sprintf(format, args...))
 }

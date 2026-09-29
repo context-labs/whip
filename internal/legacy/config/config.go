@@ -13,6 +13,7 @@ import (
 
 	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/lspconfig"
+	"github.com/context-labs/whip/internal/mcpconfig"
 )
 
 // Provider is an API endpoint that can serve models.
@@ -251,54 +252,12 @@ type BrowserConfig struct {
 // MCPServer minus the remote fields (LSP is stdio-only here).
 type LSPServer = lspconfig.Config
 
-// MCPImport selects which imported MCP server definitions whipcode picks up.
-// Three sources: claude (the user's ~/.claude.json), codex (the user's
-// ~/.codex/config.toml) and project (the repository's .mcp.json in the
-// session cwd). A nil claude or codex entry (or nil Enabled) leaves that
-// source on: they are the user's own files. project is off unless enabled,
-// because a repository author wrote it and enabling it runs those programs
-// at session start. Example:
-//
-//	"mcpImport": {
-//	  "codex": { "enabled": true, "exclude": ["node_repl"] },
-//	  "project": { "enabled": true }
-//	}
-type MCPImport struct {
-	Claude  *MCPImportSource `json:"claude,omitempty"`
-	Codex   *MCPImportSource `json:"codex,omitempty"`
-	Project *MCPImportSource `json:"project,omitempty"`
-	// Opencode is the user's ~/.config/opencode files; on unless disabled,
-	// like the other user-owned sources.
-	Opencode *MCPImportSource `json:"opencode,omitempty"`
-	// Offered records that the import screen was shown on this host and
-	// answered (imported or skipped); the app does not offer again by itself.
-	Offered bool `json:"offered,omitempty"`
-}
+// Retired configuration aliases keep one declaration shape during the cutover.
+type MCPImport = mcpconfig.Import
 
-// MCPImportSource gates one import source. Enabled nil means on; Only, when
-// non-empty, is an allowlist of server names; Exclude is a denylist and wins
-// over Only when both are set (documented behavior, no validation error).
-type MCPImportSource struct {
-	Enabled *bool    `json:"enabled,omitempty"`
-	Only    []string `json:"only,omitempty"`
-	Exclude []string `json:"exclude,omitempty"`
-}
+type MCPImportSource = mcpconfig.ImportSource
 
-// MCPServer is the config-file form of an MCP server entry. It mirrors
-// mcp.ServerConfig without importing that package (config is a leaf).
-type MCPServer struct {
-	Origin         string            `json:"origin,omitempty"`
-	Source         string            `json:"source,omitempty"`
-	Command        []string          `json:"command,omitempty"`
-	Env            map[string]string `json:"env,omitempty"`
-	Cwd            string            `json:"cwd,omitempty"`
-	URL            string            `json:"url,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty"`
-	Enabled        *bool             `json:"enabled,omitempty"`
-	Note           string            `json:"note,omitempty"`
-	StartupTimeout int               `json:"startupTimeout,omitempty"`
-	ToolTimeout    int               `json:"toolTimeout,omitempty"`
-}
+type MCPServer = mcpconfig.Server
 
 // Dir returns the whipcode home directory (~/.whipcode), creating it if needed.
 // WHIPCODE_HOME overrides the location — used by tests to keep fixture writes
