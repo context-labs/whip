@@ -59,6 +59,8 @@ func TestProcessEnvironmentCwdAndDescriptors(t *testing.T) {
 	t.Setenv("WHIP_SECRET", "daemon-whip")
 	t.Setenv("PROVIDER_API_KEY", "daemon-provider")
 	t.Setenv("SSH_AUTH_SOCK", "/daemon-agent")
+	t.Setenv("ZDOTDIR", "/host-shell-config")
+	t.Setenv("XDG_CONFIG_HOME", "/host-xdg-config")
 	t.Setenv("RANDOM_DAEMON_SECRET", "daemon-random")
 	t.Setenv("WHIPCODE_HOME", "/snapshot-whip-home")
 	m := NewProcessManager()
@@ -112,7 +114,7 @@ func TestProcessEnvironmentCwdAndDescriptors(t *testing.T) {
 			t.Errorf("%s = %q, want %q", name, env[name], want)
 		}
 	}
-	for _, name := range []string{"PROVIDER_API_KEY", "SSH_AUTH_SOCK", "RANDOM_DAEMON_SECRET"} {
+	for _, name := range []string{"PROVIDER_API_KEY", "SSH_AUTH_SOCK", "ZDOTDIR", "XDG_CONFIG_HOME", "RANDOM_DAEMON_SECRET"} {
 		if _, ok := env[name]; ok {
 			t.Errorf("daemon environment leaked %s", name)
 		}

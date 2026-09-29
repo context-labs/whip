@@ -2152,10 +2152,19 @@ Human terminals are command-owned PTYs, independent of sessions, models and
 agent permissions. Every terminal request carries the exact process epoch;
 restart rejects old handles and restores no process or transcript. Open requires
 an explicit absolute canonical directory, host-resolved login shell and the
-process manager's allowlisted environment. Login profiles remain host controlled.
+human terminal process manager's snapshot of the full host environment, plus
+`WHIP=1` and `WHIP_PID`. This preserves shell profiles, prompt/plugin variables,
+HOME/ZDOTDIR/PATH, SSH and XDG configuration as in the previous desktop. The
+agent process manager retains its separate filtered environment. No terminal RPC
+accepts an arbitrary environment. An intentionally disposable HOME remains
+authoritative; terminals do not substitute the user's real profile.
 The16-handle registry retains a1MiB byte ring per terminal, accepts at most16KiB
 per write and returns at most32KiB per read. Offsets are exact decimal counters;
-truncation is explicit. Detaching a reader leaves the terminal running.
+truncation is explicit. Optional `wait_ms` (0..5000) returns buffered output
+immediately or waits for output, exit or retirement under the same ring lock.
+Omission keeps immediate reads. Cancellation stops observation, not the shell;
+server disconnect detection can retain a wait until its five-second bound.
+Detaching a reader leaves the terminal running.
 
 An uncertain open is resolved by listing the current epoch's terminals. Writes
 have no durable receipt and must not be replayed after a lost acknowledgement.

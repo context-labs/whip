@@ -775,6 +775,12 @@ not derive socket paths or silently adopt a different executable.
 Terminal descriptors quote process epoch. Missing/replaced epochs cannot read,
 write, resize or close a shell; restart is a new explicit shell action. Reads use
 32 KiB pages and exact decimal byte cursors, resetting only for explicit truncation.
+The renderer replays buffered output immediately, then keeps one bounded
+`readTerminal(..., { waitMs: 5000, signal })` in flight; output/exit wakes it
+without a fixed typing delay. Unmount aborts observation without closing the
+shell. Human terminals inherit the host's full shell environment and WHIP markers;
+agent execution retains its separate filtered environment. A host launched with
+a disposable HOME/ZDOTDIR uses that disposable configuration.
 Input has a 256 KiB pending bound and one write in flight. Error/overflow/disposal
 discards uncertain bytes; reconnect never replays keystrokes. Native browser,
 terminal, editor and shell effects remain behind their separate bridge owners.

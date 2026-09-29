@@ -54,9 +54,20 @@ afterEach(() => vi.unstubAllGlobals());
 async function fakeClient() {
   const f = await providerFixture({ runtimeID: 'mac' });
   const state = { start: 0n, text: '', exited: false, exitCode: 0, signal: '' };
+  const waiting = new Set<() => void>();
+  const changed = () => { for (const wake of [...waiting]) wake(); };
   const info = (id = 'term-1') => ({ process_epoch: 'boot', id, cwd: '/work', shell: '/bin/zsh', cols: 80, rows: 24, closing: false, exited: state.exited, exit_code: state.exitCode, signal: state.signal, start: String(state.start), end: String(state.start + BigInt(state.text.length)), created_at: '2026-09-28T00:00:00Z' });
-  f.data.handlers['terminal.read'] = request => {
+  f.data.handlers['terminal.read'] = async (request, signal) => {
     if (request.method !== 'terminal.read' || !validate('TerminalReadParams', request.params)) throw new Error('Wrong request');
+    if (request.params.wait_ms && BigInt(request.params.cursor) === state.start + BigInt(state.text.length) && !state.exited) {
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = () => { waiting.delete(wake); signal?.removeEventListener('abort', abort); };
+        const wake = () => { cleanup(); resolve(); };
+        const abort = () => { cleanup(); reject(signal?.reason); };
+        waiting.add(wake); signal?.addEventListener('abort', abort, { once: true });
+        if (signal?.aborted) abort();
+      });
+    }
     const requested = BigInt(request.params.cursor), from = requested < state.start ? state.start : requested;
     const text = state.text.slice(Number(from - state.start), Number(from - state.start) + request.params.limit);
     return { terminal: info(), from: String(from), next: String(from + BigInt(text.length)), end: info().end, truncated: from !== requested, data_base64: btoa(text) };
@@ -65,14 +76,15 @@ async function fakeClient() {
   f.data.handlers['terminal.open'] = () => info('term-2');
   f.data.handlers['terminal.list'] = () => ({ process_epoch: 'boot', items: [] });
   const terminals = { read: vi.spyOn(f.client, 'readTerminal'), write: vi.spyOn(f.client, 'writeTerminal'), resize: vi.spyOn(f.client, 'resizeTerminal'), close: vi.spyOn(f.client, 'closeTerminal'), open: vi.spyOn(f.client, 'openTerminal') };
-  return { ...f, terminals, info,
+  return { ...f, terminals, info, waiting,
     emitOutput: async (id: string, cursor: number, text: string) => {
       if (id !== 'term-1') return;
       if (BigInt(cursor) !== state.start + BigInt(state.text.length)) { state.start = BigInt(cursor); state.text = ''; }
       state.text += text;
+      changed();
       await waitFor(() => expect(terminal().write.mock.calls.some(([bytes]) => new TextDecoder().decode(bytes as Uint8Array).includes(text))).toBe(true));
     },
-    emitExited: async (value: { id: string; exitCode: number; signal?: string }) => { state.exited = true; state.exitCode = value.exitCode; state.signal = value.signal ?? ''; await screen.findByText(/Shell exited/); },
+    emitExited: async (value: { id: string; exitCode: number; signal?: string }) => { state.exited = true; state.exitCode = value.exitCode; state.signal = value.signal ?? ''; changed(); await screen.findByText(/Shell exited/); },
   };
 }
 
@@ -132,6 +144,23 @@ it('attaches from cursor zero, writes output in order, forwards keystrokes, titl
   expect(fake.terminals.resize).toHaveBeenCalledTimes(1);
   expect(fake.terminals.close).not.toHaveBeenCalled();
   expect(runtime.getSnapshot().workspaceError).toBeUndefined();
+});
+
+it('keeps one output wait in flight and renders output as soon as it arrives', async () => {
+  const fake = await fakeClient();
+  const { view } = mount(fake.client);
+  await ready();
+  await waitFor(() => expect(fake.waiting.size).toBe(1));
+  expect(fake.terminals.read).toHaveBeenCalledTimes(2);
+  expect(fake.terminals.read.mock.calls[1]?.[3]).toEqual({ signal: expect.any(AbortSignal), waitMs: 5000 });
+  await fake.emitOutput('term-1', 0, 'instant echo');
+  await waitFor(() => expect(fake.waiting.size).toBe(1));
+  expect(fake.terminals.read).toHaveBeenCalledTimes(3);
+  const pending = fake.terminals.read.mock.calls.at(-1)?.[3]?.signal;
+  view.unmount();
+  expect(pending?.aborted).toBe(true);
+  expect(fake.waiting.size).toBe(0);
+  expect(fake.terminals.close).not.toHaveBeenCalled();
 });
 
 it('keeps one write in flight and coalesces keystrokes typed meanwhile, in order', async () => {

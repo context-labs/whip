@@ -6059,3 +6059,14 @@ were reproduced before their fixes. See the
 [implementation record](frontend-ux-restoration-progress.md) for validation and
 remaining gates. Backend/SDK prerequisites and comparative product acceptance
 remain in progress; no installed runtime or original development file is changed.
+
+
+## 2026-09-29 — restore human terminal fidelity
+
+The terminal slice restores host environment inheritance for human-owned tabs
+while retaining the filtered agent environment. Optional bounded read waits
+restore responsive output without changing epochs, input replay or shell
+ownership. Go/race, generated protocol, SDK and terminal UI checks pass; the
+[restoration record](frontend-ux-restoration-progress.md) distinguishes this
+checkpoint from still-pending desktop comparative acceptance. A disposable
+HOME remains disposable; no running installation is changed.

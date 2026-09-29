@@ -133,6 +133,21 @@ func NewProcessManager() *ProcessManager {
 	return &ProcessManager{env: snapshotEnvironment(), roots: make(map[string]*processRoot)}
 }
 
+// NewHumanTerminalProcessManager preserves the host's shell environment for
+// human-owned terminal tabs. Agent execution must use NewProcessManager instead.
+// The environment is captured by the host, never accepted from a terminal RPC.
+func NewHumanTerminalProcessManager() *ProcessManager {
+	env := make(map[string]string)
+	for _, entry := range os.Environ() {
+		if name, value, ok := strings.Cut(entry, "="); ok {
+			env[name] = value
+		}
+	}
+	env["WHIP"] = "1"
+	env["WHIP_PID"] = strconv.Itoa(os.Getpid())
+	return &ProcessManager{env: env, roots: make(map[string]*processRoot)}
+}
+
 // Start launches a child in a new session and atomically registers it to rootID.
 func (m *ProcessManager) Start(ctx context.Context, rootID, name string, args []string, opts ProcessOptions) (*Process, error) {
 	if rootID == "" {

@@ -65,10 +65,13 @@ export class Client {
     return this.call('terminal.list', { process_epoch: this.processEpoch }, options);
   }
 
-  /** Read one bounded replay page. A truncated page requires discarding the missing
-   * byte range; disconnecting or stopping reads leaves the shell running. */
-  readTerminal(ref: Operations['terminal.close']['params'], cursor: string, limit = 32768, options: CallOptions = {}): Promise<Operations['terminal.read']['result']> {
-    return this.call('terminal.read', { id: ref.id, process_epoch: ref.process_epoch, cursor, limit }, options);
+  /** Read one bounded replay page, optionally waiting up to 5000ms when caught up.
+   * A truncated page requires discarding the missing byte range. Cancelling a
+   * wait or disconnecting leaves the shell running and never replays input. */
+  readTerminal(ref: Operations['terminal.close']['params'], cursor: string, limit = 32768, options: CallOptions & { waitMs?: number } = {}): Promise<Operations['terminal.read']['result']> {
+    const { waitMs, ...callOptions } = options;
+    return this.call('terminal.read', { id: ref.id, process_epoch: ref.process_epoch, cursor, limit,
+      ...(waitMs === undefined ? {} : { wait_ms: waitMs }) }, callOptions);
   }
 
   /** Never replay keystrokes after any uncertain write outcome. No input receipt

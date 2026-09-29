@@ -80,7 +80,7 @@ func terminalDispatch(ctx context.Context, r *runtime.Runtime, host HostServices
 			if err != nil {
 				return nil, err
 			}
-			page, err := value.Read(int64(p.Cursor), p.Limit)
+			page, err := value.ReadWait(ctx, int64(p.Cursor), p.Limit, time.Duration(p.WaitMillis)*time.Millisecond)
 			if err != nil {
 				return nil, err
 			}

@@ -23,6 +23,7 @@ type TerminalReadParams struct {
 	ID           ID      `json:"id"`
 	Cursor       Counter `json:"cursor"`
 	Limit        int     `json:"limit" min:"1" max:"32768"`
+	WaitMillis   int     `json:"wait_ms,omitempty" min:"0" max:"5000"`
 }
 type TerminalWriteParams struct {
 	ProcessEpoch ID     `json:"process_epoch"`

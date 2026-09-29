@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -142,8 +143,8 @@ func TestCancellationClosesMasterAndBoundedWrites(t *testing.T) {
 	}
 }
 
-func TestTerminalEnvironmentDoesNotInheritAmbientCredentials(t *testing.T) {
-	t.Setenv("WHIP_FAKE_CREDENTIAL", "do-not-inherit")
+func TestHumanTerminalInheritsHostEnvironment(t *testing.T) {
+	t.Setenv("WHIP_FAKE_CREDENTIAL", "host-value")
 	m := startManager(t, 2, RingBytes)
 	term := open(t, m)
 	sink := newSink()
@@ -151,12 +152,48 @@ func TestTerminalEnvironmentDoesNotInheritAmbientCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, term, "printf 'secret-is-%s-end\\n' \"${WHIP_FAKE_CREDENTIAL-unset}\"\n")
-	sink.wait(t, "secret-is-unset-end")
+	sink.wait(t, "secret-is-host-value-end")
 	options := testOptions(t)
 	options.Env["BASH_ENV"] = filepath.Join(t.TempDir(), "startup")
 	if _, err := m.Open(options); err == nil {
 		t.Fatal("unsafe startup override accepted")
 	}
+}
+
+func TestHumanTerminalLoadsHostZshConfiguration(t *testing.T) {
+	shell, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh is not installed")
+	}
+	home, dotdir := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZDOTDIR", dotdir)
+	t.Setenv("SSH_AUTH_SOCK", filepath.Join(home, "agent.sock"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("WHIP_PROMPT_THEME", "host-theme")
+	for file, contents := range map[string]string{
+		".zprofile": `export PATH="$HOME/bin:$PATH"` + "\n",
+		".zshrc":    "PS1='fixture-prompt> '\nalias fixture_alias='printf alias-loaded\\\\n'\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dotdir, file), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := startManager(t, 1, RingBytes)
+	term, err := m.Open(Options{Shell: shell, Args: []string{"-l"}, Cwd: home, Env: map[string]string{"TERM": "dumb"}, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close(term.ID) })
+	sink := newSink()
+	if _, _, err := m.Attach(term.ID, 0, sink); err != nil {
+		t.Fatal(err)
+	}
+	sink.wait(t, "fixture-prompt>")
+	write(t, term, "fixture_alias\nprintf 'environment:%s|%s|%s|%s|%s|%s|%s:end\\n' \"$HOME\" \"$ZDOTDIR\" \"$SSH_AUTH_SOCK\" \"$XDG_CONFIG_HOME\" \"$WHIP_PROMPT_THEME\" \"$WHIP\" \"$WHIP_PID\"\nprintf 'path:%s:end\\n' \"$PATH\"\n")
+	sink.wait(t, "alias-loaded")
+	sink.wait(t, "environment:"+strings.Join([]string{home, dotdir, filepath.Join(home, "agent.sock"), filepath.Join(home, "config"), "host-theme", "1", strconv.Itoa(os.Getpid())}, "|")+":end")
+	sink.wait(t, "path:"+home+"/bin:")
 }
 
 func TestConcurrentCloseRetainsSlotsUntilJoined(t *testing.T) {

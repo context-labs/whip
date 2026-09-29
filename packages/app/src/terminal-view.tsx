@@ -370,23 +370,27 @@ function AttachedTerminalView({ tab, client, focused, connected }: Omit<Terminal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId, processEpoch, client, connected, attachEpoch, resolvedTheme.id]);
 
-  // Read one bounded page at a time. Observation never owns or closes the shell.
+  // Replay immediately, then wait for output instead of delaying typed echo.
+  // One bounded read stays in flight; observation never owns the shell.
   useEffect(() => {
     if (!processEpoch || processEpoch !== client.processEpoch) { setStatus({ kind: 'ended' }); return; }
     if (!connected) { setStatus({ kind: 'reconnecting' }); return; }
     if (!ready) return;
     const controller = new AbortController(); observation.current = controller;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const poll = async () => {
+    const observe = async () => {
       try {
-        const { page, bytes, reset } = await readTerminalOutput(client, { id: terminalId, process_epoch: processEpoch }, cursor.current, controller.signal);
-        if (controller.signal.aborted) return;
-        if (reset) term.current?.reset();
-        if (bytes.length) term.current?.write(bytes);
-        cursor.current = page.next;
-        const ended = page.terminal.exited && page.next === page.end;
-        setStatus(ended ? { kind: 'exited', exitCode: page.terminal.exit_code, signal: page.terminal.signal } : { kind: 'live' });
-        if (!ended) timer = setTimeout(() => void poll(), page.next !== page.end ? 0 : 250);
+        let waitMs: number | undefined;
+        while (!controller.signal.aborted) {
+          const { page, bytes, reset } = await readTerminalOutput(client, { id: terminalId, process_epoch: processEpoch }, cursor.current, controller.signal, waitMs);
+          if (controller.signal.aborted) return;
+          if (reset) term.current?.reset();
+          if (bytes.length) term.current?.write(bytes);
+          cursor.current = page.next;
+          const ended = page.terminal.exited && page.next === page.end;
+          setStatus(ended ? { kind: 'exited', exitCode: page.terminal.exit_code, signal: page.terminal.signal } : { kind: 'live' });
+          if (ended) return;
+          waitMs = page.next === page.end ? 5000 : undefined;
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
         inputQueue.current?.dispose();
@@ -394,8 +398,8 @@ function AttachedTerminalView({ tab, client, focused, connected }: Omit<Terminal
         else setStatus({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
       }
     };
-    void poll();
-    return () => { controller.abort(); clearTimeout(timer); if (observation.current === controller) observation.current = null; };
+    void observe();
+    return () => { controller.abort(); if (observation.current === controller) observation.current = null; };
   }, [client, terminalId, processEpoch, connected, attachEpoch, ready]);
 
   useEffect(() => {
