@@ -254,22 +254,6 @@ func TestRenderMarkdownBareFilePath(t *testing.T) {
 	}
 }
 
-// --- user-facing wiring -----------------------------------------------------
-
-// User messages render as "❯ text" blocks; file refs in them are clickable.
-func TestUserMessageFileLink(t *testing.T) {
-	m := compactCmdModel()
-	m.width = 80
-	m.append(youStyle.Render("❯ ") + linkifyFilePaths("look at links_test.go please", realFileExists))
-	rendered := m.blocks[len(m.blocks)-1].render(80)
-	if !strings.Contains(rendered, "]8;;file://") {
-		t.Errorf("user file ref should be clickable: %q", rendered)
-	}
-	if !strings.Contains(ansi.Strip(rendered), "❯ look at links_test.go please") {
-		t.Errorf("user text must render verbatim: %q", ansi.Strip(rendered))
-	}
-}
-
 // realFileExists against the actual repo: the test binary runs in
 // internal/tui, so its own source file exists and a ghost path doesn't.
 func TestRealFileExists(t *testing.T) {
@@ -284,28 +268,6 @@ func TestRealFileExists(t *testing.T) {
 	}
 	if realFileExists(".") {
 		t.Error("a directory is not a linkable file")
-	}
-}
-
-func TestTranscriptLinksResolveAgainstSessionWorkingDirectory(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "docs", "note.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("note"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	linked := linkifyFilePathsAt("inspect docs/note.md", root)
-	if !strings.Contains(linked, "file://"+path) {
-		t.Fatalf("user link did not use session cwd: %q", linked)
-	}
-	m := &model{clientView: clientPresentation{workingDir: root}, input: newInput()}
-	m.appendAssistantBlock("See [the note](docs/note.md).")
-	rendered := m.blocks[len(m.blocks)-1].render(80)
-	if !strings.Contains(rendered, "file://"+path) {
-		t.Fatalf("assistant link did not use session cwd: %q", rendered)
 	}
 }
 

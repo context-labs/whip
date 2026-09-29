@@ -8,12 +8,9 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// selPos is one endpoint of the drag. For the transcript region, row is a
-// rendered content row; for the input region, row indexes rendered input.
-// input marks the endpoint's region. A selection stays in its anchor's region.
+// selPos is one endpoint of a transcript drag, in rendered display cells.
 type selPos struct {
-	row, col int  // col is a display cell (wide runes count 2)
-	input    bool // true = endpoint is in the input box, not the transcript
+	row, col int // col is a display cell (wide runes count 2)
 }
 
 // selection is the in-flight (dragging) or last-completed selection. It
