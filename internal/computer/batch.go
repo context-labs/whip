@@ -10,9 +10,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/computerconfig"
 	"github.com/context-labs/whip/internal/helperprogram"
 )
 
@@ -154,9 +154,9 @@ func compileComputerStep(call helperprogram.Call) (computerStep, error) {
 		if err != nil {
 			return err
 		}
-		value = strings.ToLower(strings.TrimSpace(value))
-		if value == "" || strings.IndexFunc(value, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }) >= 0 {
-			return errors.New("computer helper requires an exact application name or bundle ID")
+		value, err = computerconfig.CanonicalApp(value)
+		if err != nil {
+			return err
 		}
 		step.app = value
 		return nil

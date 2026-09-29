@@ -45,7 +45,7 @@ func (a Automation) run(name string, args ...string) ([]byte, error) {
 }
 
 func (a Automation) AppleScript(script string) (string, error) {
-	if !Available() {
+	if !Available() && a.Run == nil {
 		return "", ErrUnsupportedPlatform
 	}
 	out, err := a.run("osascript", "-e", script)
