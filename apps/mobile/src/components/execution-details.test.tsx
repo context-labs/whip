@@ -9,7 +9,7 @@ jest.mock('./paged-text', () => ({ textPreview: (text: string) => text.slice(0, 
 function fixture(): CellExecutionRow {
   const cell = { ...nativeFixture('Cell'), state: 'running' as const, result_message_id: null, finished_at: null };
   const preview = nativeFixture('CellOutput').preview!;
-  return { cell, turn: null, call: null, result: null, operations: [], output: { ...preview, session_id: cell.session_id, turn_id: cell.turn_id, cell_id: cell.id, call_message_id: cell.call_message_id, call_id: cell.call_id, text: '{"result":{"output":"raw stdout"}}', truncated: true } };
+  return { displayID: JSON.stringify([cell.session_id, cell.call_message_id, cell.call_id]), cell, turn: null, call: null, result: null, operations: [], output: { ...preview, session_id: cell.session_id, turn_id: cell.turn_id, cell_id: cell.id, call_message_id: cell.call_message_id, call_id: cell.call_id, text: '{"result":{"output":"raw stdout"}}', truncated: true } };
 }
 test('mobile presents and copies exact provisional stdout, hides detached output and prefers committed results', async () => {
   const row = fixture(); const screen = await render(<MobileCell row={row} connected />);

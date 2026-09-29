@@ -33,10 +33,10 @@ test('native history windows retain exact count/byte limits, canonical execution
     assert.equal(older.history.messages.length, 512);
     assert.equal(older.history.latestMissing, true);
     assert(older.history.olderCursor !== null);
-    // Loaded execution evidence remains independently inspectable; no missing
-    // journal record is invented when its canonical messages leave this window.
+    // ExecutionView retains exact shared immutable bodies for its cells, even
+    // before a refresh can hydrate them after the chat window moves away.
     row = cellExecutionRows(execution.getSnapshot(), older.history.messages).find(row => row.cell.id === fixture.history.cell_id);
-    assert.equal(row.call, null); assert.equal(row.result, null); assert.equal(row.operations.length, 128);
+    assert.equal(row.call.message.id, call); assert.equal(row.result.message.id, result); assert.equal(row.operations.length, 128);
     await view.latest();
     row = cellExecutionRows(execution.getSnapshot(), view.getSnapshot().history.messages).find(row => row.cell.id === fixture.history.cell_id);
     assert.equal(row.call.message.id, call); assert.equal(row.result.message.id, result);

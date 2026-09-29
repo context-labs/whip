@@ -119,8 +119,10 @@ it('shows writing code in the ordinary card flow and exact host-operation state 
   expect(screen.queryByText(/provisional|No execution cell|Incoming execute arguments/i)).toBeNull();
 });
 
-it('keeps uncertain cell metadata when exact transcript bodies are outside the window', async () => {
-  const f = await fixture(); f.state.cell.state = 'uncertain'; f.state.messages = [];
+it('keeps uncertain cell metadata when exact transcript bodies are unavailable', async () => {
+  const f = await fixture('', 'starlark', true);
+  f.state.hasCell = true; f.state.cell.state = 'uncertain'; f.state.cell.result_message_id = null;
+  f.state.turn.state = 'interrupted';
   await f.view.latest(); await f.execution.refresh(); render(f.app());
   expect(screen.getByText('Outcome uncertain')).toBeDefined();
   expect(screen.getByText('Code is unavailable in this record.')).toBeDefined();
