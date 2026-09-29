@@ -30,6 +30,13 @@ app.on('window-all-closed',()=>app.quit());`);
     HOME: join(directory, 'user'), TMPDIR: join(directory, 'tmp'), WHIP_ZOOM_PROFILE: join(directory, 'profile'), WHIP_ZOOM_URL: fixture.info.web } });
   page = await electron.firstWindow(); page.setDefaultTimeout(15000);
   page.on('pageerror', error => { if (errors.length < 32) errors.push(error.message); });
+  // Playwright's page capture clips the Retina surface at Electron page zoom.
+  // Native capturePage preserves the full window at the actual device scale.
+  const capture = async label => {
+    const encoded = await electron.evaluate(async ({ BrowserWindow }) =>
+      (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'));
+    await writeFile(join(output, `${label}.png`), Buffer.from(encoded, 'base64'));
+  };
   const check = async (dialog, label) => {
     const geometry = await dialog.evaluate(node => { const b = node.getBoundingClientRect(); return {
       width: innerWidth, page: document.documentElement.scrollWidth, left: b.left, right: b.right,
@@ -37,7 +44,7 @@ app.on('window-all-closed',()=>app.quit());`);
     }; });
     assert(geometry.left >= -1 && geometry.right <= geometry.width + 1 && geometry.page <= geometry.width + 1
       && geometry.scroll <= geometry.client + 1, `${label}: ${JSON.stringify(geometry)}`);
-    await page.screenshot({ path: join(output, `${label}.png`) });
+    await capture(label);
     return geometry;
   };
   for (const width of [530, 390, 320]) {
@@ -47,6 +54,10 @@ app.on('window-all-closed',()=>app.quit());`);
     await page.getByRole('button', { name: 'New agent', exact: true }).click();
     const editor = page.getByRole('dialog', { name: 'New agent', exact: true });
     await check(editor, `${width}-agent-200pct`);
+    const register = editor.getByRole('button', { name: 'Register agent', exact: true });
+    await register.scrollIntoViewIfNeeded();
+    await expect(register).toBeInViewport();
+    await capture(`${width}-agent-footer-200pct`);
     await editor.getByRole('button', { name: 'Close', exact: true }).click();
     await page.goto(`${fixture.info.web}/?new=1&runtimeId=${fixture.info.runtime_id}&cwd=${encodeURIComponent(fixture.directory)}`);
     await page.getByRole('button', { name: 'Project folder', exact: true }).click();
@@ -63,13 +74,18 @@ app.on('window-all-closed',()=>app.quit());`);
     const navigation = page.getByRole('dialog', { name: 'WHIP', exact: true });
     const projects = await check(navigation, `${width}-projects-200pct`);
     await expect(navigation.getByRole('region', { name: 'Projects', exact: true })).toBeVisible();
+    const wordmark = await navigation.getByRole('img', { name: 'Whipcode', exact: true }).boundingBox();
+    assert(wordmark && wordmark.x >= projects.left && wordmark.x + wordmark.width <= projects.right,
+      `Projects wordmark fits inside the sheet at ${width}px: ${JSON.stringify(wordmark)}`);
     await navigation.getByRole('button', { name: 'Close', exact: true }).click();
-    checks.push({ width, zoomFactor: 2, geometry, projects });
+    checks.push({ width, zoomFactor: 2, geometry, projects, wordmark, agentFooterReachable: true });
   }
   assert.deepEqual(errors, []);
 } catch (error) {
   report.failure = String(error.stack ?? error);
-  await page?.screenshot({ path: join(output, 'failure.png'), fullPage: true }).catch(() => {});
+  if (electron) await electron.evaluate(async ({ BrowserWindow }) =>
+    (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'))
+    .then(encoded => writeFile(join(output, 'failure.png'), Buffer.from(encoded, 'base64'))).catch(() => {});
   await writeFile(join(output, 'failure.txt'), (await page?.locator('body').innerText().catch(() => '') ?? '').slice(0, 16384));
 } finally {
   for (const close of [() => electron?.close(), () => fixture?.close(), () => rm(directory, { recursive: true, force: true })]) {
