@@ -88,6 +88,11 @@ type nativeModel struct {
 	decision                        *nativeDecisionDialog
 	hiddenDecision                  *nativeDecisionDialog
 	decisionsHidden                 bool
+	browse                          *nativeBrowse
+	browsing                        bool
+	browseRequest                   uint64
+	renderCache                     nativeRenderCache
+	expandTools, showReasoning      bool
 }
 
 type (
@@ -224,6 +229,8 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = max(value.Width, 8), max(value.Height, 4)
 		m.input.SetWidth(max(m.width-2, 1))
 		m.refresh()
+	case nativeBrowseResult:
+		m.applyBrowse(value)
 	case nativePoll:
 		return m, m.read()
 	case nativeRead:
@@ -256,6 +263,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.owner = *value.owner
 		}
 		m.history.output(value.output)
+		if m.browse != nil && m.browse.transcript.snapshot.Revision != m.history.snapshot.Revision {
+			m.latest()
+			m.status = "History changed; the older page was closed."
+		}
 		if value.usage != nil {
 			m.usage = *value.usage
 		}
@@ -344,6 +355,8 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if value.reset {
 				m.generation++
+				m.browseRequest++
+				m.browse, m.browsing = nil, false
 				m.history = nativeTranscript{owner: m.handle.ID()}
 				m.ready, m.observer = false, nil
 				m.refresh()
@@ -384,6 +397,12 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, m.submit()
 		case "pgup", "pgdown":
+			if value.String() == "pgup" && m.vp.YOffset() == 0 {
+				return m, m.browseHistory("backward")
+			}
+			if value.String() == "pgdown" && m.vp.AtBottom() && m.browse != nil {
+				return m, m.browseHistory("forward")
+			}
 			m.vp, _ = m.vp.Update(value)
 			m.follow = m.vp.AtBottom()
 			return m, nil
@@ -393,6 +412,11 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(value)
 		return m, cmd
+	case tea.MouseWheelMsg:
+		if m.decision == nil {
+			m.vp, _ = m.vp.Update(value)
+			m.follow = m.browse == nil && m.vp.AtBottom()
+		}
 	case tea.PasteMsg:
 		if m.decision != nil {
 			if m.decision.form != nil && m.decision.form.editing {
@@ -444,7 +468,7 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 	}
 	m.input.Reset()
 	m.notice = ""
-	m.refresh()
+	m.latest()
 	return m.sendInput(command, "send")
 }
 
@@ -502,59 +526,59 @@ func (m *nativeModel) cancelTurn(id protocol.ID) tea.Cmd {
 
 func (m *nativeModel) refresh() {
 	var rows []string
-	truncated := false
 	appendText := func(text string) {
-		for line := range strings.Lines(ansi.Hardwrap(nativeDisplayText(text), max(m.width-2, 1), true)) {
-			if len(rows) >= 65536 {
-				truncated = true
-				break
-			}
-			rows = append(rows, strings.TrimSuffix(line, "\n"))
-		}
+		rows = append(rows, nativePlainRows(text, max(m.width-2, 1), false)...)
 	}
-	if m.history.earlier {
-		rows = append(rows, "Older messages are available outside this display window.", "")
+	v := &m.history
+	if m.browse != nil {
+		v = &m.browse.transcript
+		rows = append(rows, "Historical page · live activity continues · /older /newer /latest", "")
+	} else if v.earlier {
+		rows = append(rows, "Older messages: /older or Page Up at the top.", "")
 	}
-	for _, message := range m.history.messages {
-		if len(rows) >= 65536 {
-			truncated = true
+	m.renderCache.prepare(v.messages, max(m.width-2, 1), m.expandTools)
+	size := nativeRowBytes(rows)
+	for _, message := range v.messages {
+		block := m.renderCache.message(message)
+		size += nativeRowBytes(block) + 1
+		if size > nativeRenderBytes || len(rows)+len(block)+1 > nativeRenderRows {
+			rows = append(rows, "Display limit reached; complete message bodies remain in host history.")
 			break
 		}
-		label := message.Role
-		if message.Source != nil {
-			label += " · imported"
-		}
-		rows = append(rows, label)
-		appendText(nativeMessageText(message))
+		rows = append(rows, block...)
 		rows = append(rows, "")
 	}
-	if p := m.history.preview; p != nil {
-		rows = append(rows, "assistant · provisional")
-		appendText(p.Text)
-		if p.Truncated {
-			rows = append(rows, "Preview truncated; committed content will replace it.")
+	if m.browse == nil {
+		if p := v.preview; p != nil {
+			if m.showReasoning && p.Reasoning != "" {
+				rows = append(rows, "Reasoning · live preview only")
+				appendText(p.Reasoning)
+			}
+			rows = append(rows, "assistant · provisional")
+			text, cut := nativeTextPrefix(p.Text, nativeRenderInput)
+			rows = append(rows, strings.Split(nativeMarkdown(text, max(m.width-2, 1)), "\n")...)
+			if p.Truncated || cut {
+				rows = append(rows, "Preview truncated; committed content will replace it.")
+			}
 		}
-	}
-	if p := m.history.cellOutput; p != nil {
-		rows = append(rows, "REPL output · provisional")
-		appendText(p.Text)
-		if p.Truncated {
-			rows = append(rows, "Output preview truncated.")
+		if p := v.cellOutput; p != nil {
+			rows = append(rows, "REPL output · provisional")
+			appendText(p.Text)
+			if p.Truncated {
+				rows = append(rows, "Output preview truncated.")
+			}
 		}
 	}
 	if m.notice != "" {
 		rows = append(rows, "", "Terminal command output · not conversation history")
 		appendText(m.notice)
 	}
-	if truncated {
-		rows = append(rows[:min(len(rows), 65536)], "Display row limit reached; complete message bodies remain in canonical history.")
-	}
-	m.rows = rows
+	m.rows = boundNativeRows(rows, nativeRenderBytes, nativeRenderRows)
 	m.vp.rows = func(y int) string { return m.rows[y] }
 	m.vp.SetWidth(m.width)
 	m.vp.SetHeight(max(m.height-m.input.Height()-4, 1))
-	m.vp.setTotal(len(rows))
-	if m.follow {
+	m.vp.setTotal(len(m.rows))
+	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
 	}
 }

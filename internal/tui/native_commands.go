@@ -78,6 +78,41 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		}
 		m.status = "No uncertain action is retained in this terminal."
 		return nil
+	case "/older", "/newer", "/latest":
+		if args != "" {
+			m.status = "usage: " + name
+			return nil
+		}
+		m.input.Reset()
+		if name == "/latest" {
+			m.latest()
+			return nil
+		}
+		direction := "backward"
+		if name == "/newer" {
+			direction = "forward"
+		}
+		return m.browseHistory(direction)
+	case "/tools":
+		if args != "expand" && args != "collapse" {
+			m.status = "usage: /tools expand|collapse (display only)"
+			return nil
+		}
+		m.input.Reset()
+		m.expandTools = args == "expand"
+		m.status = "Tool output display: " + args
+		m.refresh()
+		return nil
+	case "/reasoning":
+		if args != "on" && args != "off" {
+			m.status = "usage: /reasoning on|off (live preview only; unavailable after reload)"
+			return nil
+		}
+		m.input.Reset()
+		m.showReasoning = args == "on"
+		m.status = "Live reasoning display: " + args + ". Reasoning is not retained in history."
+		m.refresh()
+		return nil
 	case "/me":
 		return m.standing(args)
 	case "/memory":

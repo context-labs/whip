@@ -176,7 +176,7 @@ func TestNativeUIRealHostPromptSteeringAndExactCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	nativeUIRead(t, m)
-	if !strings.Contains(m.View().Content, "answer: hello") || len(m.history.messages) != 2 || m.history.messages[0].InputID == nil || *m.history.messages[0].InputID != first.admission.Input.ID {
+	if !strings.Contains(nativeDisplayText(m.View().Content), "answer: hello") || len(m.history.messages) != 2 || m.history.messages[0].InputID == nil || *m.history.messages[0].InputID != first.admission.Input.ID {
 		t.Fatal("canonical transcript absent", m.View().Content)
 	}
 	held := nativeUISubmit(t, m, "hold")
@@ -214,7 +214,7 @@ func TestNativeUIRealHostPromptSteeringAndExactCancellation(t *testing.T) {
 		t.Fatal(value, err)
 	}
 	nativeUIRead(t, m)
-	if !strings.Contains(m.View().Content, "answer: original steering text") {
+	if !strings.Contains(nativeDisplayText(m.View().Content), "answer: original steering text") {
 		t.Fatal(m.View().Content)
 	}
 }
@@ -309,7 +309,7 @@ func TestNativeUIRenderedRowsAndControlCharactersAreBounded(t *testing.T) {
 	body := strings.Repeat("line\n", 70000) + "\x1b[2J\aend"
 	m := &nativeModel{input: newInput(), width: 80, height: 24, history: nativeTranscript{messages: []protocol.Message{nativeMessage(1, "assistant", body)}}}
 	m.refresh()
-	if len(m.rows) != 65537 || !strings.Contains(m.rows[len(m.rows)-1], "Display row limit") || m.history.messages[0].Parts[0].Text != body {
+	if len(m.rows) > 4098 || !strings.Contains(strings.Join(m.rows, "\n"), "Display limit") || m.history.messages[0].Parts[0].Text != body {
 		t.Fatal("render limit silently changed canonical body", len(m.rows))
 	}
 	if got := nativeDisplayText("before\x1b[2J\x1b]0;title\aafter\a\r"); got != "beforeafter��" {
