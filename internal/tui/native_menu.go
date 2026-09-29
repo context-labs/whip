@@ -30,6 +30,7 @@ type nativeMenuChoice struct {
 // reads and detaches in-flight mutations without reconstructing or replaying
 // them. All calls join the terminal's existing nativeWork owner.
 type nativeMenu struct {
+	setup         nativeSetup
 	work          *nativeWork
 	connection    *client.Client
 	lifecycle     context.Context
@@ -56,15 +57,23 @@ type nativeMenu struct {
 }
 
 type nativeMenuReply struct {
-	menu       *nativeMenu
-	generation uint64
-	kind       string
-	mutation   bool
-	inventory  *protocol.ProviderInventory
-	catalog    *protocol.ProviderCatalog
-	owner      *protocol.Session
-	message    string
-	err        error
+	presets         []protocol.ProviderPreset
+	openAI          *protocol.OpenAILoginFlow
+	inference       *protocol.InferenceFlow
+	openAIStatus    *protocol.OpenAIAccountStatus
+	inferenceStatus *protocol.InferenceAccountStatus
+	openAIFlows     []protocol.OpenAILoginFlow
+	inferenceFlows  []protocol.InferenceFlow
+	cleanup         *protocol.InferenceCleanupResult
+	menu            *nativeMenu
+	generation      uint64
+	kind            string
+	mutation        bool
+	inventory       *protocol.ProviderInventory
+	catalog         *protocol.ProviderCatalog
+	owner           *protocol.Session
+	message         string
+	err             error
 }
 
 type nativeMenuInput struct {
@@ -92,6 +101,8 @@ func newNativeMenu(work *nativeWork, connection *client.Client, options nativeMe
 
 func (m *nativeMenu) Init() tea.Cmd {
 	switch m.options.Kind {
+	case "setup":
+		return m.readSetup()
 	case "model", "model-for-session":
 		m.mode, m.title = "model-providers", "Choose model provider"
 		return m.readInventory()
@@ -131,6 +142,8 @@ func (m *nativeMenu) Close() {
 func (m *nativeMenu) Handles(message tea.Msg) bool {
 	switch value := message.(type) {
 	case nativeMenuReply:
+		return value.menu == m
+	case nativeMenuPoll:
 		return value.menu == m
 	case nativeMenuInput:
 		return value.menu == m
@@ -187,6 +200,11 @@ func (m *nativeMenu) Update(message tea.Msg) tea.Cmd {
 		return nil
 	}
 	switch value := message.(type) {
+	case nativeMenuPoll:
+		if value.menu == m && value.generation == m.generation && !m.busy && m.mode == "account-flow" {
+			return m.refreshAccount()
+		}
+		return nil
 	case nativeMenuReply:
 		if value.menu != m || value.generation != m.generation {
 			return nil
@@ -203,8 +221,14 @@ func (m *nativeMenu) Update(message tea.Msg) tea.Cmd {
 			var rpcError *client.Error
 			if value.mutation && !errors.As(value.err, &rpcError) {
 				m.message += ". Outcome unknown. Refresh to inspect; no action was replayed."
+				if strings.HasPrefix(value.kind, "setup-") || strings.HasPrefix(value.kind, "account-") {
+					m.setupUnknown()
+				}
 			}
 			return nil
+		}
+		if strings.HasPrefix(value.kind, "setup-") || strings.HasPrefix(value.kind, "account-") {
+			return m.setupReply(value)
 		}
 		return m.modelReply(value)
 	case nativeMenuInput:
@@ -238,6 +262,9 @@ func (m *nativeMenu) Update(message tea.Msg) tea.Cmd {
 			}
 			return nil
 		case "enter":
+			if m.setupInput() {
+				return m.submitSetup()
+			}
 			if m.mode == "model-id" {
 				id := strings.TrimSpace(m.input.Value())
 				if id != "" {

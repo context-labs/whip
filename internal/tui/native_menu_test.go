@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,12 +24,14 @@ import (
 )
 
 type nativeMenuFixture struct {
-	connection *client.Client
-	owner      protocol.Session
-	requests   atomic.Int32
+	connection    *client.Client
+	owner         protocol.Session
+	requests      atomic.Int32
+	status        atomic.Int32
+	authorization atomic.Value
 }
 
-func newNativeMenuFixture(t *testing.T) *nativeMenuFixture {
+func newNativeMenuFixture(t *testing.T, services ...func(*runtime.Runtime) rpc.HostServices) *nativeMenuFixture {
 	t.Helper()
 	f := &nativeMenuFixture{}
 	directory, err := os.MkdirTemp("/tmp", "whip-menu-") //nolint:usetesting // Bounded macOS Unix socket path.
@@ -44,8 +47,12 @@ func newNativeMenuFixture(t *testing.T) *nativeMenuFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.requests.Add(1)
+		f.authorization.Store(r.Header.Get("Authorization"))
+		if f.status.Load() != 0 {
+			w.WriteHeader(int(f.status.Load()))
+		}
 		_, _ = io.WriteString(w, `{"data":[{"id":"discovered","name":"Discovered model","context_length":64000,"reasoning_efforts":["low","high"]}]}`)
 	}))
 	t.Cleanup(upstream.Close)
@@ -58,12 +65,36 @@ func newNativeMenuFixture(t *testing.T) *nativeMenuFixture {
 			t.Error(err)
 		}
 	})
-	providers, err := providerhost.New(t.Context(), host.HostConfiguration(), upstream.Client(), nil, nil, nil)
+	target, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureHTTP := &http.Client{Transport: nativeMenuTransport(func(request *http.Request) (*http.Response, error) {
+		origin := request.URL.Scheme + "://" + request.URL.Host
+		if origin != upstream.URL && origin != "https://openrouter.ai" && origin != "https://api.inference.net" {
+			return nil, errors.New("unexpected fixture target")
+		}
+		local := request.Clone(request.Context())
+		local.URL.Scheme, local.URL.Host = target.Scheme, target.Host
+		return upstream.Client().Transport.RoundTrip(local)
+	})}
+	providers, err := providerhost.New(t.Context(), host.HostConfiguration(), fixtureHTTP, func(name string) (string, bool) {
+		if name == "OPENROUTER_API_KEY" {
+			return "fixture-environment-key", true
+		}
+		return "", false
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(providers.Close)
-	server, err := rpc.Listen(host, rpc.HostServices{Config: host.HostConfiguration(), ProviderHost: providers})
+	hostServices := rpc.HostServices{Config: host.HostConfiguration(), ProviderHost: providers}
+	if len(services) > 0 {
+		hostServices = services[0](host)
+		hostServices.Config = host.HostConfiguration()
+		hostServices.ProviderHost = providers
+	}
+	server, err := rpc.Listen(host, hostServices)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,4 +358,10 @@ func TestNativeMenuExactPricesAndFuzzyFilter(t *testing.T) {
 	if m.Preferences().Theme != "" {
 		t.Fatal("unexpected implicit theme")
 	}
+}
+
+type nativeMenuTransport func(*http.Request) (*http.Response, error)
+
+func (transport nativeMenuTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
 }

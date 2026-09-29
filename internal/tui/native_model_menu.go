@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/context-labs/whip/internal/protocol"
 )
@@ -203,9 +204,25 @@ func (m *nativeMenu) saveModel(hostDefault bool) tea.Cmd {
 	})
 }
 
-func (m *nativeMenu) resetInput() { m.generation++; m.input.Reset(); m.selected = 0; m.message = "" }
+func (m *nativeMenu) resetInput() {
+	m.input.EchoMode = textinput.EchoNormal
+	m.input.CharLimit = 256
+	m.generation++
+	m.input.Reset()
+	m.selected = 0
+	m.message = ""
+}
 
 func (m *nativeMenu) refreshMenu() tea.Cmd {
+	if m.mode == "setup-unknown" && m.setup.account != "" {
+		return m.readAccount()
+	}
+	if strings.HasPrefix(m.mode, "setup") {
+		return m.readSetup()
+	}
+	if strings.HasPrefix(m.mode, "account") {
+		return m.refreshAccount()
+	}
 	if m.mode == "theme" || m.mode == "settings" {
 		m.openLocalSettings()
 		return nil
@@ -214,6 +231,15 @@ func (m *nativeMenu) refreshMenu() tea.Cmd {
 }
 
 func (m *nativeMenu) choose(choice nativeMenuChoice) tea.Cmd {
+	if strings.HasPrefix(m.mode, "setup") || strings.HasPrefix(m.mode, "account") {
+		if m.mode == "setup-unknown" {
+			if m.setup.account != "" {
+				return m.readAccount()
+			}
+			return m.readSetup()
+		}
+		return m.chooseSetup(choice)
+	}
 	switch m.mode {
 	case "model-providers":
 		m.provider = protocol.ID(choice.id)
