@@ -5639,3 +5639,29 @@ settings controls, with native catalog metadata and no fake runtime. All30
 Chromium/Firefox geometry scenarios pass unchanged. The existing app typecheck
 now includes all four web fixture entrypoints, and passes without compatibility
 casts in the repaired fixture.
+
+
+Combined browser-retirement revision `b8372f26c` passes the complete normal build
+(fast packages, full runtime suite, all test compilation, vet and UI-lock checks),
+full pinned analysis (lint0, tidy, no reachable/imported-package vulnerabilities),
+and expanded required real-Chrome race gate (browser32.068s/runtime19.944s).
+The normal complete UI gate also passes on the exact equivalent UI/model-fixture
+leaves at `d9545097d`; no skipped stage or widened tolerance was needed.
+
+The published parent `b1c9ca965` now has a passing hosted Settings gate in
+run36581778862, job109451534346. Both REPL and body-history scenarios pass under
+Chromium and Firefox; the full stopped-owner seeds take49.576s and49.057s, with
+joined runtime exit0 between scenarios. The earlier timeout is not explained by
+this passing run, and no optimization or durability/deadline change is claimed.
+The same hosted run still fails SSH proxy fixtures on both OSes and a later
+slash-completion selection scenario; those have active follow-through. The
+model-picker and eval assertion failures have tested repairs in this increment.
+
+The performance audit corrected an evidence boundary: the earlier visible
+Desktop sample's final heap/DOM counters and after-work RSS followed forced GC.
+Its peak/after-typing RSS remain natural observations, but the final counters
+cannot establish natural retention. The harness now captures natural heap/DOM
+and after-work RSS first; optional forced-GC output is explicitly separate and
+excluded from acceptance. Seven bounded sampler/cleanup tests pass and are part
+of the normal performance gate. No new performance result or target pass is
+claimed until a quiet run of the corrected workload.
