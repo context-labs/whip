@@ -32,6 +32,9 @@
           "credential": {
             "type": "object",
             "properties": {
+              "can_disconnect": {
+                "type": "boolean"
+              },
               "source": {
                 "type": "string",
                 "enum": [
@@ -64,6 +67,7 @@
               }
             },
             "required": [
+              "can_disconnect",
               "source",
               "state",
               "environment",

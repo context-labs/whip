@@ -311,6 +311,9 @@ func TestProviderPreferenceFormsAndEnableStateOverSocket(t *testing.T) {
 func TestProviderDisconnectSocketClearsOwnedKeyAndCatalog(t *testing.T) {
 	f := newProviderFixture(t)
 	created := createProviderFixture(t, f)
+	if !created.Routes[0].Credential.CanDisconnect {
+		t.Fatal("owned key did not expose Disconnect")
+	}
 	call[protocol.ProviderCatalog](t, f.client, "providers.refresh", protocol.ProviderParams{Provider: "custom"})
 	result := call[protocol.ProviderDisconnectResult](t, f.client, "providers.disconnect", protocol.DisconnectProviderParams{Revision: created.Revision, Provider: "custom"})
 	if result.CredentialState != "cleared" || result.LocalFailure != nil || result.Inventory.Routes[0].Credential.State == "available" {

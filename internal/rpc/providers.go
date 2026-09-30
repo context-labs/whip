@@ -208,7 +208,15 @@ func providerInventory(value providerhost.Inventory) protocol.ProviderInventory 
 		for id, settings := range route.Models {
 			models[id] = settingsProjection(settings)
 		}
-		result.Routes = append(result.Routes, protocol.ProviderRoute{ID: protocol.ID(route.ID), Disabled: route.Disabled, Kind: route.Kind, BaseURL: route.BaseURL, Credential: protocol.ProviderCredentialStatus{Source: route.Credential.Source, State: route.Credential.State, Environment: route.Credential.Environment, File: route.Credential.File}, Models: models})
+		result.Routes = append(result.Routes, protocol.ProviderRoute{
+			ID: protocol.ID(route.ID), Disabled: route.Disabled, Kind: route.Kind, BaseURL: route.BaseURL,
+			Credential: protocol.ProviderCredentialStatus{
+				Source: route.Credential.Source, State: route.Credential.State,
+				Environment: route.Credential.Environment, File: route.Credential.File,
+				CanDisconnect: route.Credential.CanDisconnect,
+			},
+			Models: models,
+		})
 	}
 	return result
 }

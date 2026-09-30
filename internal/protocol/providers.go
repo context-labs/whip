@@ -53,10 +53,11 @@ type ProviderModelSettings struct {
 }
 
 type ProviderCredentialStatus struct {
-	Source      string `json:"source" enum:"env,file,command,none,inference-net,openai-codex"`
-	State       string `json:"state" enum:"unavailable,unchecked,not_required,missing,available,refresh_required"`
-	Environment string `json:"environment"`
-	File        string `json:"file"`
+	CanDisconnect bool   `json:"can_disconnect"`
+	Source        string `json:"source" enum:"env,file,command,none,inference-net,openai-codex"`
+	State         string `json:"state" enum:"unavailable,unchecked,not_required,missing,available,refresh_required"`
+	Environment   string `json:"environment"`
+	File          string `json:"file"`
 }
 type ProviderRoute struct {
 	ID         ID                               `json:"id"`

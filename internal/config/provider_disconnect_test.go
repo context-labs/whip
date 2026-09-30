@@ -27,6 +27,41 @@ func disconnectFixture(t *testing.T) (*Authority, Snapshot, string) {
 	return a, value, path
 }
 
+func TestCanDisconnectProvider(t *testing.T) {
+	a, before, path := disconnectFixture(t)
+	for _, test := range []struct {
+		name     string
+		provider Provider
+		want     bool
+	}{
+		{name: "owned key", provider: before.Host.Providers["owned"], want: true},
+		{
+			name: "disabled owned key", want: true,
+			provider: Provider{CredentialSource: "file", CredentialFile: path, Disabled: true},
+		},
+		{
+			name: "external file with owned filename",
+			provider: Provider{
+				CredentialSource: "file", CredentialFile: filepath.Join(t.TempDir(), filepath.Base(path)),
+			},
+		},
+		{name: "environment", provider: Provider{CredentialSource: "env", CredentialEnv: "PROVIDER_KEY"}},
+		{name: "command", provider: Provider{CredentialSource: "command"}},
+		{name: "no authentication", provider: Provider{CredentialSource: "none"}},
+		{name: "inference account", provider: Provider{CredentialSource: "inference-net"}, want: true},
+		{name: "subscription account", provider: Provider{Kind: "openai-codex"}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := a.CanDisconnectProvider(test.provider); got != test.want {
+				t.Fatalf("CanDisconnectProvider = %v, want %v", got, test.want)
+			}
+		})
+	}
+	if raw, err := os.ReadFile(path); err != nil || string(raw) != "private-secret" {
+		t.Fatal("inspection changed the key", err)
+	}
+}
+
 func TestDisconnectOwnedKeyRevisionSharingAndDefaults(t *testing.T) {
 	a, before, path := disconnectFixture(t)
 	shared, err := a.Update(t.Context(), before.Revision, func(h *Host) error { h.Providers["other"] = h.Providers["owned"]; return nil })

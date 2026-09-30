@@ -258,7 +258,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
     }) });
     options.push({ id: 'refresh', label: 'Refresh models', onSelect: () => void action(async signal => { const result = await client.refreshProviderCatalog(entry.id, { signal }); await refresh(); if (result.failure) throw new Error(result.failure); if (!signal.aborted) setNotice('Models refreshed.'); }) });
     if (entry.id === 'inference-net' && entry.route.credential.source === 'inference-net') options.push({ id: 'rotate', label: 'Rotate machine key', onSelect: () => void action(async signal => { const value = await client.rotateInferenceKey({ signal }); if (!signal.aborted) await updateFlow({ provider: 'inference-net', value }); }) });
-    options.push({ id: 'disconnect-divider', label: '', separator: true }, { id: 'disconnect', label: 'Disconnect provider', danger: true, onSelect: () => void action(async signal => {
+    if (entry.route.credential.can_disconnect) options.push({ id: 'disconnect-divider', label: '', separator: true }, { id: 'disconnect', label: 'Disconnect provider', danger: true, onSelect: () => void action(async signal => {
       const result = await client.disconnectProvider({ revision, provider: entry.id }, { signal });
       await refresh();
       if (result.local_failure || result.cleanup_failure) throw new Error([result.local_failure, result.cleanup_failure].filter(Boolean).join(' '));
@@ -288,6 +288,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
         </div>}
         {entry.route?.disabled && <p {...stylex.props(styles.description)}>Your credentials are unchanged. Enable this provider to use its existing connection again.</p>}
         {entry.route?.credential.source === 'env' && <p {...stylex.props(styles.description)}><code>{entry.route.credential.environment}</code> is read from this host’s environment. To disconnect, remove the key from the host’s environment and restart the host.</p>}
+        {entry.route?.credential.source === 'file' && !entry.route.credential.can_disconnect && <p {...stylex.props(styles.description)}>This key file is managed outside Whip. Remove the key at its source, or disable this provider on this host.</p>}
         {entry.route?.credential.source === 'command' && <p {...stylex.props(styles.description)}>The host runs your configured credential command when it needs a key. Opening this page does not run the command.</p>}
         {entry.id === 'openai-codex' && <p {...stylex.props(styles.description)}>Uses your ChatGPT account’s Codex access. Enable device code authorization in ChatGPT Security settings before signing in. Subscription usage is separate from API billing.</p>}
         <ErrorNotice type="resource" owner={`${entry.id}:account`} title="Account needs attention" error={account.error || account.data?.value.failure} />

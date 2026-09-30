@@ -1861,6 +1861,12 @@ removed. Public status omits key bytes and credential command arguments. Keeping
 an existing credential is allowed only for unchanged endpoint/codec and without
 a conflicting pasted key.
 
+Provider inventory exposes `credential.can_disconnect` from the authority's
+existing owned-key namespace check or managed account source. It is a read-only
+UI capability hint, not authorization to delete credentials. Disconnect still
+checks the current revision, shared references and cleanup safety; external
+sources are preserved. Listing this flag never publishes or removes credentials.
+
 Catalog reads perform no discovery HTTP or credential command. Explicit refresh
 uses bounded HTTP with no cookie jar or redirects, captures the route and exact
 credential/account generation, and rejects stale completions. Failed discovery

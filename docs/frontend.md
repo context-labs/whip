@@ -421,7 +421,11 @@ enter query data, saved commands, or the recovery journal.
 Disable/Enable persists route state without changing its credentials or defaults.
 Disconnect uses the host's source-aware cleanup: owned key files may be removed,
 external credentials are preserved with an explanation, and shared credentials
-are kept while the selected route is disabled. Local and remote cleanup failures
+are kept while the selected route is disabled. The connection menu offers
+Disconnect only when the host reports `credential.can_disconnect`; environment,
+external-file, command and unauthenticated routes retain Disable instead. File
+ownership is determined by the host, not inferred from filenames in the renderer.
+Local and remote cleanup failures
 remain explicit and retryable. Advanced **Remove configured route** is a separate
 CAS operation that preserves credentials and rejects dangling defaults.
 Connecting an account in Settings leaves model defaults unchanged, and choosing

@@ -6706,6 +6706,7 @@ export interface ProviderDisconnectResult {
       kind: "openai-chat" | "openai-responses" | "openai-codex";
       base_url: string;
       credential: {
+        can_disconnect: boolean;
         source: "env" | "file" | "command" | "none" | "inference-net" | "openai-codex";
         state: "unavailable" | "unchecked" | "not_required" | "missing" | "available" | "refresh_required";
         environment: string;
@@ -6758,6 +6759,7 @@ export interface ProviderInventory {
     kind: "openai-chat" | "openai-responses" | "openai-codex";
     base_url: string;
     credential: {
+      can_disconnect: boolean;
       source: "env" | "file" | "command" | "none" | "inference-net" | "openai-codex";
       state: "unavailable" | "unchecked" | "not_required" | "missing" | "available" | "refresh_required";
       environment: string;

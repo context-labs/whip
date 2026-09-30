@@ -20,6 +20,13 @@ type ProviderDisconnect struct {
 	LocalFailure    string
 }
 
+// CanDisconnectProvider reports whether Whip manages this credential. Disconnect
+// still checks the current revision, shared references and cleanup safety.
+func (a *Authority) CanDisconnectProvider(provider Provider) bool {
+	_, owned := a.ownedKeyName(provider)
+	return owned || provider.Kind == "openai-codex" || provider.CredentialSource == "inference-net"
+}
+
 // DisconnectProvider checks the current revision and all shared references
 // before clearing a managed credential. Account services call this while holding
 // their login lock; clear must cancel old flows and revoke only local credentials

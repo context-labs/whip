@@ -18,7 +18,7 @@ async function advanced() {
 }
 
 it('reads explicit local sources without credential discovery, model refresh, or account effects', async () => {
-  const f = await providerFixture(); f.data.inventory.routes = [route(), { ...route('custom'), credential: { source: 'command', state: 'unchecked', environment: '', file: '' } }];
+  const f = await providerFixture(); f.data.inventory.routes = [route(), { ...route('custom'), credential: { source: 'command', state: 'unchecked', environment: '', file: '', can_disconnect: false } }];
   f.mount(<ProvidersSettings client={f.client} />);
   expect(await screen.findByText('Environment')).toBeTruthy(); expect(await screen.findByText(/Credential command not checked/)).toBeTruthy();
   expect(screen.getByText('Connected providers')).toBeTruthy();
@@ -26,7 +26,7 @@ it('reads explicit local sources without credential discovery, model refresh, or
 });
 it('publishes a pasted key once, clears only after acknowledgement, and never journals secrets', async () => {
   const f = await providerFixture(); f.data.inventory.routes = []; f.data.inventory.defaults = null;
-  f.data.handlers['providers.create'] = request => { const p = request.params as ChangeProviderParams; f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [{ ...route(), credential: { source: 'file', state: 'available', environment: '', file: `/private/${p.key?.id}` } }] }; return f.data.inventory; };
+  f.data.handlers['providers.create'] = request => { const p = request.params as ChangeProviderParams; f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [{ ...route(), credential: { source: 'file', state: 'available', environment: '', file: `/private/${p.key?.id}`, can_disconnect: true } }] }; return f.data.inventory; };
   f.mount(<ProvidersSettings client={f.client} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'private-test-key' } });
@@ -227,6 +227,18 @@ it('disable and enable keep the default and credential visible while moving the 
   await screen.findByText('Connected providers'); expect(screen.queryByText('Disabled providers')).toBeNull(); expect(f.count('providers.defaults')).toBe(0); expect(f.count('providers.set_enabled')).toBe(2);
 });
 
+it.each(['env', 'file', 'command', 'none'] as const)('hides Disconnect for external %s credentials while retaining Disable', async source => {
+  const f = await providerFixture();
+  f.data.inventory.routes[0]!.credential = { source, state: 'available', environment: '', file: '', can_disconnect: false };
+  f.mount(<ProvidersSettings client={f.client} />); const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
+  if (source === 'file') expect(screen.getByText(/This key file is managed outside Whip/)).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: /Connection options/ }));
+  expect(await screen.findByRole('menuitem', { name: 'Disable on this host' })).toBeTruthy();
+  expect(screen.queryByRole('menuitem', { name: 'Disconnect provider' })).toBeNull();
+  expect(f.count('providers.disconnect')).toBe(0); expect(f.count('providers.set_enabled')).toBe(0);
+});
+
 it.each([
   ['cleared', null, 'OpenRouter disconnected.'],
   ['preserved_shared', null, 'OpenRouter disabled. Its credentials are shared with another provider and were kept.'],
@@ -234,6 +246,7 @@ it.each([
   ['pending', 'Key cleanup still pending', 'Key cleanup still pending'],
 ] as const)('Disconnect presents %s without removing the route or silently retrying', async (state, failure, expected) => {
   const f = await providerFixture(); f.data.handlers['providers.disconnect'] = () => ({ inventory: f.data.inventory, credential_state: state, local_failure: failure, cleanup_failure: null });
+  f.data.inventory.routes[0]!.credential = { source: 'file', state: 'available', environment: '', file: '/private/owned-key', can_disconnect: true };
   f.mount(<ProvidersSettings client={f.client} />); const user = userEvent.setup();
   await user.click(await screen.findByRole('button', { name: 'Manage OpenRouter' })); await user.click(screen.getByRole('button', { name: /Connection options/ })); await user.click(await screen.findByRole('menuitem', { name: 'Disconnect provider' }));
   await screen.findByText(text => text.includes(expected));
@@ -241,8 +254,8 @@ it.each([
 });
 
 
-it('keeps existing custom route lifecycle actions in the everyday connection view', async () => {
-  const f = await providerFixture(); f.data.inventory.routes.push(route('custom'));
+it('keeps owned custom route lifecycle actions in the everyday connection view', async () => {
+  const f = await providerFixture(); f.data.inventory.routes.push({ ...route('custom'), credential: { source: 'file', state: 'available', environment: '', file: '/private/owned-key', can_disconnect: true } });
   f.mount(<ProvidersSettings client={f.client} />); const user = userEvent.setup();
   await user.click(await screen.findByRole('button', { name: 'Manage custom', exact: true }));
   expect(screen.queryByLabelText('Endpoint')).toBeNull();

@@ -28,6 +28,9 @@ for (const name of names) {
     const loopbackURL = inventory.routes.find(route => route.id === 'provider').base_url;
     const commandMarker = join(fixture.directory, 'credential-command-ran');
     inventory = await client.createProvider({ revision: inventory.revision, provider: 'command-fixture', declaration: { kind: 'openai-chat', base_url: loopbackURL, credential: { source: 'command', environment: '', file: '', command: { executable: '/bin/sh', arguments: ['-c', `printf ran > ${commandMarker}; printf fixture-key`], environment: [] } }, models: {} }, keep_credential: false, key: null }, deadline());
+    const externalKey = join(fixture.directory, 'external-provider-key');
+    await writeFile(externalKey, 'external-fixture-key', { mode: 0o600 });
+    inventory = await client.createProvider({ revision: inventory.revision, provider: 'external-file', declaration: { kind: 'openai-chat', base_url: loopbackURL, credential: { source: 'file', environment: '', file: externalKey, command: null }, models: {} }, keep_credential: false, key: null }, deadline());
     await client.setProviderDefaults({ revision: inventory.revision, defaults: { selection: null, settings: null } }, deadline());
     const { root } = await fixture.createRoot(client);
     browser = await ({ chromium, firefox }[name]).launch();
@@ -91,11 +94,18 @@ for (const name of names) {
     assert.deepEqual((await get()).defaults, inventory.defaults);
     await page.reload(); dialog = await manage('Inference.net'); await option(dialog, 'Enable on this host'); await expect(dialog).toHaveCount(0);
     assert.equal((await get()).routes.find(route => route.id === 'inference-net').disabled, false);
-    dialog = await manage('Inference.net'); await option(dialog, 'Disconnect provider');
-    await expect(dialog).toContainText('These credentials are managed outside Whip.');
+    for (const provider of ['Inference.net', 'external-file', 'command-fixture']) {
+      dialog = await manage(provider);
+      await dialog.getByRole('button', { name: /Connection options/ }).click();
+      await expect(page.getByRole('menuitem', { name: 'Disconnect provider', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('menuitem', { name: 'Disable on this host', exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await dialog.getByRole('button', { name: /^(Done|Cancel)$/ }).click();
+    }
     assert.equal((await get()).routes.find(route => route.id === 'inference-net').credential.state, 'available');
-    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
-    report.checks.push('disable/re-enable survives reload, preserves defaults/credentials; external Disconnect explains source ownership');
+    assert.equal(await readFile(externalKey, 'utf8'), 'external-fixture-key');
+    await assert.rejects(access(commandMarker), { code: 'ENOENT' }); assert.equal(count('providers.disconnect'), 0);
+    report.checks.push('disable/re-enable survives reload and preserves defaults/credentials; external environment/file/command sources hide Disconnect without side effects');
 
     // Imported environment routes use ordinary management and key replacement.
     dialog = await manage('OpenRouter');
