@@ -1,0 +1,20 @@
+{
+  "revision": "271c0f8d2a35648d1b45056d57432590b783483c",
+  "protocol": "6.9",
+  "schemaVersion": 21,
+  "schemaIdentity": "whip-recursive-runtime-v21",
+  "frozenPaths": [
+    "packages/sdk",
+    "packages/protocol",
+    "internal/protocol",
+    "internal/protocoltransport",
+    "cmd/whip-contract",
+    "internal/session/migrations.go",
+    "internal/session/*_migration.go"
+  ],
+  "generatedPaths": [
+    "packages/protocol/schema",
+    "packages/protocol/generated"
+  ],
+  "note": "The original development SDK remains the reference. Separately reviewed dependency repairs do not move this pin. Update this manifest only through an explicit compatibility decision."
+}
