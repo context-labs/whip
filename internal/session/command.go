@@ -36,6 +36,17 @@ type CommandRecord struct {
 	Outcome       RuntimeValue
 }
 
+// IsTerminalCommandStatus reports whether status is a completed command outcome.
+// Unknown statuses are neither terminal nor an assertion that a command is pending.
+func IsTerminalCommandStatus(status string) bool {
+	switch status {
+	case "succeeded", "failed", "cancelled", "interrupted":
+		return true
+	default:
+		return false
+	}
+}
+
 type CommandAdmissionResult struct {
 	Command             CommandRecord
 	EventSeq            int64

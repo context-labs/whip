@@ -323,7 +323,7 @@ func (c *RootClient) Command(ctx context.Context, action RootAction) (protocol.C
 			CommandID: action.CommandID, Scope: string(session.CommandScopeRoot), RootID: action.RootID,
 			Operation: action.Operation, Payload: action.Payload,
 		})
-		if tracked && (result.Status == "succeeded" || result.Status == "failed" || result.Status == "cancelled" || result.Status == "interrupted") {
+		if tracked && session.IsTerminalCommandStatus(result.Status) {
 			c.mu.Lock()
 			if c.submittedCommands[action.RootID] == action.CommandID {
 				delete(c.submittedCommands, action.RootID)
@@ -647,8 +647,7 @@ func (c *RootClient) emitEvent(event protocol.ProtocolEvent) bool {
 			c.activeTurns[lifecycle.AgentID] = lifecycle.TurnID
 		}
 		if strings.HasPrefix(event.Kind, "turn.") || strings.HasPrefix(event.Kind, "agent.turn.") {
-			switch lifecycle.Status {
-			case "succeeded", "failed", "cancelled", "interrupted":
+			if session.IsTerminalTurnStatus(lifecycle.Status) {
 				delete(c.activeTurns, lifecycle.AgentID)
 			}
 		}
