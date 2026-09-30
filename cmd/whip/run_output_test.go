@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 func TestRunJSONOutputPreservesToolAndPendingEvents(t *testing.T) {
 	var output bytes.Buffer
 	run := &runOutput{enc: json.NewEncoder(&output)}
-	for _, event := range []daemon.ProtocolEvent{
+	for _, event := range []protocol.ProtocolEvent{
 		{Kind: "stream.text", Payload: json.RawMessage(`{"text":"first"}`)},
 		{Kind: "stream.reasoning", Payload: json.RawMessage(`{"text":"considering"}`)},
 		{Kind: "stream.tool.started", Payload: json.RawMessage(`{"name":"read_file","args":"{\"path\":\"x.txt\"}"}`)},
@@ -55,10 +55,10 @@ func TestRunTextOutputReportsPendingInputUnlessQuiet(t *testing.T) {
 		stderr := captureStderr(t, func() {
 			stdout = captureStdout(t, func() {
 				output := newRunOutput("text", quiet)
-				output.event(daemon.ProtocolEvent{Kind: "stream.text", Payload: json.RawMessage(`{"text":"answer"}`)})
-				output.event(daemon.ProtocolEvent{Kind: "stream.tool.started", Payload: json.RawMessage(`{"name":"read_file"}`)})
-				output.event(daemon.ProtocolEvent{Kind: "permission.pending", Payload: json.RawMessage(`{"path":"outside.txt"}`)})
-				output.event(daemon.ProtocolEvent{Kind: "question.pending", Payload: json.RawMessage(`{"question":"Continue?"}`)})
+				output.event(protocol.ProtocolEvent{Kind: "stream.text", Payload: json.RawMessage(`{"text":"answer"}`)})
+				output.event(protocol.ProtocolEvent{Kind: "stream.tool.started", Payload: json.RawMessage(`{"name":"read_file"}`)})
+				output.event(protocol.ProtocolEvent{Kind: "permission.pending", Payload: json.RawMessage(`{"path":"outside.txt"}`)})
+				output.event(protocol.ProtocolEvent{Kind: "question.pending", Payload: json.RawMessage(`{"question":"Continue?"}`)})
 				output.finish("answer", nil)
 			})
 		})

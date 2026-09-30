@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -87,7 +88,7 @@ func TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution(t *test
 	}
 }
 
-func startTCPClient(t *testing.T, value *Daemon, clientID string) (*Server, *Client, <-chan error) {
+func startTCPClient(t *testing.T, value *Daemon, clientID string) (*Server, *daemonclient.Client, <-chan error) {
 	t.Helper()
 	server, err := NewServer(value, ServerOptions{})
 	if err != nil {
@@ -103,7 +104,7 @@ func startTCPClient(t *testing.T, value *Daemon, clientID string) (*Server, *Cli
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: clientID, ClientKind: "test"})
+	client, err := daemonclient.NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: clientID, ClientKind: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

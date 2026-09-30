@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
@@ -74,7 +75,7 @@ func TestServerServesWithUnresumableSessionAndRecoversAfterRepair(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(ctx, conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "restore-client", ClientKind: "test"})
+	client, err := daemonclient.NewClient(ctx, conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "restore-client", ClientKind: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(context.Background(), conn, InitializeParams{
+	client, err := daemonclient.NewClient(context.Background(), conn, InitializeParams{
 		ProtocolMajor: ProtocolMajor, BuildID: "client-build", ClientKind: "test", ClientID: "client-1",
 		Cursors: map[string]int64{rootID: 0},
 	})
@@ -253,7 +254,7 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 	}
 	firstServer, firstClient := net.Pipe()
 	go server.serveConn(firstServer)
-	first, err := NewClient(context.Background(), firstClient, InitializeParams{
+	first, err := daemonclient.NewClient(context.Background(), firstClient, InitializeParams{
 		ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "duplicate",
 	})
 	if err != nil {
@@ -265,7 +266,7 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 	}
 	secondServer, secondClient := net.Pipe()
 	go server.serveConn(secondServer)
-	second, err := NewClient(context.Background(), secondClient, InitializeParams{
+	second, err := daemonclient.NewClient(context.Background(), secondClient, InitializeParams{
 		ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "duplicate",
 	})
 	if err != nil {
@@ -279,7 +280,7 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 	}
 	wrongServer, wrongClient := net.Pipe()
 	go server.serveConn(wrongServer)
-	if _, err := NewClient(context.Background(), wrongClient, InitializeParams{ProtocolMajor: 99, ClientKind: "test", ClientID: "wrong"}); err == nil {
+	if _, err := daemonclient.NewClient(context.Background(), wrongClient, InitializeParams{ProtocolMajor: 99, ClientKind: "test", ClientID: "wrong"}); err == nil {
 		t.Fatal("wrong protocol major initialized")
 	}
 	if err := server.Serve(nil); err == nil {
@@ -478,14 +479,14 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 
 	// EOF precedes the server goroutine releasing its connection slot.
 	// Retry admission until teardown completes instead of racing that release.
-	var client *Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(time.Second)
 	for {
 		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
 		if dialErr != nil {
 			t.Fatal(dialErr)
 		}
-		client, err = NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "first"})
+		client, err = daemonclient.NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "first"})
 		if err == nil {
 			break
 		}
@@ -507,7 +508,7 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "excess"}); err == nil {
+	if _, err := daemonclient.NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "excess"}); err == nil {
 		t.Fatal("connection above the configured maximum was initialized")
 	}
 	_ = extra.Close()
@@ -576,7 +577,7 @@ func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 	for {
 		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
 		if dialErr == nil {
-			client, clientErr := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "replacement"})
+			client, clientErr := daemonclient.NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "replacement"})
 			if clientErr == nil {
 				_ = client.Close()
 				break

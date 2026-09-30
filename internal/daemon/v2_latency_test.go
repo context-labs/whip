@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	daemonclient "github.com/context-labs/whip/internal/client"
 )
 
 // Report latency without making machine-dependent performance a correctness gate.
@@ -18,7 +20,7 @@ func TestV2ConcurrentAdmissionAndEventLatency(t *testing.T) {
 	fixture := newV2Fixture(t, &fakeRunner{})
 	const agents, rounds = 4, 12
 	roots := make([]string, agents)
-	clients := make([]*Client, agents)
+	clients := make([]*daemonclient.Client, agents)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	for i := range agents {

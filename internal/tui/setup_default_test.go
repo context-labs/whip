@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -57,7 +56,7 @@ func TestSetupProviderDefaultsCloseWithoutModelConfirmation(t *testing.T) {
 						providerFormDrain(t, s, s.keypress(setupKey("enter")))
 					case "login":
 						entry.Status.Available = new(true)
-						providerFormDrain(t, s, s.applyLogin(daemon.ProviderLoginStatus{State: "succeeded"}))
+						providerFormDrain(t, s, s.applyLogin(protocol.ProviderLoginStatus{State: "succeeded"}))
 					}
 					if !s.done || !s.chosen || s.model != tc.model || s.provider != tc.provider || s.effort != tc.effort || s.message != "" {
 						t.Fatalf("selection=%s/%s/%s done=%v message=%q", s.provider, s.model, s.effort, s.done, s.message)

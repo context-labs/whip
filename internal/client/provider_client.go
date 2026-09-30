@@ -1,4 +1,4 @@
-package daemon
+package client
 
 import (
 	"context"
@@ -67,7 +67,7 @@ func (c *Client) ListProvidersFor(ctx context.Context, model, provider string) (
 func (c *Client) DiscoverProviders(ctx context.Context, model, provider string) (protocol.ProviderList, error) {
 	var result protocol.ProviderList
 	err := c.Call(ctx, "provider.discover", protocol.ProviderListParams{Model: model, Provider: provider}, &result)
-	if failure, ok := errors.AsType[*RPCError](err); ok && failure.Code == -32601 {
+	if failure, ok := errors.AsType[*protocol.RPCError](err); ok && failure.Code == -32601 {
 		return c.ListProvidersFor(ctx, model, provider)
 	}
 	return result, err
@@ -115,31 +115,31 @@ func (c *Client) BeginProviderLogin(ctx context.Context, provider string) (Provi
 
 func (c *Client) LoginStatus(ctx context.Context, id string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.Call(ctx, "provider.login.status", ProviderLoginParams{FlowID: id}, &result)
+	err := c.Call(ctx, "provider.login.status", protocol.ProviderLoginParams{FlowID: id}, &result)
 	return result, err
 }
 
 func (c *Client) CancelLogin(ctx context.Context, id string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.Call(ctx, "provider.login.cancel", ProviderLoginParams{FlowID: id}, &result)
+	err := c.Call(ctx, "provider.login.cancel", protocol.ProviderLoginParams{FlowID: id}, &result)
 	return result, err
 }
 
 func (c *Client) SelectLoginTeam(ctx context.Context, id, teamID string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.Call(ctx, "provider.login.team.select", ProviderLoginTeamParams{FlowID: id, TeamID: teamID}, &result)
+	err := c.Call(ctx, "provider.login.team.select", protocol.ProviderLoginTeamParams{FlowID: id, TeamID: teamID}, &result)
 	return result, err
 }
 
 func (c *Client) SelectLoginProject(ctx context.Context, id, projectID string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.Call(ctx, "provider.login.project.select", ProviderLoginProjectParams{FlowID: id, ProjectID: projectID}, &result)
+	err := c.Call(ctx, "provider.login.project.select", protocol.ProviderLoginProjectParams{FlowID: id, ProjectID: projectID}, &result)
 	return result, err
 }
 
 func (c *Client) CreateLoginProject(ctx context.Context, id, name string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.Call(ctx, "provider.login.project.create", ProviderLoginCreateParams{FlowID: id, Name: name}, &result)
+	err := c.Call(ctx, "provider.login.project.create", protocol.ProviderLoginCreateParams{FlowID: id, Name: name}, &result)
 	return result, err
 }
 
@@ -162,7 +162,7 @@ func (c *RootClient) ListProvidersFor(ctx context.Context, model, provider strin
 func (c *RootClient) DiscoverProviders(ctx context.Context, model, provider string) (protocol.ProviderList, error) {
 	var result protocol.ProviderList
 	err := c.providerCall(ctx, "provider.discover", protocol.ProviderListParams{Model: model, Provider: provider}, &result)
-	if failure, ok := errors.AsType[*RPCError](err); ok && failure.Code == -32601 {
+	if failure, ok := errors.AsType[*protocol.RPCError](err); ok && failure.Code == -32601 {
 		return c.ListProvidersFor(ctx, model, provider)
 	}
 	return result, err
@@ -214,31 +214,31 @@ func (c *RootClient) BeginProviderLogin(ctx context.Context, provider string) (P
 
 func (c *RootClient) LoginStatus(ctx context.Context, id string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.providerCall(ctx, "provider.login.status", ProviderLoginParams{FlowID: id}, &result)
+	err := c.providerCall(ctx, "provider.login.status", protocol.ProviderLoginParams{FlowID: id}, &result)
 	return result, err
 }
 
 func (c *RootClient) CancelLogin(ctx context.Context, id string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.providerCall(ctx, "provider.login.cancel", ProviderLoginParams{FlowID: id}, &result)
+	err := c.providerCall(ctx, "provider.login.cancel", protocol.ProviderLoginParams{FlowID: id}, &result)
 	return result, err
 }
 
 func (c *RootClient) SelectLoginTeam(ctx context.Context, id, teamID string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.providerCall(ctx, "provider.login.team.select", ProviderLoginTeamParams{FlowID: id, TeamID: teamID}, &result)
+	err := c.providerCall(ctx, "provider.login.team.select", protocol.ProviderLoginTeamParams{FlowID: id, TeamID: teamID}, &result)
 	return result, err
 }
 
 func (c *RootClient) SelectLoginProject(ctx context.Context, id, projectID string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.providerCall(ctx, "provider.login.project.select", ProviderLoginProjectParams{FlowID: id, ProjectID: projectID}, &result)
+	err := c.providerCall(ctx, "provider.login.project.select", protocol.ProviderLoginProjectParams{FlowID: id, ProjectID: projectID}, &result)
 	return result, err
 }
 
 func (c *RootClient) CreateLoginProject(ctx context.Context, id, name string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.providerCall(ctx, "provider.login.project.create", ProviderLoginCreateParams{FlowID: id, Name: name}, &result)
+	err := c.providerCall(ctx, "provider.login.project.create", protocol.ProviderLoginCreateParams{FlowID: id, Name: name}, &result)
 	return result, err
 }
 

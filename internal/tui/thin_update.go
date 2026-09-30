@@ -9,10 +9,10 @@ import (
 	"unicode"
 
 	"charm.land/bubbles/v2/spinner"
-	tea "charm.land/bubbletea/v2"
+	"github.com/context-labs/whip/internal/protocol"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -151,7 +151,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if succeeded && msg.action.Operation == "session.preview" {
-			var preview daemon.SessionPreviewResult
+			var preview protocol.SessionPreviewResult
 			if err := json.Unmarshal([]byte(msg.result.Output), &preview); err != nil {
 				m.append(errStyle.Render("session preview: " + err.Error()))
 			} else if m.picker != nil {
@@ -177,7 +177,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if succeeded && msg.action.Operation == "provider.catalogs" {
-			var result daemon.ProviderCatalogsResult
+			var result protocol.ProviderCatalogsResult
 			if err := json.Unmarshal([]byte(msg.result.Output), &result); err != nil {
 				m.append(errStyle.Render("model catalogs: " + err.Error()))
 			} else {
@@ -213,7 +213,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.verboseCatalogs = false
 		}
 		if succeeded && msg.action.Operation == "agent.submit" {
-			var result daemon.AgentSubmitResult
+			var result protocol.AgentSubmitResult
 			if err := json.Unmarshal([]byte(msg.result.Output), &result); err != nil {
 				m.append(errStyle.Render("agent submit: " + err.Error()))
 			} else {
@@ -225,7 +225,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if succeeded && msg.action.Operation == "agent.transcript" {
-			var transcript daemon.AgentTranscriptResult
+			var transcript protocol.AgentTranscriptResult
 			if err := json.Unmarshal([]byte(msg.result.Output), &transcript); err != nil {
 				m.append(errStyle.Render("agent transcript: " + err.Error()))
 			} else if transcript.Agent.ParentID == "" {

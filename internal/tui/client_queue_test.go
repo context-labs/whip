@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
+	"github.com/context-labs/whip/internal/protocol"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -101,7 +101,7 @@ func TestTurnFailureIsVisibleOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, _ := m.Update(clientCommandMsg{action: action, result: daemon.CommandResult{Status: "failed", Error: "provider unavailable"}})
+	updated, _ := m.Update(clientCommandMsg{action: action, result: protocol.CommandResult{Status: "failed", Error: "provider unavailable"}})
 	m = updated.(*model)
 	if m.busy || strings.Count(m.transcriptText(), "provider unavailable") != 1 {
 		t.Fatalf("after command failure busy=%v transcript=%q", m.busy, m.transcriptText())
@@ -172,8 +172,8 @@ func TestRecursiveAgentTreeAndScopedStreams(t *testing.T) {
 		t.Fatalf("root then depth-first rows=%+v", rows)
 	}
 	m.agentOpen = "a"
-	rootPayload, _ := json.Marshal(daemon.StreamEvent{AgentID: "root-agent", Text: "root-only"})
-	childPayload, _ := json.Marshal(daemon.StreamEvent{AgentID: "a", Text: "child-only"})
+	rootPayload, _ := json.Marshal(protocol.StreamEvent{AgentID: "root-agent", Text: "root-only"})
+	childPayload, _ := json.Marshal(protocol.StreamEvent{AgentID: "a", Text: "child-only"})
 	_, _ = m.applyClientStream("stream.text", rootPayload)
 	if m.current != "" {
 		t.Fatalf("root stream contaminated child view: %q", m.current)
@@ -218,8 +218,8 @@ func TestScopedStreamsRemainAvailableAcrossPaneNavigation(t *testing.T) {
 			agentPresentations: map[string][]session.SnapshotEvent{},
 		},
 	}
-	payload, _ := json.Marshal(daemon.StreamEvent{AgentID: "root-agent", Text: "root progress\n"})
-	event := daemon.ProtocolEvent{Seq: 4, Kind: "stream.text", Payload: payload}
+	payload, _ := json.Marshal(protocol.StreamEvent{AgentID: "root-agent", Text: "root progress\n"})
+	event := protocol.ProtocolEvent{Seq: 4, Kind: "stream.text", Payload: payload}
 	m.recordClientStream(event)
 	if handled, _ := m.applyClientStream(event.Kind, event.Payload); !handled || strings.Contains(m.transcriptText(), "root progress") {
 		t.Fatalf("root stream contaminated selected child: %q", m.transcriptText())
@@ -313,7 +313,7 @@ func TestSessionMetadataEventsUpdateHeaderRouteAndContext(t *testing.T) {
 			Models: []config.ModelInfoLite{{ID: "api-next", ContextLength: 256}},
 		}},
 	}
-	payload, _ := json.Marshal(daemon.SessionUpdateEvent{
+	payload, _ := json.Marshal(protocol.SessionUpdateEvent{
 		Title: "renamed", Model: "next-model", Provider: "next-provider", Effort: "off", EffortChanged: true, WorkingDir: "/tmp/project",
 	})
 	if handled, _ := m.applyClientLifecycle("session.model.updated", payload); !handled {
@@ -349,7 +349,7 @@ func TestSnapshotShowsSavedEffortVerbatim(t *testing.T) {
 }
 
 func TestSnapshotPreservesQueuesFocusModalAndToolExpansion(t *testing.T) {
-	encode := func(event daemon.StreamEvent) []byte {
+	encode := func(event protocol.StreamEvent) []byte {
 		payload, err := json.Marshal(event)
 		if err != nil {
 			t.Fatal(err)
@@ -357,8 +357,8 @@ func TestSnapshotPreservesQueuesFocusModalAndToolExpansion(t *testing.T) {
 		return payload
 	}
 	presentation := []session.SnapshotEvent{
-		{Seq: 1, Kind: "stream.tool.started", Payload: encode(daemon.StreamEvent{AgentID: "root-agent", ID: "tool", Name: "read", Args: `{"path":"a.go"}`})},
-		{Seq: 2, Kind: "stream.tool.completed", Payload: encode(daemon.StreamEvent{AgentID: "root-agent", ID: "tool", Name: "read", Result: "result"})},
+		{Seq: 1, Kind: "stream.tool.started", Payload: encode(protocol.StreamEvent{AgentID: "root-agent", ID: "tool", Name: "read", Args: `{"path":"a.go"}`})},
+		{Seq: 2, Kind: "stream.tool.completed", Payload: encode(protocol.StreamEvent{AgentID: "root-agent", ID: "tool", Name: "read", Result: "result"})},
 	}
 	snapshot := session.RootSnapshot{
 		RootID: "root", Cursor: 2, Meta: session.Meta{ID: "root", Model: "kimi-k3-fast", Provider: "inference"},
@@ -397,7 +397,7 @@ func TestSnapshotPreservesQueuesFocusModalAndToolExpansion(t *testing.T) {
 }
 
 func TestSnapshotRebuildsInProgressUserInputAndChildPresentation(t *testing.T) {
-	stream, _ := json.Marshal(daemon.StreamEvent{AgentID: "child", Text: "working\n"})
+	stream, _ := json.Marshal(protocol.StreamEvent{AgentID: "child", Text: "working\n"})
 	m := &model{
 		input: newInput(), agentOpen: "child",
 		agentMessages: map[string][]llm.Message{},
@@ -412,7 +412,7 @@ func TestSnapshotRebuildsInProgressUserInputAndChildPresentation(t *testing.T) {
 		t.Fatalf("running transcript was not rebuilt exactly once: %q", transcript)
 	}
 
-	m.openAgent(daemon.AgentTranscriptResult{
+	m.openAgent(protocol.AgentTranscriptResult{
 		Cursor:       10,
 		Agent:        session.RuntimeAgent{ID: "child", ParentID: "root-agent", LifecyclePhase: "running"},
 		Inbox:        []session.InboxItem{{AgentID: "child", Seq: 5, Kind: "submit", Status: "queued", Payload: session.RuntimeValue{Inline: []byte("follow up")}}},

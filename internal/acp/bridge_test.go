@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	acpsdk "github.com/coder/acp-go-sdk"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/protocol"
 
-	"github.com/context-labs/whip/internal/daemon"
+	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
@@ -34,7 +35,7 @@ type fakeRoot struct {
 	cwd           string
 	title         string
 	messages      []llm.Message
-	events        []daemon.ProtocolEvent
+	events        []protocol.ProtocolEvent
 	presentation  []session.SnapshotEvent
 	permissions   []session.PermissionSnapshot
 	remember      string
@@ -44,7 +45,7 @@ type fakeRoot struct {
 	snapshotError string
 	snapshotCalls int
 	connections   []*fakeConnection
-	lastSubmit    daemon.SubmitPayload
+	lastSubmit    protocol.SubmitPayload
 	lastAnswer    questionAnswer
 	questions     []session.LifecycleEvent // open user.ask prompts a snapshot lists
 	cancel        chan struct{}
@@ -59,7 +60,7 @@ func newFakeBackend(t *testing.T) *fakeACPBackend {
 	return &fakeACPBackend{roots: make(map[string]*fakeRoot), attached: make(map[string]map[string]mcp.ServerConfig)}
 }
 
-func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemonclient.RootClient, error) {
 	if b.newErr != nil {
 		return nil, b.newErr
 	}
@@ -76,7 +77,7 @@ func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[st
 	return b.client(ctx, root)
 }
 
-func (b *fakeACPBackend) LoadRoot(ctx context.Context, id, _ string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+func (b *fakeACPBackend) LoadRoot(ctx context.Context, id, _ string, servers map[string]mcp.ServerConfig) (*daemonclient.RootClient, error) {
 	b.mu.Lock()
 	root := b.roots[id]
 	if root != nil {
@@ -89,10 +90,10 @@ func (b *fakeACPBackend) LoadRoot(ctx context.Context, id, _ string, servers map
 	return b.client(ctx, root)
 }
 
-func (b *fakeACPBackend) client(ctx context.Context, root *fakeRoot) (*daemon.RootClient, error) {
-	client, err := daemon.NewRootClient(daemon.RootClientOptions{
+func (b *fakeACPBackend) client(ctx context.Context, root *fakeRoot) (*daemonclient.RootClient, error) {
+	client, err := daemonclient.NewRootClient(daemonclient.RootClientOptions{
 		ClientID: "acp-test", RootID: root.id,
-		Connector: func(context.Context, map[string]int64) (daemon.RootConnection, error) {
+		Connector: func(context.Context, map[string]int64) (daemonclient.RootConnection, error) {
 			return newFakeConnection(root), nil
 		},
 		RetryMin: time.Millisecond, RetryMax: 5 * time.Millisecond,
@@ -137,21 +138,21 @@ func (b *fakeACPBackend) seed(cwd string, messages ...llm.Message) string {
 
 type fakeConnection struct {
 	root   *fakeRoot
-	events chan daemon.ProtocolEvent
+	events chan protocol.ProtocolEvent
 	done   chan struct{}
 	once   sync.Once
 }
 
 func newFakeConnection(root *fakeRoot) *fakeConnection {
-	connection := &fakeConnection{root: root, events: make(chan daemon.ProtocolEvent, 64), done: make(chan struct{})}
+	connection := &fakeConnection{root: root, events: make(chan protocol.ProtocolEvent, 64), done: make(chan struct{})}
 	root.mu.Lock()
 	root.connections = append(root.connections, connection)
 	root.mu.Unlock()
 	return connection
 }
 
-func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParams) (daemon.CommandResult, error) {
-	result := daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded"}
+func (c *fakeConnection) Command(ctx context.Context, params protocol.CommandParams) (protocol.CommandResult, error) {
+	result := protocol.CommandResult{CommandID: params.CommandID, Status: "succeeded"}
 	switch params.Operation {
 	case "permission.mode":
 		c.root.mu.Lock()
@@ -173,7 +174,7 @@ func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParam
 		if payload.External {
 			mode = "prompt"
 		}
-		update, _ := json.Marshal(daemon.SessionUpdateEvent{PermissionMode: &mode})
+		update, _ := json.Marshal(protocol.SessionUpdateEvent{PermissionMode: &mode})
 		c.emitRaw("session.permission_mode.updated", update)
 		return result, nil
 	case "cancel":
@@ -187,7 +188,7 @@ func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParam
 	case "question.answer":
 		var answer questionAnswer
 		if err := json.Unmarshal(params.Payload, &answer); err != nil {
-			return daemon.CommandResult{}, err
+			return protocol.CommandResult{}, err
 		}
 		c.root.mu.Lock()
 		c.root.lastAnswer = answer
@@ -202,22 +203,22 @@ func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParam
 	}
 }
 
-func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams, result daemon.CommandResult) (daemon.CommandResult, error) {
-	var payload daemon.SubmitPayload
+func (c *fakeConnection) submit(ctx context.Context, params protocol.CommandParams, result protocol.CommandResult) (protocol.CommandResult, error) {
+	var payload protocol.SubmitPayload
 	if err := json.Unmarshal(params.Payload, &payload); err != nil {
-		return daemon.CommandResult{}, err
+		return protocol.CommandResult{}, err
 	}
 	c.root.mu.Lock()
 	c.root.lastSubmit = payload
 	c.root.messages = append(c.root.messages, llm.Message{Role: "user", Content: payload.Text, Parts: payload.Parts})
 	c.root.mu.Unlock()
 	if strings.Contains(payload.Text, "events") {
-		c.emit("stream.reasoning", daemon.StreamEvent{Text: "thinking"})
-		c.emit("stream.tool.started", daemon.StreamEvent{ID: "tool-1", Name: "read", Args: `{"path":"a.go"}`})
-		c.emit("stream.tool.completed", daemon.StreamEvent{ID: "tool-1", Name: "read", Result: "contents"})
-		c.emit("stream.usage", daemon.StreamEvent{Usage: &daemon.UsageEvent{Used: 7, Size: 100}})
-		plan, _ := json.Marshal(daemon.PlanEvent{Items: []daemon.PlanItem{{Content: "check", Status: "completed"}}})
-		c.emit("stream.plan", daemon.StreamEvent{Result: string(plan)})
+		c.emit("stream.reasoning", protocol.StreamEvent{Text: "thinking"})
+		c.emit("stream.tool.started", protocol.StreamEvent{ID: "tool-1", Name: "read", Args: `{"path":"a.go"}`})
+		c.emit("stream.tool.completed", protocol.StreamEvent{ID: "tool-1", Name: "read", Result: "contents"})
+		c.emit("stream.usage", protocol.StreamEvent{Usage: &protocol.UsageEvent{Used: 7, Size: 100}})
+		plan, _ := json.Marshal(protocol.PlanEvent{Items: []protocol.PlanItem{{Content: "check", Status: "completed"}}})
+		c.emit("stream.plan", protocol.StreamEvent{Result: string(plan)})
 	}
 	if strings.Contains(payload.Text, "permission") {
 		c.emitRaw("permission.pending", []byte(`{"permission_id":"permission-1","operation_id":"operation-1","operation":"write","canonical_path":"/tmp/a.go","command":"/tmp/a.go","rule":"/tmp/a.go"}`))
@@ -233,7 +234,7 @@ func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams
 			c.emitRaw("turn.failed", nil)
 			return result, nil
 		case <-ctx.Done():
-			return daemon.CommandResult{}, ctx.Err()
+			return protocol.CommandResult{}, ctx.Err()
 		}
 	}
 	if strings.Contains(payload.Text, "question") {
@@ -241,11 +242,11 @@ func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams
 		select {
 		case <-c.root.question:
 		case <-ctx.Done():
-			return daemon.CommandResult{}, ctx.Err()
+			return protocol.CommandResult{}, ctx.Err()
 		}
 	}
 	answer := "answer"
-	c.emit("stream.text", daemon.StreamEvent{Text: answer})
+	c.emit("stream.text", protocol.StreamEvent{Text: answer})
 	c.root.mu.Lock()
 	c.root.title = "Test session"
 	c.root.messages = append(c.root.messages, llm.Message{Role: "assistant", Content: answer})
@@ -255,7 +256,7 @@ func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams
 	return result, nil
 }
 
-func (c *fakeConnection) emit(kind string, stream daemon.StreamEvent) {
+func (c *fakeConnection) emit(kind string, stream protocol.StreamEvent) {
 	payload, _ := json.Marshal(stream)
 	c.emitRaw(kind, payload)
 }
@@ -263,7 +264,7 @@ func (c *fakeConnection) emit(kind string, stream daemon.StreamEvent) {
 func (c *fakeConnection) emitRaw(kind string, payload []byte) {
 	c.root.mu.Lock()
 	seq := int64(len(c.root.events) + 1)
-	event := daemon.ProtocolEvent{RootID: c.root.id, Seq: seq, Kind: kind, Payload: payload}
+	event := protocol.ProtocolEvent{RootID: c.root.id, Seq: seq, Kind: kind, Payload: payload}
 	c.root.events = append(c.root.events, event)
 	connections := append([]*fakeConnection{}, c.root.connections...)
 	c.root.mu.Unlock()
@@ -275,10 +276,10 @@ func (c *fakeConnection) emitRaw(kind string, payload []byte) {
 	}
 }
 
-func (c *fakeConnection) Replay(_ context.Context, params daemon.ReplayParams) (daemon.ReplayResult, error) {
+func (c *fakeConnection) Replay(_ context.Context, params protocol.ReplayParams) (protocol.ReplayResult, error) {
 	c.root.mu.Lock()
 	defer c.root.mu.Unlock()
-	result := daemon.ReplayResult{Latest: int64(len(c.root.events))}
+	result := protocol.ReplayResult{Latest: int64(len(c.root.events))}
 	for _, event := range c.root.events {
 		if event.Seq > params.Cursor {
 			result.Events = append(result.Events, event)
@@ -310,7 +311,7 @@ func (c *fakeConnection) Snapshot(context.Context, string) (session.RootSnapshot
 	}, nil
 }
 
-func (c *fakeConnection) DecidePermission(_ context.Context, decision daemon.PermissionDecision) (daemon.PermissionDecisionResult, error) {
+func (c *fakeConnection) DecidePermission(_ context.Context, decision protocol.PermissionDecision) (protocol.PermissionDecisionResult, error) {
 	c.root.mu.Lock()
 	c.root.decisions++
 	c.root.remember = decision.Remember
@@ -319,12 +320,12 @@ func (c *fakeConnection) DecidePermission(_ context.Context, decision daemon.Per
 	case c.root.permission <- decision.Allow:
 	default:
 	}
-	return daemon.PermissionDecisionResult{OperationID: "operation-1"}, nil
+	return protocol.PermissionDecisionResult{OperationID: "operation-1"}, nil
 }
 
-func (c *fakeConnection) Events() <-chan daemon.ProtocolEvent { return c.events }
-func (c *fakeConnection) Done() <-chan struct{}               { return c.done }
-func (c *fakeConnection) Err() error                          { return nil }
+func (c *fakeConnection) Events() <-chan protocol.ProtocolEvent { return c.events }
+func (c *fakeConnection) Done() <-chan struct{}                 { return c.done }
+func (c *fakeConnection) Err() error                            { return nil }
 func (c *fakeConnection) Close() error {
 	c.once.Do(func() {
 		c.root.mu.Lock()
@@ -549,7 +550,7 @@ func TestBridgeLoadReplaysBeforeResponseAndLists(t *testing.T) {
 		llm.Message{Role: "user", Content: "remember"},
 		llm.Message{Role: "assistant", Content: "remembered"},
 	)
-	presentation, _ := json.Marshal(daemon.StreamEvent{Text: "unfinished thought"})
+	presentation, _ := json.Marshal(protocol.StreamEvent{Text: "unfinished thought"})
 	backend.roots[id].presentation = []session.SnapshotEvent{{Seq: 1, Kind: "stream.reasoning", Payload: presentation}}
 	fixture := newACPFixture(t, backend, nil)
 	fixture.initialize(t)
@@ -851,7 +852,7 @@ func TestBridgeConcurrentSessionsAndCloseDetach(t *testing.T) {
 
 func TestFakeConnectionImplementsRootProtocol(t *testing.T) {
 	root := &fakeRoot{id: "root", cancel: make(chan struct{}, 1), permission: make(chan bool, 1)}
-	var _ daemon.RootConnection = newFakeConnection(root)
+	var _ daemonclient.RootConnection = newFakeConnection(root)
 }
 
 func TestBridgeRejectsUnsupportedAndInvalidProtocolRequests(t *testing.T) {
@@ -965,8 +966,8 @@ func TestBridgeSessionRequestErrorsRemainSessionScoped(t *testing.T) {
 	}
 }
 
-func (*fakeConnection) Subscribe(context.Context, string, int64) (daemon.SubscribeResult, error) {
-	return daemon.SubscribeResult{}, nil
+func (*fakeConnection) Subscribe(context.Context, string, int64) (protocol.SubscribeResult, error) {
+	return protocol.SubscribeResult{}, nil
 }
 
 func TestBridgeCancelsWhilePermissionDecisionIsPending(t *testing.T) {

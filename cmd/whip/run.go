@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agentdef"
-
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -136,15 +136,15 @@ func runCLI(args []string) error {
 	}
 
 	clientID := daemonClientID("run")
-	options := daemon.RootClientOptions{
+	options := daemonclient.RootClientOptions{
 		ClientID:  clientID,
 		RootID:    *resumeFlag,
 		Connector: daemonConnector("automation", clientID),
 	}
 	if *resumeFlag == "" {
-		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: providerName, ExecutionEngine: *engineFlag, PermissionMode: *permissionFlag, Definition: *agentFlag}
+		options.Create = &session.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: providerName, ExecutionEngine: *engineFlag, PermissionMode: *permissionFlag, Definition: *agentFlag}
 	}
-	client, err := daemon.NewRootClient(options)
+	client, err := daemonclient.NewRootClient(options)
 	if err != nil {
 		return err
 	}
@@ -219,12 +219,12 @@ func runCLI(args []string) error {
 	}
 
 	baseline := client.Cursor()
-	action, err := client.NewAction("submit", daemon.SubmitPayload{Text: prompt})
+	action, err := client.NewAction("submit", protocol.SubmitPayload{Text: prompt})
 	if err != nil {
 		return err
 	}
 	type commandReply struct {
-		result daemon.CommandResult
+		result protocol.CommandResult
 		err    error
 	}
 	replies := make(chan commandReply, 1)
@@ -301,8 +301,8 @@ func newRunOutput(format string, quiet bool) *runOutput {
 	return output
 }
 
-func (o *runOutput) event(event daemon.ProtocolEvent) {
-	var stream daemon.StreamEvent
+func (o *runOutput) event(event protocol.ProtocolEvent) {
+	var stream protocol.StreamEvent
 	if strings.HasPrefix(event.Kind, "stream.") {
 		if err := json.Unmarshal(event.Payload, &stream); err != nil {
 			return
@@ -384,7 +384,7 @@ func runContextError(err error, timeout time.Duration) error {
 	return err
 }
 
-func cancelRun(client *daemon.RootClient, rootID string) {
+func cancelRun(client *daemonclient.RootClient, rootID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	action, err := client.NewAction("cancel", map[string]string{})
@@ -411,7 +411,7 @@ func deleteDaemonSession(clientID, rootID string) error {
 	if err != nil {
 		return err
 	}
-	result, err := connection.Command(ctx, daemon.CommandParams{
+	result, err := connection.Command(ctx, protocol.CommandParams{
 		CommandID: cleanupID + "-delete-" + rootID,
 		Scope:     string(session.CommandScopeDaemon),
 		Operation: "session.delete",

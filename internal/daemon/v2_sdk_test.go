@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -208,7 +209,7 @@ func TestV2SDKBridge(t *testing.T) {
 	gateway := startTestGateway(t, paths, network)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	probe, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "sdk-probe", ClientKind: "automation"})
+	probe, err := daemonclient.DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "sdk-probe", ClientKind: "automation"})
 	if err != nil {
 		t.Fatal(err)
 	}

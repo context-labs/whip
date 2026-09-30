@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
@@ -21,7 +22,7 @@ type v2Fixture struct {
 	server   *Server
 	store    *session.Store
 	rootID   string
-	dial     func(string, string) *Client
+	dial     func(string, string) *daemonclient.Client
 	endpoint string
 }
 
@@ -61,7 +62,7 @@ func newV2Fixture(t *testing.T, runner Runner, origins ...string) v2Fixture {
 	gateway := startTestGateway(t, paths, webgateway.Options{AllowedOrigins: origins})
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	initial, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "different-client-build", ClientKind: "human", ClientID: "probe"})
+	initial, err := daemonclient.DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "different-client-build", ClientKind: "human", ClientID: "probe"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,17 +71,17 @@ func newV2Fixture(t *testing.T, runner Runner, origins ...string) v2Fixture {
 		t.Fatal("missing persistent runtime identity")
 	}
 	_ = initial.Close()
-	return v2Fixture{server: server, gateway: gateway, endpoint: endpoint, store: store, rootID: rootID, dial: func(transport, clientID string) *Client {
+	return v2Fixture{server: server, gateway: gateway, endpoint: endpoint, store: store, rootID: rootID, dial: func(transport, clientID string) *daemonclient.Client {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		initialize := InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "different-client-build", ClientKind: "human", ClientID: clientID}
-		var client *Client
+		var client *daemonclient.Client
 		var err error
 		if transport == "unix" {
-			client, err = DialClient(ctx, paths, initialize)
+			client, err = daemonclient.DialClient(ctx, paths, initialize)
 		} else {
-			client, err = DialWebSocketClient(ctx, endpoint, initialize)
+			client, err = daemonclient.DialWebSocketClient(ctx, endpoint, initialize)
 		}
 		if err != nil {
 			t.Fatal(err)

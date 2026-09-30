@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -50,20 +50,20 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 	if m.panelWidth() != (140-opencodeLeftMargin)/2 || m.leftVisible() {
 		t.Fatalf("panel width = %d left=%v (the REPL displaces the left column below %d columns and takes half the terminal)", m.panelWidth(), m.leftVisible(), replMinWide)
 	}
-	m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f`})
-	m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f)"}`})
-	m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f)"}`})
-	m.replApply("root-agent", "stream.cell.host", daemon.StreamEvent{ID: "c1", Name: "files.list", Args: "path=.", Text: "12ms"})
-	m.replApply("root-agent", "stream.tool.output", daemon.StreamEvent{ID: "c1", Text: "a.go\n"})
-	m.replApply("child", "stream.tool.call", daemon.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
-	m.replApply("child", "stream.tool.started", daemon.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
+	m.replApply("root-agent", "stream.tool.call", protocol.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f`})
+	m.replApply("root-agent", "stream.tool.call", protocol.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f)"}`})
+	m.replApply("root-agent", "stream.tool.started", protocol.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f)"}`})
+	m.replApply("root-agent", "stream.cell.host", protocol.StreamEvent{ID: "c1", Name: "files.list", Args: "path=.", Text: "12ms"})
+	m.replApply("root-agent", "stream.tool.output", protocol.StreamEvent{ID: "c1", Text: "a.go\n"})
+	m.replApply("child", "stream.tool.call", protocol.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
+	m.replApply("child", "stream.tool.started", protocol.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
 	running := m.replPanelView(30)
 	for _, want := range []string{"REPL · root", "1 cell", "In [1]", "files.list", "→ files.list(path=.) 12ms", "a.go"} {
 		if !strings.Contains(running, want) {
 			t.Fatalf("running panel missing %q:\n%s", want, running)
 		}
 	}
-	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":3,"output":"a.go\nb.go\n","steps":42}`})
+	m.replApply("root-agent", "stream.tool.completed", protocol.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":3,"output":"a.go\nb.go\n","steps":42}`})
 	m.replRestart("root-agent", 9, 1)
 	done := m.replPanelView(30)
 	for _, want := range []string{"42 steps", "b.go", "⇒ ", "restarted · restored 9 · 1 skipped"} {
@@ -82,7 +82,7 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 			t.Fatalf("panel row contains a replacement character: %q", ansi.Strip(line))
 		}
 	}
-	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c2", Name: "rlm_exec", Result: "Error: <rlm-cell>:1:1: undefined: nope"})
+	m.replApply("root-agent", "stream.tool.completed", protocol.StreamEvent{ID: "c2", Name: "rlm_exec", Result: "Error: <rlm-cell>:1:1: undefined: nope"})
 	if failed := m.replPanelView(30); !strings.Contains(failed, "✗ <rlm-cell>:1:1: undefined: nope") || !strings.Contains(failed, "In [2]") {
 		t.Fatalf("failed cell not rendered:\n%s", failed)
 	}
@@ -126,13 +126,13 @@ func TestReplPanelToggleChordAndCommand(t *testing.T) {
 
 func TestReplRebuildsFromStoredPresentation(t *testing.T) {
 	m := replTestModel(t, 140)
-	encode := func(event daemon.StreamEvent) []byte {
+	encode := func(event protocol.StreamEvent) []byte {
 		payload, _ := json.Marshal(event)
 		return payload
 	}
 	m.clientView.agentPresentations = map[string][]session.SnapshotEvent{"child": {
-		{Seq: 1, Kind: "stream.tool.started", Payload: encode(daemon.StreamEvent{AgentID: "child", ID: "k1", Name: "rlm_exec", Args: `{"code": "memo = 1"}`})},
-		{Seq: 2, Kind: "stream.tool.completed", Payload: encode(daemon.StreamEvent{AgentID: "child", ID: "k1", Name: "rlm_exec", Result: `{"value":null,"steps":3}`})},
+		{Seq: 1, Kind: "stream.tool.started", Payload: encode(protocol.StreamEvent{AgentID: "child", ID: "k1", Name: "rlm_exec", Args: `{"code": "memo = 1"}`})},
+		{Seq: 2, Kind: "stream.tool.completed", Payload: encode(protocol.StreamEvent{AgentID: "child", ID: "k1", Name: "rlm_exec", Result: `{"value":null,"steps":3}`})},
 	}}
 	m.agentOpen = "child"
 	m.replRebuild()
@@ -146,8 +146,8 @@ func TestReplPanelScrollsIndependentlyOfChat(t *testing.T) {
 	for i := 1; i <= 30; i++ {
 		id := fmt.Sprintf("call-%d", i)
 		args := fmt.Sprintf(`{"code":"x = %d"}`, i)
-		m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: args})
-		m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":1}`})
+		m.replApply("root-agent", "stream.tool.started", protocol.StreamEvent{ID: id, Name: "rlm_exec", Args: args})
+		m.replApply("root-agent", "stream.tool.completed", protocol.StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":1}`})
 	}
 	view := m.replPanelView(20)
 	if !strings.Contains(view, "In [30]") || strings.Contains(view, "In [1]") {
@@ -228,15 +228,15 @@ func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
 	m := replTestModel(t, 140)
 	clock := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	m.now = func() time.Time { return clock }
-	encode := func(event daemon.StreamEvent) []byte {
+	encode := func(event protocol.StreamEvent) []byte {
 		payload, _ := json.Marshal(event)
 		return payload
 	}
 	var seq int64
 	cellEvents := func(i int) []session.SnapshotEvent {
 		id := fmt.Sprintf("call-%d", i)
-		started := daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: fmt.Sprintf(`{"code":"x = %d"}`, i)}
-		completed := daemon.StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":1,"steps":2}`}
+		started := protocol.StreamEvent{ID: id, Name: "rlm_exec", Args: fmt.Sprintf(`{"code":"x = %d"}`, i)}
+		completed := protocol.StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":1,"steps":2}`}
 		seq += 2
 		return []session.SnapshotEvent{
 			{Seq: seq - 1, Kind: "stream.tool.started", Payload: encode(started)},
@@ -253,14 +253,14 @@ func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
 		t.Fatalf("replayed cells must render without a fabricated duration:\n%s", view)
 	}
 	// A live cell (recordClientStream path) keeps its measured duration across later snapshots.
-	live := func(kind string, event daemon.StreamEvent) {
+	live := func(kind string, event protocol.StreamEvent) {
 		seq++
 		payload := encode(event)
-		m.recordClientStream(daemon.ProtocolEvent{Seq: seq, Kind: kind, Payload: payload})
+		m.recordClientStream(protocol.ProtocolEvent{Seq: seq, Kind: kind, Payload: payload})
 	}
-	live("stream.tool.started", daemon.StreamEvent{ID: "call-31", Name: "rlm_exec", Args: `{"code":"x = 31"}`})
+	live("stream.tool.started", protocol.StreamEvent{ID: "call-31", Name: "rlm_exec", Args: `{"code":"x = 31"}`})
 	clock = clock.Add(2 * time.Second)
-	live("stream.tool.completed", daemon.StreamEvent{ID: "call-31", Name: "rlm_exec", Result: `{"value":1}`})
+	live("stream.tool.completed", protocol.StreamEvent{ID: "call-31", Name: "rlm_exec", Result: `{"value":1}`})
 	if view = m.replPanelView(20); !strings.Contains(view, "In [31]  2.0s") {
 		t.Fatalf("live cell duration missing:\n%s", view)
 	}
@@ -286,14 +286,14 @@ func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
 		t.Fatalf("replayed snapshot duplicated cells: %d", got)
 	}
 	// New rows arriving below keep the scrolled-up content anchored.
-	live("stream.tool.started", daemon.StreamEvent{ID: "call-32", Name: "rlm_exec", Args: `{"code":"x = 32"}`})
+	live("stream.tool.started", protocol.StreamEvent{ID: "call-32", Name: "rlm_exec", Args: `{"code":"x = 32"}`})
 	after := m.replPanelView(20)
 	beforeRows, afterRows := strings.Split(before, "\n"), strings.Split(after, "\n")
 	if m.replScroll <= 15 || beforeRows[6] != afterRows[6] || beforeRows[10] != afterRows[10] {
 		t.Fatalf("new rows shifted the scrolled view (scroll=%d)\nbefore:\n%s\nafter:\n%s", m.replScroll, before, after)
 	}
 	// An idle child's cells stay visible even though snapshots drop them.
-	m.recordClientStream(daemon.ProtocolEvent{Seq: seq + 1, Kind: "stream.tool.started", Payload: encode(daemon.StreamEvent{AgentID: "child", ID: "c-1", Name: "rlm_exec", Args: `{"code":"y = 1"}`})})
+	m.recordClientStream(protocol.ProtocolEvent{Seq: seq + 1, Kind: "stream.tool.started", Payload: encode(protocol.StreamEvent{AgentID: "child", ID: "c-1", Name: "rlm_exec", Args: `{"code":"y = 1"}`})})
 	m.clientView.agentPresentations = nil
 	m.replRebuild()
 	m.agentOpen = "child"
@@ -373,9 +373,9 @@ func TestReplPanelKeepsRowsOnOneLineAndWrapsCodeLosslessly(t *testing.T) {
 	m := replTestModel(t, 140)
 	code := "x = \"" + strings.Repeat("a", 200) + "\"\n\tif x:\n\t\tprint(x)"
 	args, _ := json.Marshal(map[string]string{"code": code})
-	m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: string(args)})
-	m.replApply("root-agent", "stream.cell.host", daemon.StreamEvent{ID: "c1", Name: "shell.run", Args: "command=a\tb\nc\r", Text: "1ms", Result: "boom\nline two"})
-	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":"v\tw\nz","output":"col1\tcol2\r\nnext"}`})
+	m.replApply("root-agent", "stream.tool.started", protocol.StreamEvent{ID: "c1", Name: "rlm_exec", Args: string(args)})
+	m.replApply("root-agent", "stream.cell.host", protocol.StreamEvent{ID: "c1", Name: "shell.run", Args: "command=a\tb\nc\r", Text: "1ms", Result: "boom\nline two"})
+	m.replApply("root-agent", "stream.tool.completed", protocol.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":"v\tw\nz","output":"col1\tcol2\r\nnext"}`})
 	view := m.replPanelView(40)
 	rows := strings.Split(view, "\n")
 	if len(rows) != 40 {
@@ -429,11 +429,11 @@ func TestAgentDetailsFitTheChatColumn(t *testing.T) {
 func TestReplHostLifecycle(t *testing.T) {
 	m := replTestModel(t, 140)
 	cell := func(id, code string) {
-		m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code": "` + code + `"}`})
-		m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code": "` + code + `"}`})
+		m.replApply("root-agent", "stream.tool.call", protocol.StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code": "` + code + `"}`})
+		m.replApply("root-agent", "stream.tool.started", protocol.StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code": "` + code + `"}`})
 	}
 	host := func(kind, invocation, name, status, duration, result string) {
-		m.replApply("root-agent", kind, daemon.StreamEvent{ID: "c1", InvocationID: invocation, Name: name, Args: "path=README.md", HostStatus: status, Text: duration, Result: result})
+		m.replApply("root-agent", kind, protocol.StreamEvent{ID: "c1", InvocationID: invocation, Name: name, Args: "path=README.md", HostStatus: status, Text: duration, Result: result})
 	}
 	view := func() string { return ansi.Strip(m.replPanelView(30)) }
 	expect := func(what string, want ...string) {
@@ -464,7 +464,7 @@ func TestReplHostLifecycle(t *testing.T) {
 	host("stream.cell.host", "1:4", "files.write", "failed", "3s", "") // the daemon truncated the error away
 	host("stream.cell.host", "", "context.read", "", "4ms", "")        // completion-only history from an older daemon
 	host("stream.cell.host.started", "1:5", "agents.wait", "", "", "")
-	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":null,"output":"","steps":5}`})
+	m.replApply("root-agent", "stream.tool.completed", protocol.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":null,"output":"","steps":5}`})
 	expect("outcomes",
 		"→ shell.run(path=README.md) ✗ boom",
 		"→ shell.run(path=README.md) cancelled",
@@ -486,7 +486,7 @@ func TestReplHostLifecycle(t *testing.T) {
 	}
 
 	// A long summary is clipped before the status, never instead of it.
-	m.replApply("root-agent", "stream.cell.host", daemon.StreamEvent{ID: "c1", InvocationID: "2:1", Name: "files.list", Args: strings.Repeat("path=very/long/", 20), HostStatus: "completed", Text: "12ms"})
+	m.replApply("root-agent", "stream.cell.host", protocol.StreamEvent{ID: "c1", InvocationID: "2:1", Name: "files.list", Args: strings.Repeat("path=very/long/", 20), HostStatus: "completed", Text: "12ms"})
 	for line := range strings.SplitSeq(view(), "\n") {
 		if !strings.Contains(line, "→ files.list") {
 			continue

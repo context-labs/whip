@@ -15,37 +15,37 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/daemonconn"
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/session"
 
 	bubbletea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/update"
 )
 
-type ClientState = daemon.RootClientState
+type ClientState = daemonclient.RootClientState
 
 const (
-	ClientDisconnected = daemon.RootDisconnected
-	ClientReconnecting = daemon.RootReconnecting
-	ClientSnapshotting = daemon.RootSnapshotting
-	ClientLive         = daemon.RootLive
+	ClientDisconnected = daemonclient.RootDisconnected
+	ClientReconnecting = daemonclient.RootReconnecting
+	ClientSnapshotting = daemonclient.RootSnapshotting
+	ClientLive         = daemonclient.RootLive
 )
 
 type (
-	Action           = daemon.RootAction
-	ClientUpdate     = daemon.RootUpdate
-	daemonConnection = daemon.RootConnection
-	ClientOptions    = daemon.RootClientOptions
-	Client           = daemon.RootClient
+	Action           = daemonclient.RootAction
+	ClientUpdate     = daemonclient.RootUpdate
+	daemonConnection = daemonclient.RootConnection
+	ClientOptions    = daemonclient.RootClientOptions
+	Client           = daemonclient.RootClient
 )
 
-func NewClient(options ClientOptions) (*Client, error) { return daemon.NewRootClient(options) }
+func NewClient(options ClientOptions) (*Client, error) { return daemonclient.NewRootClient(options) }
 
 // clientPresentation is the daemon-fed state needed to render a terminal. It
 // deliberately has no provider client, tool registry, scheduler, store, or
@@ -87,8 +87,8 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 	clientID := "tui-" + rand.Text()
 	resumeChecked := false
 	connector := func(ctx context.Context, cursors map[string]int64) (daemonConnection, error) {
-		connection, err := daemon.EnsureClient(ctx, paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: Version, ClientKind: "tui",
+		connection, err := daemonclient.EnsureClient(ctx, paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, BuildID: Version, ClientKind: "tui",
 			ClientID: clientID, Capabilities: []string{"commands", "events", "snapshots", "permissions"},
 			Cursors: cursors,
 		}, func() error { return daemonconn.LaunchSelfDaemon(paths) })
@@ -115,9 +115,9 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		resumeChecked = true
 		return connection, nil
 	}
-	var create *daemon.CreateSession
+	var create *session.CreateSession
 	if resumeID == "" {
-		create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName, ExecutionEngine: engine, Definition: definition}
+		create = &session.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName, ExecutionEngine: engine, Definition: definition}
 	}
 	client, err := NewClient(ClientOptions{
 		ClientID: clientID,
@@ -230,18 +230,18 @@ type clientSnapshotMsg struct {
 }
 type clientCommandMsg struct {
 	action Action
-	result daemon.CommandResult
+	result protocol.CommandResult
 	err    error
 }
 type clientPermissionMsg struct {
 	action       Action
 	permissionID string
-	result       daemon.PermissionDecisionResult
+	result       protocol.PermissionDecisionResult
 	err          error
 }
 type clientTerminalMsg struct {
 	action Action
-	result daemon.CommandResult
+	result protocol.CommandResult
 	err    error
 }
 
@@ -412,7 +412,7 @@ func pendingUserText(item session.InboxItem) string {
 	case "submit", "steer":
 		return string(item.Payload.Inline)
 	case "submit.parts", "steer.parts":
-		var payload daemon.SubmitPayload
+		var payload protocol.SubmitPayload
 		if json.Unmarshal(item.Payload.Inline, &payload) != nil {
 			return ""
 		}
@@ -493,11 +493,11 @@ func (m *model) displayContextLimit() int {
 	return m.clientView.contextLimit
 }
 
-func (m *model) recordClientStream(event daemon.ProtocolEvent) {
+func (m *model) recordClientStream(event protocol.ProtocolEvent) {
 	if !strings.HasPrefix(event.Kind, "stream.") || event.Kind == "stream.accounting" {
 		return
 	}
-	var payload daemon.StreamEvent
+	var payload protocol.StreamEvent
 	if json.Unmarshal(event.Payload, &payload) != nil {
 		return
 	}
@@ -522,8 +522,8 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		return false, nil
 	}
 	var omitted struct {
-		Truncated bool                  `json:"truncated"`
-		Content   *daemon.ContentHandle `json:"content"`
+		Truncated bool                    `json:"truncated"`
+		Content   *protocol.ContentHandle `json:"content"`
 	}
 	// Host outcomes live in the REPL panel, which reads the retained small fields.
 	if json.Unmarshal(payload, &omitted) == nil && omitted.Truncated && !strings.HasPrefix(kind, "stream.cell.host") {
@@ -534,7 +534,7 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		m.append(dimStyle.Render(detail))
 		return true, nil
 	}
-	var event daemon.StreamEvent
+	var event protocol.StreamEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
 		m.append(errStyle.Render("daemon stream: " + err.Error()))
 		return true, nil
@@ -616,7 +616,7 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		}
 		return true, nil
 	case "stream.plan":
-		var plan daemon.PlanEvent
+		var plan protocol.PlanEvent
 		if err := json.Unmarshal([]byte(event.Result), &plan); err != nil {
 			m.append(errStyle.Render("daemon plan: " + err.Error()))
 			return true, nil
@@ -750,7 +750,7 @@ func mergePresentation(snapshot, current []session.SnapshotEvent, cursor int64) 
 	return merged
 }
 
-func (m *model) openAgent(result daemon.AgentTranscriptResult) {
+func (m *model) openAgent(result protocol.AgentTranscriptResult) {
 	m.agentOpen = result.Agent.ID
 	m.agentMessages[result.Agent.ID] = pageMessages(result.Page)
 	m.setHistoryPage(result.Agent.ID, result.Page)
@@ -800,7 +800,7 @@ func (m *model) cancelVisibleTurn() (bubbletea.Model, bubbletea.Cmd) {
 
 func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubbletea.Cmd) {
 	if strings.HasPrefix(kind, "session.") && strings.HasSuffix(kind, ".updated") {
-		var event daemon.SessionUpdateEvent
+		var event protocol.SessionUpdateEvent
 		if err := json.Unmarshal(payload, &event); err != nil {
 			return false, nil
 		}
@@ -1371,7 +1371,7 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 				if m.agentOpen != "" {
 					return m.submitClientAction("agent.submit", map[string]string{"id": m.agentOpen, "text": sent, "delivery": "steer"}, text)
 				}
-				return m.submitClientAction("steer", daemon.SubmitPayload{Text: sent}, text)
+				return m.submitClientAction("steer", protocol.SubmitPayload{Text: sent}, text)
 			default:
 				return m, nil
 			}
@@ -2073,4 +2073,4 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	return m.submitClientCLI(operation, args)
 }
 
-var _ daemonConnection = (*daemon.Client)(nil)
+var _ daemonConnection = (*daemonclient.Client)(nil)

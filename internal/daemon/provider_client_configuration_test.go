@@ -14,7 +14,7 @@ import (
 )
 
 type providerConfigurationClient interface {
-	ReadConfiguration(context.Context) (RuntimeConfiguration, error)
+	ReadConfiguration(context.Context) (protocol.RuntimeConfiguration, error)
 	ListProviders(context.Context) (protocol.ProviderList, error)
 	ListProvidersFor(context.Context, string, string) (protocol.ProviderList, error)
 	ProviderCatalogs(context.Context, bool) (protocol.ProviderCatalogsResult, error)
@@ -22,7 +22,7 @@ type providerConfigurationClient interface {
 	ReadProvider(context.Context, string) (protocol.ProviderConfiguration, error)
 	CreateProvider(context.Context, protocol.ProviderCreateParams) (protocol.ProviderConfiguration, error)
 	UpdateProvider(context.Context, protocol.ProviderUpdateParams) (protocol.ProviderConfiguration, error)
-	DisconnectProvider(context.Context, protocol.ProviderDisconnectParams) (ProviderStatus, error)
+	DisconnectProvider(context.Context, protocol.ProviderDisconnectParams) (protocol.ProviderStatus, error)
 	RemoveProvider(context.Context, protocol.ProviderRemoveParams) (protocol.ProviderRemoveResult, error)
 }
 

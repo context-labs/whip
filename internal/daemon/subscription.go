@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"time"
 
@@ -112,41 +111,4 @@ func (s *Server) pumpSubscription(ctx context.Context, c *serverConn, sub *subsc
 		case <-ticker.C:
 		}
 	}
-}
-
-func (c *Client) Subscribe(ctx context.Context, rootID string, cursor int64) (SubscribeResult, error) {
-	id := rand.Text()
-	c.mu.Lock()
-	previous := c.subscriptions[rootID]
-	c.subscriptions[rootID] = id
-	c.mu.Unlock()
-	if previous != "" {
-		if err := c.Unsubscribe(ctx, previous); err != nil {
-			return SubscribeResult{}, err
-		}
-	}
-	var result SubscribeResult
-	err := c.Call(ctx, "events.subscribe", SubscribeParams{RootID: rootID, SubscriptionID: id, Cursor: cursor}, &result)
-	if err != nil {
-		c.mu.Lock()
-		if c.subscriptions[rootID] == id {
-			delete(c.subscriptions, rootID)
-		}
-		c.mu.Unlock()
-	}
-	return result, err
-}
-
-func (c *Client) Unsubscribe(ctx context.Context, id string) error {
-	if err := c.Call(ctx, "events.unsubscribe", UnsubscribeParams{SubscriptionID: id}, nil); err != nil {
-		return err
-	}
-	c.mu.Lock()
-	for root, active := range c.subscriptions {
-		if active == id {
-			delete(c.subscriptions, root)
-		}
-	}
-	c.mu.Unlock()
-	return nil
 }

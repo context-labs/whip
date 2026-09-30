@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/daemonconn"
@@ -252,7 +253,7 @@ func daemonLogsCLI(args []string) error {
 	return tailDaemonLog(path, *lines, *follow)
 }
 
-func probeDaemon(paths daemonconn.RuntimePaths, timeout time.Duration) (daemonStatus, *daemon.Client) {
+func probeDaemon(paths daemonconn.RuntimePaths, timeout time.Duration) (daemonStatus, *daemonclient.Client) {
 	status := daemonStatus{
 		State: "stopped", ClientBuild: version, Socket: paths.Socket,
 		Gateway: protocol.GatewayStatus{State: "stopped"}, GatewayLog: filepath.Join(paths.Home, "web.log"),
@@ -260,8 +261,8 @@ func probeDaemon(paths daemonconn.RuntimePaths, timeout time.Duration) (daemonSt
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	client, err := daemon.DialClient(ctx, paths, daemon.InitializeParams{
-		ProtocolMajor: daemon.ProtocolMajor, BuildID: version,
+	client, err := daemonclient.DialClient(ctx, paths, protocol.InitializeParams{
+		ProtocolMajor: protocol.Major, BuildID: version,
 		ClientID: daemonClientID("daemon-status"), ClientKind: "automation",
 	})
 	if err != nil {
@@ -358,7 +359,7 @@ func stopManagedDaemon(paths daemonconn.RuntimePaths, timeout time.Duration, for
 	payload, _ := json.Marshal(map[string]string{"reason": "daemon command"})
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	result, err := client.Command(ctx, daemon.CommandParams{
+	result, err := client.Command(ctx, protocol.CommandParams{
 		CommandID: daemonCommandID(daemonClientID("daemon-stop"), "checkpoint"),
 		Scope:     string(session.CommandScopeDaemon), Operation: "daemon.checkpoint", Payload: payload,
 	})
@@ -368,7 +369,7 @@ func stopManagedDaemon(paths daemonconn.RuntimePaths, timeout time.Duration, for
 			err = fmt.Errorf("daemon checkpoint is %s", result.Status)
 		}
 	}
-	var notice daemon.RestartNotice
+	var notice protocol.RestartNotice
 	if err == nil {
 		err = json.Unmarshal([]byte(result.Output), &notice)
 	}

@@ -14,9 +14,11 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -94,12 +96,12 @@ func TestDesktopCompiledUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(canonical, "daemon", "start")
-	connect := func(build string) *daemon.Client {
+	connect := func(build string) *daemonclient.Client {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
-		client, err := daemon.DialClient(ctx, paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: build, ClientID: "update-smoke", ClientKind: "test",
+		client, err := daemonclient.DialClient(ctx, paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, BuildID: build, ClientID: "update-smoke", ClientKind: "test",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -108,7 +110,7 @@ func TestDesktopCompiledUpdate(t *testing.T) {
 	}
 	client := connect("1.0.0-beta.1")
 	payload, _ := json.Marshal(map[string]string{"kind": "agent", "cwd": directory, "model": "kimi-k3-fast", "provider": "inference-net"})
-	created, err := client.Command(t.Context(), daemon.CommandParams{CommandID: "update-smoke-create", Scope: "daemon", Operation: "session.create", Payload: payload})
+	created, err := client.Command(t.Context(), protocol.CommandParams{CommandID: "update-smoke-create", Scope: "daemon", Operation: "session.create", Payload: payload})
 	if err != nil || created.Status != "succeeded" {
 		t.Fatalf("create session: %+v, %v", created, err)
 	}

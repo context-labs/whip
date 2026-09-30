@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/webassets"
@@ -128,9 +128,9 @@ func runGateway(ctx context.Context, paths daemonconn.RuntimePaths, expected *ga
 	}
 }
 
-func dialGatewayClient(ctx context.Context, paths daemonconn.RuntimePaths) (*daemon.Client, error) {
-	client, err := daemon.DialClient(ctx, paths, daemon.InitializeParams{
-		ProtocolMajor: daemon.ProtocolMajor, BuildID: version,
+func dialGatewayClient(ctx context.Context, paths daemonconn.RuntimePaths) (*daemonclient.Client, error) {
+	client, err := daemonclient.DialClient(ctx, paths, protocol.InitializeParams{
+		ProtocolMajor: protocol.Major, BuildID: version,
 		ClientID: daemonClientID("web-gateway"), ClientKind: "automation",
 		Capabilities: []string{protocol.NetworkClientCapability},
 	})
@@ -191,7 +191,7 @@ func checkWebAssets(ctx context.Context, endpoint string) error {
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&info); err != nil {
 		return fmt.Errorf("invalid gateway web discovery: %w", err)
 	}
-	if info.ProtocolMajor != daemon.ProtocolMajor || info.WebSocketPath != "/api/v3/ws" || info.ContentPath != "/api/v3/content/" {
+	if info.ProtocolMajor != protocol.Major || info.WebSocketPath != "/api/v3/ws" || info.ContentPath != "/api/v3/content/" {
 		return errors.New("gateway web protocol is incompatible; update the gateway executable")
 	}
 	if !info.Available {

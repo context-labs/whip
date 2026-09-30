@@ -3,7 +3,6 @@ package daemon
 import (
 	"encoding/json"
 
-	"github.com/context-labs/whip/internal/commandpresentation"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -52,11 +51,4 @@ func encodeTurnOutcome(text string, output json.RawMessage, failure error) []byt
 		return []byte(`{"code":-32603,"message":"cannot encode command outcome"}`)
 	}
 	return body
-}
-
-func fillCommandPresentation(result *CommandResult) {
-	result.Output, result.Error = commandpresentation.Decode(result.Operation, result.Result, result.Status)
-	if result.Failure != nil {
-		result.Error = result.Failure.Message
-	}
 }

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -100,14 +100,14 @@ type rpcCaller interface {
 	Call(ctx context.Context, method string, params, result any) error
 }
 
-func readExportContent(ctx context.Context, caller rpcCaller, root string, handle daemon.ContentHandle) ([]byte, error) {
+func readExportContent(ctx context.Context, caller rpcCaller, root string, handle protocol.ContentHandle) ([]byte, error) {
 	if handle.ReferenceID == "" {
 		return nil, errors.New("the daemon returned an empty export")
 	}
 	data := make([]byte, 0, handle.Size)
 	for offset := int64(0); offset < handle.Size; {
 		var page protocol.ContentReadResult
-		if err := caller.Call(ctx, "content.read", protocol.ContentReadParams{RootID: root, ReferenceID: handle.ReferenceID, Offset: offset, Limit: daemon.MaxContentChunk}, &page); err != nil {
+		if err := caller.Call(ctx, "content.read", protocol.ContentReadParams{RootID: root, ReferenceID: handle.ReferenceID, Offset: offset, Limit: daemonconn.MaxContentChunk}, &page); err != nil {
 			return nil, err
 		}
 		if len(page.Data) == 0 {

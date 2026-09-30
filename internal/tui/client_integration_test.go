@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/daemonconn"
@@ -86,14 +87,14 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 			})
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			initialize := daemon.InitializeParams{ProtocolMajor: daemon.ProtocolMajor, ClientID: "tui-startup", ClientKind: "tui"}
+			initialize := protocol.InitializeParams{ProtocolMajor: protocol.Major, ClientID: "tui-startup", ClientKind: "tui"}
 			var endpoint string
 			if transport == "websocket" {
 				gateway, err := webgateway.Start(t.Context(), webgateway.Options{
 					Address: "127.0.0.1:0", SocketPath: paths.Socket,
 					Open: func(ctx context.Context) (webgateway.Client, error) {
-						return daemon.DialClient(ctx, paths, daemon.InitializeParams{
-							ProtocolMajor: daemon.ProtocolMajor, ClientID: "tui-gateway-" + rand.Text(), ClientKind: "gateway",
+						return daemonclient.DialClient(ctx, paths, protocol.InitializeParams{
+							ProtocolMajor: protocol.Major, ClientID: "tui-gateway-" + rand.Text(), ClientKind: "gateway",
 							Capabilities: []string{protocol.NetworkClientCapability},
 						})
 					},
@@ -110,14 +111,14 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 			}
 			client, err := NewClient(ClientOptions{
 				ClientID: initialize.ClientID,
-				Create:   &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: home},
+				Create:   &session.CreateSession{Kind: session.SessionKindAgent, CWD: home},
 				Connector: func(ctx context.Context, cursors map[string]int64) (daemonConnection, error) {
 					params := initialize
 					params.Cursors = cursors
 					if transport == "websocket" {
-						return daemon.DialWebSocketClient(ctx, endpoint, params)
+						return daemonclient.DialWebSocketClient(ctx, endpoint, params)
 					}
-					return daemon.DialClient(ctx, paths, params)
+					return daemonclient.DialClient(ctx, paths, params)
 				},
 			})
 			if err != nil {

@@ -1,29 +1,31 @@
-package daemon
+package client
 
 import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 type blockedSubmissionConnection struct {
 	*staticRootConnection
-	entered chan CommandParams
+	entered chan protocol.CommandParams
 	release chan struct{}
 }
 
-func (c *blockedSubmissionConnection) Command(ctx context.Context, p CommandParams) (CommandResult, error) {
+func (c *blockedSubmissionConnection) Command(ctx context.Context, p protocol.CommandParams) (protocol.CommandResult, error) {
 	c.entered <- p
 	select {
 	case <-ctx.Done():
-		return CommandResult{Status: "queued"}, ctx.Err()
+		return protocol.CommandResult{Status: "queued"}, ctx.Err()
 	case <-c.release:
-		return CommandResult{Status: "succeeded"}, nil
+		return protocol.CommandResult{Status: "succeeded"}, nil
 	}
 }
 
 func TestRootCancellationTargetsSubmittedCommandBeforeTurnEvent(t *testing.T) {
-	connection := &blockedSubmissionConnection{staticRootConnection: newStaticRootConnection(), entered: make(chan CommandParams, 2), release: make(chan struct{})}
+	connection := &blockedSubmissionConnection{staticRootConnection: newStaticRootConnection(), entered: make(chan protocol.CommandParams, 2), release: make(chan struct{})}
 	client := &RootClient{clientID: "client", instanceID: "test", rootID: "root", state: RootLive, conn: connection, activeTurns: map[string]string{"root": "stale-turn"}}
 	action, err := client.NewAction("submit", map[string]string{"text": "hello"})
 	if err != nil {

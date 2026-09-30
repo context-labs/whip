@@ -12,29 +12,31 @@ import (
 	"testing"
 	"time"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferencenet"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
 type providerBehaviorClient interface {
-	ReadConfiguration(context.Context) (RuntimeConfiguration, error)
-	UpdateConfiguration(context.Context, ConfigurationUpdate) (RuntimeConfiguration, error)
-	SetProviderKey(context.Context, ProviderKeySetup) (RuntimeConfiguration, error)
-	BeginLogin(context.Context) (ProviderLoginStatus, error)
-	LoginStatus(context.Context, string) (ProviderLoginStatus, error)
-	CancelLogin(context.Context, string) (ProviderLoginStatus, error)
-	SelectLoginTeam(context.Context, string, string) (ProviderLoginStatus, error)
-	SelectLoginProject(context.Context, string, string) (ProviderLoginStatus, error)
-	CreateLoginProject(context.Context, string, string) (ProviderLoginStatus, error)
-	ListLogins(context.Context) (ProviderLoginList, error)
-	ProviderStatus(context.Context, string) (ProviderStatus, error)
-	LogoutProvider(context.Context, string) (ProviderStatus, error)
-	RotateProviderKey(context.Context, string) (ProviderStatus, error)
+	ReadConfiguration(context.Context) (protocol.RuntimeConfiguration, error)
+	UpdateConfiguration(context.Context, protocol.ConfigurationUpdate) (protocol.RuntimeConfiguration, error)
+	SetProviderKey(context.Context, protocol.ProviderKeySetup) (protocol.RuntimeConfiguration, error)
+	BeginLogin(context.Context) (protocol.ProviderLoginStatus, error)
+	LoginStatus(context.Context, string) (protocol.ProviderLoginStatus, error)
+	CancelLogin(context.Context, string) (protocol.ProviderLoginStatus, error)
+	SelectLoginTeam(context.Context, string, string) (protocol.ProviderLoginStatus, error)
+	SelectLoginProject(context.Context, string, string) (protocol.ProviderLoginStatus, error)
+	CreateLoginProject(context.Context, string, string) (protocol.ProviderLoginStatus, error)
+	ListLogins(context.Context) (protocol.ProviderLoginList, error)
+	ProviderStatus(context.Context, string) (protocol.ProviderStatus, error)
+	LogoutProvider(context.Context, string) (protocol.ProviderStatus, error)
+	RotateProviderKey(context.Context, string) (protocol.ProviderStatus, error)
 }
 
-func providerBehaviorFixture(t *testing.T) (*Server, *Client, *RootClient, string) {
+func providerBehaviorFixture(t *testing.T) (*Server, *daemonclient.Client, *daemonclient.RootClient, string) {
 	t.Helper()
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
@@ -55,7 +57,7 @@ func providerBehaviorFixture(t *testing.T) (*Server, *Client, *RootClient, strin
 			t.Error(err)
 		}
 	})
-	root, err := NewRootClient(RootClientOptions{ClientID: "provider-behavior", RootID: rootID, Connector: func(context.Context, map[string]int64) (RootConnection, error) { return client, nil }})
+	root, err := daemonclient.NewRootClient(daemonclient.RootClientOptions{ClientID: "provider-behavior", RootID: rootID, Connector: func(context.Context, map[string]int64) (daemonclient.RootConnection, error) { return client, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +91,7 @@ func TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts(t *tes
 		ID: "kuzco", Name: "Kuzco", URL: "ws://kuzco.test/api/v3/ws",
 		RuntimeID: "remote-runtime", ConnectOnLaunch: true,
 	}}
-	after, err := client.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: before.Revision, RemoteHosts: &hosts})
+	after, err := client.UpdateConfiguration(t.Context(), protocol.ConfigurationUpdate{Revision: before.Revision, RemoteHosts: &hosts})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +103,7 @@ func TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts(t *tes
 		t.Fatalf("endpoint was not normalized: %+v", *read.RemoteHosts)
 	}
 	empty := []config.RemoteHost{}
-	if _, err := root.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: before.Revision, RemoteHosts: &empty}); err == nil {
+	if _, err := root.UpdateConfiguration(t.Context(), protocol.ConfigurationUpdate{Revision: before.Revision, RemoteHosts: &empty}); err == nil {
 		t.Fatal("stale browser overwrote host list")
 	}
 	persisted, err := config.Load()
@@ -115,7 +117,7 @@ func TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts(t *tes
 	if err != nil || strings.Contains(string(encoded), provider.APIKey) {
 		t.Fatalf("config response exposed a credential: %v", err)
 	}
-	cleared, err := root.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: after.Revision, RemoteHosts: &empty})
+	cleared, err := root.UpdateConfiguration(t.Context(), protocol.ConfigurationUpdate{Revision: after.Revision, RemoteHosts: &empty})
 	if err != nil || cleared.RemoteHosts == nil || len(*cleared.RemoteHosts) != 0 {
 		t.Fatalf("cannot remove last profile: %+v %v", cleared, err)
 	}
@@ -134,11 +136,11 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
-			before, err = api.SetProviderKey(t.Context(), ProviderKeySetup{Revision: before.Revision, Provider: "openrouter", Key: " private-api-key "})
+			before, err = api.SetProviderKey(t.Context(), protocol.ProviderKeySetup{Revision: before.Revision, Provider: "openrouter", Key: " private-api-key "})
 			if err != nil {
 				t.Fatal(err)
 			}
-			after, err := api.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: before.Revision, ImportClaude: new(false), ImportCodex: new(false), DefaultModel: new("fixture-model"), DefaultProvider: new("openrouter"), DefaultEffort: new("high"), CompactModel: new("compact-model"), CompactProvider: new("openrouter"), CompactPercent: new(72), GoalMaxRounds: new(8), MaxRetries: new(2)})
+			after, err := api.UpdateConfiguration(t.Context(), protocol.ConfigurationUpdate{Revision: before.Revision, ImportClaude: new(false), ImportCodex: new(false), DefaultModel: new("fixture-model"), DefaultProvider: new("openrouter"), DefaultEffort: new("high"), CompactModel: new("compact-model"), CompactProvider: new("openrouter"), CompactPercent: new(72), GoalMaxRounds: new(8), MaxRetries: new(2)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,10 +148,10 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 			if err != nil || !reflect.DeepEqual(persisted, after) || persisted.ImportClaude || persisted.ImportCodex || persisted.DefaultModel != "fixture-model" || persisted.DefaultEffort != "high" || persisted.CompactPercent != 72 || persisted.GoalMaxRounds != 8 || persisted.MaxRetries != 2 {
 				t.Fatalf("settings did not persist: %+v %v", persisted, err)
 			}
-			if _, err := api.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: before.Revision, MaxRetries: new(99)}); err == nil {
+			if _, err := api.UpdateConfiguration(t.Context(), protocol.ConfigurationUpdate{Revision: before.Revision, MaxRetries: new(99)}); err == nil {
 				t.Fatal("stale update accepted")
 			}
-			after, err = api.SetProviderKey(t.Context(), ProviderKeySetup{Revision: after.Revision, Provider: "openrouter", Key: " private-api-key "})
+			after, err = api.SetProviderKey(t.Context(), protocol.ProviderKeySetup{Revision: after.Revision, Provider: "openrouter", Key: " private-api-key "})
 			if err != nil {
 				t.Fatal(err)
 			}

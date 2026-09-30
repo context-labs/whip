@@ -6,6 +6,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/protocol"
+
 	providersvc "github.com/context-labs/whip/internal/provider"
 )
 
@@ -41,7 +42,7 @@ func TestProviderCatalogDefaultPairSurvivesSharedModelsAndRestart(t *testing.T) 
 		t.Fatal(err)
 	}
 	model, provider := "shared-catalog-model", "beta"
-	updated, err := service.UpdateConfiguration(ConfigurationUpdate{
+	updated, err := service.UpdateConfiguration(protocol.ConfigurationUpdate{
 		Revision: revision, DefaultModel: &model, DefaultProvider: &provider,
 	})
 	if err != nil {

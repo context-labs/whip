@@ -1,4 +1,4 @@
-package daemon
+package client
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/protocoltransport"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -29,8 +30,8 @@ const (
 
 // Client is one initialized JSON-RPC connection to the local daemon.
 type Client struct {
-	conn messageTransport
-	init InitializeResult
+	conn protocoltransport.Transport
+	init protocol.InitializeResult
 
 	writeMu        sync.Mutex
 	mu             sync.Mutex
@@ -38,13 +39,13 @@ type Client struct {
 	subscriptions  map[string]string
 	pending        map[string]chan callResponse
 	commandChanged chan struct{}
-	events         chan ProtocolEvent
+	events         chan protocol.ProtocolEvent
 	done           chan struct{}
 	err            error
 	once           sync.Once
 }
 
-func DialClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize InitializeParams) (*Client, error) {
+func DialClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize protocol.InitializeParams) (*Client, error) {
 	timeout := daemonconn.InitializationTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout = time.Until(deadline)
@@ -64,26 +65,26 @@ func DialClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize I
 	return client, nil
 }
 
-func NewClient(ctx context.Context, conn net.Conn, initialize InitializeParams) (*Client, error) {
+func NewClient(ctx context.Context, conn net.Conn, initialize protocol.InitializeParams) (*Client, error) {
 	if conn == nil {
 		return nil, errors.New("protocol connection is required")
 	}
-	return newTransportClient(ctx, newUnixMessageTransport(conn), initialize)
+	return newTransportClient(ctx, protocoltransport.NewUnix(conn), initialize)
 }
 
-func newTransportClient(ctx context.Context, conn messageTransport, initialize InitializeParams) (*Client, error) {
+func newTransportClient(ctx context.Context, conn protocoltransport.Transport, initialize protocol.InitializeParams) (*Client, error) {
 	if conn == nil {
 		return nil, errors.New("protocol connection is required")
 	}
 	client := &Client{
 		conn: conn, subscriptions: make(map[string]string), nextID: 1, pending: make(map[string]chan callResponse),
-		commandChanged: make(chan struct{}), events: make(chan ProtocolEvent, MaxOutboundEnvelopes), done: make(chan struct{}),
+		commandChanged: make(chan struct{}), events: make(chan protocol.ProtocolEvent, daemonconn.MaxOutboundEnvelopes), done: make(chan struct{}),
 	}
 	params, err := json.Marshal(initialize)
 	if err != nil {
 		return nil, err
 	}
-	frame, err := marshalFrame(rpcMessage{ID: json.RawMessage("1"), Method: "initialize", Params: params})
+	frame, err := protocoltransport.MarshalFrame(protocoltransport.Message{ID: json.RawMessage("1"), Method: "initialize", Params: params})
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +101,7 @@ func newTransportClient(ctx context.Context, conn messageTransport, initialize I
 	if err != nil {
 		return nil, err
 	}
-	reply, err := decodeFrame(replyFrame)
+	reply, err := protocoltransport.DecodeFrame(replyFrame)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +115,7 @@ func newTransportClient(ctx context.Context, conn messageTransport, initialize I
 	if err := json.Unmarshal(raw, &client.init); err != nil {
 		return nil, fmt.Errorf("decode initialize result: %w", err)
 	}
-	if client.init.ProtocolMajor != ProtocolMajor {
+	if client.init.ProtocolMajor != protocol.Major {
 		return nil, fmt.Errorf("daemon selected unsupported protocol major %d", client.init.ProtocolMajor)
 	}
 	_ = conn.SetReadDeadline(time.Time{})
@@ -123,7 +124,7 @@ func newTransportClient(ctx context.Context, conn messageTransport, initialize I
 	go client.heartbeat(context.WithoutCancel(ctx), clientPingInterval, clientPingTimeout)
 	for rootID, cursor := range initialize.Cursors {
 		if _, err := client.Subscribe(ctx, rootID, cursor); err != nil {
-			if failure, ok := errors.AsType[*RPCError](err); ok && failure.Code == -32010 {
+			if failure, ok := errors.AsType[*protocol.RPCError](err); ok && failure.Code == -32010 {
 				continue
 			}
 			client.close(err)
@@ -133,9 +134,9 @@ func newTransportClient(ctx context.Context, conn messageTransport, initialize I
 	return client, nil
 }
 
-func (c *Client) InitializeResult() InitializeResult { return c.init }
+func (c *Client) InitializeResult() protocol.InitializeResult { return c.init }
 
-func (c *Client) Events() <-chan ProtocolEvent { return c.events }
+func (c *Client) Events() <-chan protocol.ProtocolEvent { return c.events }
 
 func (c *Client) Done() <-chan struct{} { return c.done }
 
@@ -170,7 +171,7 @@ func (c *Client) Call(ctx context.Context, method string, params, result any) er
 	c.pending[id] = response
 	c.mu.Unlock()
 
-	frame, err := marshalFrame(rpcMessage{ID: json.RawMessage(id), Method: method, Params: rawParams})
+	frame, err := protocoltransport.MarshalFrame(protocoltransport.Message{ID: json.RawMessage(id), Method: method, Params: rawParams})
 	if err == nil {
 		c.writeMu.Lock()
 		err = c.conn.WriteMessage(frame)
@@ -197,23 +198,23 @@ func (c *Client) Call(ctx context.Context, method string, params, result any) er
 }
 
 // Submit accepts durable work without retaining the request until completion.
-func (c *Client) Submit(ctx context.Context, params CommandParams) (CommandResult, error) {
-	var result CommandResult
+func (c *Client) Submit(ctx context.Context, params protocol.CommandParams) (protocol.CommandResult, error) {
+	var result protocol.CommandResult
 	err := c.Call(ctx, "command.submit", params, &result)
 	fillCommandPresentation(&result)
 	return result, err
 }
 
-func (c *Client) CommandStatus(ctx context.Context, commandID string) (CommandResult, error) {
-	var result CommandResult
-	err := c.Call(ctx, "command.status", CommandStatusParams{CommandID: commandID}, &result)
+func (c *Client) CommandStatus(ctx context.Context, commandID string) (protocol.CommandResult, error) {
+	var result protocol.CommandResult
+	err := c.Call(ctx, "command.status", protocol.CommandStatusParams{CommandID: commandID}, &result)
 	fillCommandPresentation(&result)
 	return result, err
 }
 
 // SubmitAndWait is a convenience for callers that need the terminal result.
 // Cancelling this wait does not cancel the admitted operation.
-func (c *Client) SubmitAndWait(ctx context.Context, params CommandParams) (CommandResult, error) {
+func (c *Client) SubmitAndWait(ctx context.Context, params protocol.CommandParams) (protocol.CommandResult, error) {
 	result, err := c.Submit(ctx, params)
 	if err != nil {
 		return result, err
@@ -221,7 +222,7 @@ func (c *Client) SubmitAndWait(ctx context.Context, params CommandParams) (Comma
 	return c.waitCommand(ctx, params.RootID, result)
 }
 
-func (c *Client) waitCommand(ctx context.Context, rootID string, result CommandResult) (CommandResult, error) {
+func (c *Client) waitCommand(ctx context.Context, rootID string, result protocol.CommandResult) (protocol.CommandResult, error) {
 	var err error
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -248,31 +249,31 @@ func (c *Client) waitCommand(ctx context.Context, rootID string, result CommandR
 	return result, nil
 }
 
-func (c *Client) Command(ctx context.Context, params CommandParams) (CommandResult, error) {
+func (c *Client) Command(ctx context.Context, params protocol.CommandParams) (protocol.CommandResult, error) {
 	if operation, ok := protocol.LookupRuntime(params.Operation); ok && operation.Execution == protocol.Ephemeral {
 		reply, err := c.Invoke(ctx, protocol.QueryParams{RootID: params.RootID, Operation: params.Operation, Payload: params.Payload})
-		result := CommandResult{Operation: params.Operation, Status: "succeeded", Result: reply.Result}
+		result := protocol.CommandResult{Operation: params.Operation, Status: "succeeded", Result: reply.Result}
 		fillCommandPresentation(&result)
 		return result, err
 	}
 	if operation, ok := protocol.LookupRuntime(params.Operation); ok && operation.Execution == protocol.Query {
 		query, err := c.Query(ctx, protocol.QueryParams{RootID: params.RootID, Operation: params.Operation, Payload: params.Payload})
-		result := CommandResult{Operation: params.Operation, CommandID: params.CommandID, Status: "succeeded", Result: query.Result}
+		result := protocol.CommandResult{Operation: params.Operation, CommandID: params.CommandID, Status: "succeeded", Result: query.Result}
 		fillCommandPresentation(&result)
 		return result, err
 	}
 	return c.SubmitAndWait(ctx, params)
 }
 
-func (c *Client) Replay(ctx context.Context, params ReplayParams) (ReplayResult, error) {
-	var result ReplayResult
+func (c *Client) Replay(ctx context.Context, params protocol.ReplayParams) (protocol.ReplayResult, error) {
+	var result protocol.ReplayResult
 	err := c.Call(ctx, "events.replay", params, &result)
 	return result, err
 }
 
 func (c *Client) Snapshot(ctx context.Context, rootID string) (session.RootSnapshot, error) {
 	var snapshot session.RootSnapshot
-	if err := c.Call(ctx, "root.snapshot", SnapshotParams{RootID: rootID}, &snapshot); err != nil {
+	if err := c.Call(ctx, "root.snapshot", protocol.SnapshotParams{RootID: rootID}, &snapshot); err != nil {
 		return snapshot, err
 	}
 	if snapshot.RootID != rootID {
@@ -281,40 +282,40 @@ func (c *Client) Snapshot(ctx context.Context, rootID string) (session.RootSnaps
 	return snapshot, nil
 }
 
-func (c *Client) ValidateProvider(ctx context.Context, params ProviderValidateParams) (ProviderValidateResult, error) {
-	var result ProviderValidateResult
+func (c *Client) ValidateProvider(ctx context.Context, params protocol.ProviderValidateParams) (protocol.ProviderValidateResult, error) {
+	var result protocol.ProviderValidateResult
 	err := c.Call(ctx, "provider.validate", params, &result)
 	return result, err
 }
 
-func (c *Client) Upload(ctx context.Context, begin UploadBeginParams, data []byte) (ContentHandle, error) {
+func (c *Client) Upload(ctx context.Context, begin protocol.UploadBeginParams, data []byte) (protocol.ContentHandle, error) {
 	if int64(len(data)) != begin.Size {
-		return ContentHandle{}, errors.New("upload data size does not match metadata")
+		return protocol.ContentHandle{}, errors.New("upload data size does not match metadata")
 	}
 	if err := c.Call(ctx, "upload.begin", begin, nil); err != nil {
-		return ContentHandle{}, err
+		return protocol.ContentHandle{}, err
 	}
-	for offset := 0; offset < len(data); offset += MaxContentChunk {
-		end := min(offset+MaxContentChunk, len(data))
-		if err := c.Call(ctx, "upload.chunk", UploadChunkParams{
+	for offset := 0; offset < len(data); offset += daemonconn.MaxContentChunk {
+		end := min(offset+daemonconn.MaxContentChunk, len(data))
+		if err := c.Call(ctx, "upload.chunk", protocol.UploadChunkParams{
 			UploadID: begin.UploadID, Offset: int64(offset), Data: data[offset:end],
 		}, nil); err != nil {
-			return ContentHandle{}, err
+			return protocol.ContentHandle{}, err
 		}
 	}
-	var handle ContentHandle
-	if err := c.Call(ctx, "upload.finish", UploadFinishParams{UploadID: begin.UploadID}, &handle); err != nil {
-		return ContentHandle{}, err
+	var handle protocol.ContentHandle
+	if err := c.Call(ctx, "upload.finish", protocol.UploadFinishParams{UploadID: begin.UploadID}, &handle); err != nil {
+		return protocol.ContentHandle{}, err
 	}
 	return handle, nil
 }
 
-func (c *Client) DecidePermission(ctx context.Context, decision PermissionDecision) (PermissionDecisionResult, error) {
+func (c *Client) DecidePermission(ctx context.Context, decision protocol.PermissionDecision) (protocol.PermissionDecisionResult, error) {
 	if decision.CommandID == "" || decision.RootID == "" || decision.PermissionID == "" {
-		return PermissionDecisionResult{}, errors.New("permission decision requires command, root, and permission identities")
+		return protocol.PermissionDecisionResult{}, errors.New("permission decision requires command, root, and permission identities")
 	}
-	var result PermissionDecisionResult
-	err := c.Call(ctx, "permission.decide", PermissionDecisionParams{Decision: decision}, &result)
+	var result protocol.PermissionDecisionResult
+	err := c.Call(ctx, "permission.decide", protocol.PermissionDecisionParams{Decision: decision}, &result)
 	return result, err
 }
 
@@ -327,11 +328,11 @@ func (c *Client) RequestStop(ctx context.Context, generation int64) error {
 }
 
 func (c *Client) requestLifecycle(ctx context.Context, method string, generation int64) error {
-	params, err := json.Marshal(RestartParams{Generation: generation})
+	params, err := json.Marshal(protocol.RestartParams{Generation: generation})
 	if err != nil {
 		return err
 	}
-	frame, err := marshalFrame(rpcMessage{Method: method, Params: params})
+	frame, err := protocoltransport.MarshalFrame(protocoltransport.Message{Method: method, Params: params})
 	if err != nil {
 		return err
 	}
@@ -359,7 +360,7 @@ func (c *Client) readLoop() {
 			c.close(err)
 			return
 		}
-		message, err := decodeFrame(frame)
+		message, err := protocoltransport.DecodeFrame(frame)
 		if err != nil {
 			c.close(err)
 			return

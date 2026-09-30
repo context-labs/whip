@@ -442,12 +442,13 @@ backend installation and the existing connection owner in one action. Existing
 installations, advanced diagnostics and remote hosts retain their policies.
 
 Code: `internal/provider/provider_selection.go`, `internal/provider/provider_service.go`,
-`internal/tui/{setup,startup}.go`, `internal/daemon/root_client.go`,
+`internal/tui/{setup,startup}.go`, `internal/client/root_client.go`,
 `internal/session/command.go`,
 `packages/app/src/{provider-setup,welcome,welcome-submission,runtime}.ts*`,
 `packages/app/src/host-dialog.tsx`, and `apps/desktop/src/runtime.ts`.
 Tests: `internal/provider/provider_selection_test.go`,
-`internal/daemon/{provider_selection,root_client}_test.go`,
+`internal/daemon/provider_selection_test.go`, `internal/client/root_client_test.go`,
+`internal/daemon/root_client_test.go` (expired-cursor server integration),
 `internal/tui/{setup,startup,client,cursor}_test.go`,
 `internal/session/command_test.go`, `cmd/whip/daemon_test.go`,
 `packages/app/test/{provider-connections,welcome-submission,sidebar-creation,runtime,local-runtime}.test.ts*`,
@@ -618,7 +619,8 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
 - Provider setup/login, versioned configuration updates and completion execute on
   the daemon host. TUI themes/keybindings remain local. Secret credentials and
   ephemeral terminal input are excluded from command journals.
-- Implementation: `internal/protocol`, `internal/daemon/{server,subscription,
+- Implementation: `internal/protocol`, `internal/client`, `internal/daemonconn`,
+  `internal/daemon/{server,subscription,
   transport,completion}.go`, `internal/provider/provider_service.go`, `internal/webgateway`, `internal/session`, and
   `packages/protocol`. Coverage: `v2_acceptance_test.go`, `runtime_parity_test.go`,
   `transport_test.go`, `client_admission_test.go`, provider/config tests and the

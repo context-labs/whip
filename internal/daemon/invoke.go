@@ -31,9 +31,3 @@ func (s *Server) invoke(ctx context.Context, params protocol.QueryParams) (proto
 	}
 	return protocol.QueryResult{Result: encodeCommandOutcome(params.Operation, output, nil)}, nil
 }
-
-func (c *Client) Invoke(ctx context.Context, params protocol.QueryParams) (protocol.QueryResult, error) {
-	var result protocol.QueryResult
-	err := c.Call(ctx, "operation.invoke", params, &result)
-	return result, err
-}

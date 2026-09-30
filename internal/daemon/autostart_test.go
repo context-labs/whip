@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -43,7 +44,7 @@ func TestEnsureClientStartsDaemonAcrossStaleSocket(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "current", ClientID: "client", ClientKind: "test"}, launch)
+	client, err := daemonclient.EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "current", ClientID: "client", ClientKind: "test"}, launch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,25 +57,6 @@ func TestEnsureClientStartsDaemonAcrossStaleSocket(t *testing.T) {
 	}
 	if err := <-running.served; err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestEnsureClientReportsLaunchAndContextFailures(t *testing.T) {
-	paths, err := daemonconn.Paths(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	launchErr := errors.New("launch failed")
-	if _, err := EnsureClient(context.Background(), paths, InitializeParams{}, nil); err == nil {
-		t.Fatal("missing daemon without launcher succeeded")
-	}
-	if _, err := EnsureClient(context.Background(), paths, InitializeParams{}, func() error { return launchErr }); !errors.Is(err, launchErr) {
-		t.Fatalf("launch failure = %v", err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := EnsureClient(ctx, paths, InitializeParams{}, func() error { return daemonconn.ErrDaemonOwned }); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled autostart = %v", err)
 	}
 }
 
@@ -92,7 +74,7 @@ func TestEnsureClientAttachesAcrossBuildsWithoutRestart(t *testing.T) {
 	defer running.server.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "new", ClientID: "stable", ClientKind: "test"}, func() error { t.Error("responsive daemon triggered a launch"); return nil })
+	client, err := daemonclient.EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "new", ClientID: "stable", ClientKind: "test"}, func() error { t.Error("responsive daemon triggered a launch"); return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +103,7 @@ func TestEnsureClientRejectsOldProtocolWithoutLaunching(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	for _, major := range []int{1, 2, 3, 4} {
-		_, err = EnsureClient(ctx, paths, InitializeParams{
+		_, err = daemonclient.EnsureClient(ctx, paths, InitializeParams{
 			ProtocolMajor: major, ClientID: "old", ClientKind: "test",
 		}, func() error { t.Error("protocol mismatch triggered a launch"); return nil })
 		failure, ok := errors.AsType[*RPCError](err)

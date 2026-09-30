@@ -47,7 +47,7 @@ func productionGoFiles(t *testing.T, directory string) map[string]string {
 
 func TestArchitectureKeepsProviderCallsBehindAgentSession(t *testing.T) {
 	root := repositoryRoot(t)
-	for _, name := range []string{"daemon", "provider"} {
+	for _, name := range []string{"daemon", "provider", "client"} {
 		for path, body := range productionGoFiles(t, filepath.Join(root, "internal", name)) {
 			if path == filepath.Join(root, "internal", "daemon", "agent_session.go") {
 				continue
@@ -95,6 +95,32 @@ func TestArchitectureKeepsConnectionPlumbingIndependentOfDaemon(t *testing.T) {
 				}
 				if name == "github.com/context-labs/whip/internal/daemon" {
 					t.Errorf("connection plumbing imports daemon: %s", path)
+				}
+			}
+		}
+	}
+}
+
+func TestArchitectureSeparatesNativeClientsFromDaemon(t *testing.T) {
+	root := repositoryRoot(t)
+	for directory, forbidden := range map[string]string{
+		"client": "github.com/context-labs/whip/internal/daemon",
+		"daemon": "github.com/context-labs/whip/internal/client",
+		"tui":    "github.com/context-labs/whip/internal/daemon",
+		"acp":    "github.com/context-labs/whip/internal/daemon",
+	} {
+		for path, body := range productionGoFiles(t, filepath.Join(root, "internal", directory)) {
+			file, err := parser.ParseFile(token.NewFileSet(), path, body, parser.ImportsOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, imported := range file.Imports {
+				name, err := strconv.Unquote(imported.Path.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if name == forbidden {
+					t.Errorf("native client boundary imports %q: %s", forbidden, path)
 				}
 			}
 		}

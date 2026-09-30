@@ -141,6 +141,7 @@ budgets, and private transcript.
 | --- | --- |
 | `internal/protocol`, `packages/protocol` | typed operation/event contract, generated Draft-07 schemas, TypeScript and Ajv |
 | `internal/daemon` | shared handlers, Unix/WebSocket/HTTP adapters, root actors, recursive runtime, lifecycle |
+| `internal/client` | native Go clients, command/event handling, reconnect and service methods using the existing protocol and framing; no dependency on daemon implementation |
 | `internal/daemonconn` | shared runtime paths, validated local dialing, native launch primitives, initialization limits and event envelope; daemon retains ownership locks and lifecycle policy |
 | `internal/commandpresentation` | shared formatting of stored command results for existing native text presenters |
 | `internal/provider` | host provider configuration, discovery, catalogs and account login lifetimes; borrows existing config/auth storage and exposes operations to daemon without importing it |

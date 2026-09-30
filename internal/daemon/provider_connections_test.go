@@ -13,6 +13,8 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
+
 	providersvc "github.com/context-labs/whip/internal/provider"
 )
 
@@ -105,7 +107,7 @@ func TestProviderDisableBlocksRetainedRootChildAndHelperClients(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabled := []string{"provider", "helper"}
-	if _, err := service.UpdateConfiguration(ConfigurationUpdate{Revision: before.Revision, DisabledProviders: &disabled}); err != nil {
+	if _, err := service.UpdateConfiguration(protocol.ConfigurationUpdate{Revision: before.Revision, DisabledProviders: &disabled}); err != nil {
 		t.Fatal(err)
 	}
 	spawned, err := runtime.rootNode.host.Call(t.Context(), "agents", "spawn", map[string]any{"name": "child", "prompt": "blocked work", "report": "message"})

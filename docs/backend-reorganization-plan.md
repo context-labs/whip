@@ -182,7 +182,7 @@ new workflow framework, or package per database table. This fits Go's
 | `internal/session` | SQLite/content persistence, existing durable models, atomic transitions and queries. | No actor or provider construction. Keep existing transaction logic and representations. It may borrow the existing workspace resolver for authority checks. |
 | Daemon resource owner | One shared process manager and workspace lock coordinator, passed to tools/MCP/runtime as today. | Ownership is explicit; scope and lifetime stay unchanged. Resource implementations remain in `capability`. |
 | Existing `agent`, `rlm`, `tools`, `capability`, `mcp`, `llm` | Existing model loop primitives, kernels, tools, authority enforcement, integration machinery, provider encoders. | Keep their established responsibilities. No broad modernization sweep. |
-| Proposed `internal/client` | Existing Go `Client`/`RootClient` and client service methods. | Existing protocol and framing; no dependency on the server/agent runtime implementation. Mechanical Go caller import changes are allowed; client APIs and behavior remain unchanged. |
+| `internal/client` | Existing Go `Client`/`RootClient` and client service methods. | Existing protocol and framing; no dependency on the server/agent runtime implementation. Mechanical Go caller import changes are allowed; client APIs and behavior remain unchanged. |
 | Existing `protocol` and `protocoltransport` | Current public representations, schemas, negotiation, and framing. | Preserve contract and representation ownership. Do not force storage to import protocol and create a cycle. |
 
 The desired direction is startup → daemon orchestration → services/storage,
@@ -682,6 +682,7 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Browser performance probe repair | `codex/backend-reorg-06b-performance-probe`, based on PR #313. | A separate instrumentation repair measures commit markers received in snapshots as well as notifications, preserving exact event sequences and first receipt. Focused negative-control regressions, full ordinary/controlled browser runs, and source conservation are recorded below. |
 | Shared native plumbing (plan PR 7) | `3127d8ef67c3d59cd70f55ad697102e275c2a6fc`, [PR #315](https://github.com/context-labs/whip/pull/315), based on PR #314. | Shared connection primitives and command presentation move without changing client/server policy. The declaration, characterization, full affected-suite and fresh fixed/immediate-base evidence is recorded below. The PR remains unmerged. |
 | Tagged TUI title fixture repair | `codex/backend-reorg-07a-tui-title-fixture`, based on PR #315 (`3127d8ef67c3d59cd70f55ad697102e275c2a6fc`). | Separate test-only prerequisite fixes a title-generation fixture that already failed on the starting revision's policy. Both transports retain the original final assertions; the existing tagged acceptance test is added to Linux/macOS runtime CI. Diagnosis and evidence are recorded below. |
+| Native client extraction (plan PR 8) | `codex/backend-reorg-08-native-client`, initially based on PR #315. | Exact implementation/private-test moves and canonical Go import changes pass API/source conservation, full ordinary affected race/PTY suites, named native acceptance, static checks and frozen/immediate-parent compatibility. The separate tagged TUI title fixture fails identically on the unchanged parent and candidate; a separate prerequisite repair is required before publication. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -1288,3 +1289,81 @@ schema/migrations and dependency files are unchanged from PR #315. Hosted
 compatibility and workflow results will record this separate prerequisite's
 published head and immediate parent; local checks do not stand in for those
 future results.
+
+
+### PR 8 — Native client implementation ownership
+
+The eight existing client implementation files and eleven client-only declarations
+from mixed daemon files now live in `internal/client`. All 53 exported Client
+methods, 43 RootClient methods, five constructors/autostart entry points, state
+values, interface methods and option/response fields are preserved. Wire and
+storage aliases resolve to the same canonical protocol/session declarations;
+framing calls use the existing frozen `protocoltransport` implementation directly.
+No runtime forwarding client implementation remains in daemon.
+
+The client borrows the neutral connection primitives introduced in PR 7. Its
+command IDs, event ordering, reconnect/snapshot behavior, cancellation targets,
+provider mutation no-replay policy, buffers and timeouts are unchanged. Server
+handlers and `client_control.go` remain daemon-owned. CLI composes the server
+where needed; TUI and ACP consume the client and existing protocol types without
+importing daemon implementation. A new production-import guard enforces these
+four directions, and the existing provider-call guard also scans client while
+retaining its exact AgentSession exception.
+
+All 23 selected existing private tests and PR 7's fill characterization move with
+their implementation. The real expired-cursor snapshot integration test, scoped
+service/provider tests and SDK fixture remain in daemon. A test-only frame writer
+retains the exact marshal/write sequence. Three fake RPC failures become exact
+canonical error literals, preserving their codes, messages and ErrorData.Kind.
+The existing runtime/Taskfile shared-package command gains client, and the named
+reconnect acceptance command gains its new package without changing its regex.
+
+Fresh typed analysis at the reviewed PR 7 head records 234 declaration groups,
+24 selected tests and exact source hashes. The transform uses AST spans and 794
+resolved identifier-use locations. The API comparison expands aliases and
+normalizes only approved declaration ownership: 123 public entries plus the
+private callResponse shape match. Source conservation covers 1,305 declarations
+across 109 files, including 1,012 function bodies and 344 named tests, after the
+recorded extraction and reference edits. It rejects unaccounted added declarations
+and changed/untracked Go files; external extra-declaration and extra-file
+mutations both fail. The new architecture guard is compared with its exact
+reviewed body. Imports and comments are outside that token comparison; the
+baseline snapshot retains original full source, comment spans and hashes.
+Evidence lives under `/private/tmp/whip-pr8-*`, including the typed baseline,
+transform journal, API/declaration conservation logs and proof mutation log.
+An external test overlay also compared all three replacement error frames
+byte-for-byte with the parent server constructors, including ErrorData.Kind;
+all matched (`/private/tmp/whip-pr8-rpc-fixture-bytes.log`).
+
+On the original PR 7 parent, full race/shuffle passed for client (1.472s), daemon
+(273.502s), daemonconn (2.508s), commandpresentation (1.950s), session (154.258s),
+ACP (3.612s) and CLI (71.013s). Full TUI race/shuffle passed in a real PTY
+(16.150s). Both named reconnect/session and CLI/TUI/ACP Taskfile acceptance
+commands passed with their existing assertions. Module build, vet, whipvet,
+integration-tag fixture compilation and pinned golangci-lint 2.13.1 passed; lint
+reported zero issues. All 36 workflow policy tests passed (56.580s).
+
+The additional tagged `TestInteractiveSessionOverTrustedProtocol` gate failed on
+both transports: the snapshot title was the prompt-derived `Investigate workers`,
+while the fixture expected `Worker Investigation`. The same unchanged test failed
+on clean PR 7 in a real PTY. Its fake implements GenerateTitle(context.Context),
+but the existing runtime uses GenerateTitle(context.Context, string); its
+19-character prompt also falls below the existing 20-rune generation threshold.
+The provisional title event precedes generated-title completion. These inherited
+fixture issues require a separate test-only prerequisite, without changing title
+policy, increasing timeouts or weakening the final title assertion. The original
+and parent failures are retained in `/private/tmp/whip-pr8-native-acceptance.log`
+and `/private/tmp/whip-pr8-parent-native-title.log`; PR 8 does not repair them.
+
+The initial fresh fixed-SDK/immediate-parent guard passed at
+`/private/tmp/whip-pr8-compat-fresh/evidence.json`, with candidate HEAD and immediate
+parent both recorded as PR 7's commit and the complete staged extraction diff.
+It compared freshly generated artifacts, both transports' response/error/ordered
+event transcripts, mutation rejection, lifecycle behavior and both-engine
+root/child/content/schema/trace rollback. Toolchains were Go 1.27.0 darwin/arm64
+and Node 24.14.1; fixed SDK/backend stays
+`271c0f8d2a35648d1b45056d57432590b783483c`. Candidate test binary SHA-256 was
+`8cfe4b022e942473a7f7a1b45c7f2b687a271346586375ed5ce80785f3d4ae6e`.
+Publication remains on hold for the separate fixture repair, followed by a
+rebase, refreshed immediate-parent proof and compatibility evidence. This entry
+does not claim that the inherited tagged gate passed.

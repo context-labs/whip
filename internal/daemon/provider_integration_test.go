@@ -15,6 +15,7 @@ import (
 
 	"github.com/context-labs/whip/internal/inferencenet"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 type providerIntegrationTransport func(*http.Request) (*http.Response, error)
@@ -145,13 +146,13 @@ func providerOnboardingHTTPFixture(t *testing.T) {
 	t.Cleanup(inferencenet.SetURLsForTest(endpoint.URL, endpoint.URL, endpoint.URL+"/v1"))
 }
 
-func waitProviderClientState(t *testing.T, client providerBehaviorClient, id, state string) ProviderLoginStatus {
+func waitProviderClientState(t *testing.T, client providerBehaviorClient, id, state string) protocol.ProviderLoginStatus {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
-	var result ProviderLoginStatus
+	var result protocol.ProviderLoginStatus
 	for {
 		var err error
 		result, err = client.LoginStatus(ctx, id)

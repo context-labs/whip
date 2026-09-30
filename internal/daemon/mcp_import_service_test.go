@@ -20,6 +20,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+
 	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -159,7 +160,7 @@ func TestMCPBrandIconsHonourTheHostSwitch(t *testing.T) {
 	}
 	// Off: nothing answered, nothing dialed, and config.get says so.
 	off := false
-	if _, err := providers.UpdateConfiguration(ConfigurationUpdate{Revision: snapshot.Revision, BrandIcons: &off}); err != nil {
+	if _, err := providers.UpdateConfiguration(protocol.ConfigurationUpdate{Revision: snapshot.Revision, BrandIcons: &off}); err != nil {
 		t.Fatal(err)
 	}
 	if got, err = service.MCPBrandIcons(protocol.MCPBrandIconsParams{Keys: []string{"figma.com"}}); err != nil || len(got.Icons) != 0 || hits.Load() != 1 {

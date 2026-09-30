@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
@@ -76,12 +77,12 @@ func stopAcceptanceProcess(t *testing.T, process *acceptanceProcess) {
 	}
 }
 
-func acceptanceClient(t *testing.T, paths daemonconn.RuntimePaths, clientID string, cursors map[string]int64) *Client {
+func acceptanceClient(t *testing.T, paths daemonconn.RuntimePaths, clientID string, cursors map[string]int64) *daemonclient.Client {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	for {
-		client, err := DialClient(ctx, paths, InitializeParams{
+		client, err := daemonclient.DialClient(ctx, paths, InitializeParams{
 			ProtocolMajor: ProtocolMajor, BuildID: "acceptance", ClientID: clientID, ClientKind: "acceptance", Cursors: cursors,
 		})
 		if err == nil {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -157,7 +158,7 @@ func TestSkillCatalogCompletionExactByteBoundary(t *testing.T) {
 func TestSkillCatalogCompletionCapabilityNegotiation(t *testing.T) {
 	fixture := newV2Fixture(t, &fakeRunner{})
 	for _, requested := range [][]string{nil, {"workspace_completion", "host_skill_completion", "host_global_skill_completion", "skill_catalog_completion", "unknown"}} {
-		client, err := DialWebSocketClient(t.Context(), fixture.endpoint, InitializeParams{
+		client, err := daemonclient.DialWebSocketClient(t.Context(), fixture.endpoint, InitializeParams{
 			ProtocolMajor: ProtocolMajor, ClientKind: "human", ClientID: "catalog-capability", Capabilities: requested,
 		})
 		if err != nil {

@@ -1,4 +1,4 @@
-package daemon
+package client
 
 import (
 	"context"
@@ -6,22 +6,23 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemonconn"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 type LaunchDaemon func() error
 
 // EnsureClient attaches to a responsive daemon, starting one when the socket
 // is missing or stale. Losing launch races simply attach to the winner.
-func EnsureClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize InitializeParams, launch LaunchDaemon) (*Client, error) {
+func EnsureClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize protocol.InitializeParams, launch LaunchDaemon) (*Client, error) {
 	return awaitClient(ctx, paths, initialize, launch)
 }
 
-func awaitClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize InitializeParams, launch LaunchDaemon) (*Client, error) {
+func awaitClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize protocol.InitializeParams, launch LaunchDaemon) (*Client, error) {
 	client, err := DialClient(ctx, paths, initialize)
 	if err == nil {
 		return client, nil
 	}
-	if _, rejected := errors.AsType[*RPCError](err); rejected || launch == nil {
+	if _, rejected := errors.AsType[*protocol.RPCError](err); rejected || launch == nil {
 		return nil, err
 	}
 	if launchErr := launch(); launchErr != nil && !errors.Is(launchErr, daemonconn.ErrDaemonOwned) {
@@ -40,7 +41,7 @@ func awaitClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize 
 		if err == nil {
 			return client, nil
 		}
-		if _, rejected := errors.AsType[*RPCError](err); rejected {
+		if _, rejected := errors.AsType[*protocol.RPCError](err); rejected {
 			return nil, err
 		}
 		delay = min(delay*2, 250*time.Millisecond)

@@ -1,4 +1,4 @@
-package daemon
+package client
 
 import (
 	"context"
@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/session"
 )
 
 func (c *Client) ReadContent(ctx context.Context, params protocol.ContentReadParams) (protocol.ContentReadResult, error) {
@@ -15,17 +17,17 @@ func (c *Client) ReadContent(ctx context.Context, params protocol.ContentReadPar
 	return result, err
 }
 
-func (c *Client) commandContent(ctx context.Context, rootID string, result *CommandResult) error {
+func (c *Client) commandContent(ctx context.Context, rootID string, result *protocol.CommandResult) error {
 	if result.Content == nil {
 		return nil
 	}
 	handle := *result.Content
-	if handle.Size < 0 || handle.Size > MaxUploadSize {
+	if handle.Size < 0 || handle.Size > session.MaxInputPayloadBytes {
 		return errors.New("command content exceeds transfer limit")
 	}
 	data := make([]byte, 0, int(handle.Size))
 	for int64(len(data)) < handle.Size {
-		chunk, err := c.ReadContent(ctx, protocol.ContentReadParams{RootID: rootID, ReferenceID: handle.ReferenceID, Offset: int64(len(data)), Limit: MaxContentChunk})
+		chunk, err := c.ReadContent(ctx, protocol.ContentReadParams{RootID: rootID, ReferenceID: handle.ReferenceID, Offset: int64(len(data)), Limit: daemonconn.MaxContentChunk})
 		if err != nil {
 			return err
 		}

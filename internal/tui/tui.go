@@ -14,11 +14,11 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tui/ui"
@@ -98,7 +98,7 @@ type menu struct {
 type model struct {
 	hostCompletion   *clientCompletion
 	cfg              *config.Config
-	mcpInventory     []daemon.MCPStatusResult // the daemon's last mcp.status rows; the MCP palette builds server rows from these, never from local config
+	mcpInventory     []protocol.MCPStatusResult // the daemon's last mcp.status rows; the MCP palette builds server rows from these, never from local config
 	client           *Client
 	clientView       clientPresentation
 	clientState      ClientState
@@ -148,7 +148,7 @@ type model struct {
 	// per streamed request via usageMsg); the status line shows it after the
 	// session spend as "last in(cached)/out tok".
 	lastResp llm.Usage
-	plan     []daemon.PlanItem
+	plan     []protocol.PlanItem
 
 	showThinking bool   // ctrl+o: render reasoning tokens
 	curThink     string // in-flight partial reasoning line

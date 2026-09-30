@@ -8,12 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/daemonconn"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
-var connectDaemon = func(ctx context.Context, clientKind, clientID string, cursors map[string]int64) (daemon.RootConnection, error) {
+var connectDaemon = func(ctx context.Context, clientKind, clientID string, cursors map[string]int64) (daemonclient.RootConnection, error) {
 	dir, err := config.Dir()
 	if err != nil {
 		return nil, err
@@ -22,8 +23,8 @@ var connectDaemon = func(ctx context.Context, clientKind, clientID string, curso
 	if err != nil {
 		return nil, err
 	}
-	return daemon.EnsureClient(ctx, paths, daemon.InitializeParams{
-		ProtocolMajor: daemon.ProtocolMajor,
+	return daemonclient.EnsureClient(ctx, paths, protocol.InitializeParams{
+		ProtocolMajor: protocol.Major,
 		BuildID:       version,
 		ClientKind:    clientKind,
 		ClientID:      clientID,
@@ -32,8 +33,8 @@ var connectDaemon = func(ctx context.Context, clientKind, clientID string, curso
 	}, func() error { return daemonconn.LaunchSelfDaemon(paths) })
 }
 
-func daemonConnector(clientKind, clientID string) daemon.RootConnector {
-	return func(ctx context.Context, cursors map[string]int64) (daemon.RootConnection, error) {
+func daemonConnector(clientKind, clientID string) daemonclient.RootConnector {
+	return func(ctx context.Context, cursors map[string]int64) (daemonclient.RootConnection, error) {
 		return connectDaemon(ctx, clientKind, clientID, cursors)
 	}
 }

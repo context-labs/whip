@@ -1,4 +1,4 @@
-package daemon
+package client
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -46,11 +47,11 @@ func (s RootClientState) String() string {
 // RootConnection is the protocol surface used by RootClient. The interface
 // keeps command-line and protocol-adapter tests independent of a real socket.
 type RootConnection interface {
-	Command(context.Context, CommandParams) (CommandResult, error)
-	Replay(context.Context, ReplayParams) (ReplayResult, error)
+	Command(context.Context, protocol.CommandParams) (protocol.CommandResult, error)
+	Replay(context.Context, protocol.ReplayParams) (protocol.ReplayResult, error)
 	Snapshot(context.Context, string) (session.RootSnapshot, error)
-	Subscribe(context.Context, string, int64) (SubscribeResult, error)
-	Events() <-chan ProtocolEvent
+	Subscribe(context.Context, string, int64) (protocol.SubscribeResult, error)
+	Events() <-chan protocol.ProtocolEvent
 	Done() <-chan struct{}
 	Err() error
 	Close() error
@@ -72,7 +73,7 @@ type RootUpdate struct {
 	State        RootClientState
 	StateChanged bool
 	Snapshot     *session.RootSnapshot
-	Event        *ProtocolEvent
+	Event        *protocol.ProtocolEvent
 	Err          error
 }
 
@@ -80,7 +81,7 @@ type RootUpdate struct {
 type RootClientOptions struct {
 	ClientID string
 	RootID   string
-	Create   *CreateSession
+	Create   *session.CreateSession
 	// DeferCreate connects host services first; StartSession admits the template.
 	DeferCreate bool
 	Connector   RootConnector
@@ -93,7 +94,7 @@ type RootClientOptions struct {
 type RootClient struct {
 	clientID    string
 	instanceID  string
-	create      *CreateSession
+	create      *session.CreateSession
 	deferCreate bool
 	connect     RootConnector
 	retryMin    time.Duration
@@ -149,7 +150,7 @@ func NewRootClient(options RootClientOptions) (*RootClient, error) {
 		rootID: options.RootID, create: options.Create, deferCreate: options.DeferCreate, connect: options.Connector,
 		retryMin: options.RetryMin, retryMax: options.RetryMax,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}), changed: make(chan struct{}),
-		updates: make(chan RootUpdate, MaxOutboundEnvelopes),
+		updates: make(chan RootUpdate, daemonconn.MaxOutboundEnvelopes),
 	}, nil
 }
 
@@ -288,9 +289,9 @@ func (c *RootClient) NewAction(operation string, payload any) (RootAction, error
 	}, nil
 }
 
-func (c *RootClient) Command(ctx context.Context, action RootAction) (CommandResult, error) {
+func (c *RootClient) Command(ctx context.Context, action RootAction) (protocol.CommandResult, error) {
 	if action.CommandID == "" || action.Operation == "" || action.RootID == "" {
-		return CommandResult{}, errors.New("action identity and operation are required")
+		return protocol.CommandResult{}, errors.New("action identity and operation are required")
 	}
 	tracked := false
 	for {
@@ -299,13 +300,13 @@ func (c *RootClient) Command(ctx context.Context, action RootAction) (CommandRes
 		c.mu.RUnlock()
 		if state != RootLive || connection == nil {
 			if !c.started.Load() {
-				return CommandResult{}, fmt.Errorf("commands are disabled while client is %s", state)
+				return protocol.CommandResult{}, fmt.Errorf("commands are disabled while client is %s", state)
 			}
 			if !c.waitForLive(ctx) {
 				if err := ctx.Err(); err != nil {
-					return CommandResult{}, err
+					return protocol.CommandResult{}, err
 				}
-				return CommandResult{}, c.ctx.Err()
+				return protocol.CommandResult{}, c.ctx.Err()
 			}
 			continue
 		}
@@ -318,7 +319,7 @@ func (c *RootClient) Command(ctx context.Context, action RootAction) (CommandRes
 			tracked = true
 			c.mu.Unlock()
 		}
-		result, err := connection.Command(ctx, CommandParams{
+		result, err := connection.Command(ctx, protocol.CommandParams{
 			CommandID: action.CommandID, Scope: string(session.CommandScopeRoot), RootID: action.RootID,
 			Operation: action.Operation, Payload: action.Payload,
 		})
@@ -336,22 +337,22 @@ func (c *RootClient) Command(ctx context.Context, action RootAction) (CommandRes
 			return result, err
 		}
 		if ctx.Err() != nil {
-			return CommandResult{}, ctx.Err()
+			return protocol.CommandResult{}, ctx.Err()
 		}
 		select {
 		case <-connection.Done():
 			continue
 		default:
-			return CommandResult{}, err
+			return protocol.CommandResult{}, err
 		}
 	}
 }
 
 // ValidateProvider performs an ephemeral daemon request. Unlike Command, its
 // credential-bearing payload is never admitted to the durable command log.
-func (c *RootClient) ValidateProvider(ctx context.Context, params ProviderValidateParams) (ProviderValidateResult, error) {
+func (c *RootClient) ValidateProvider(ctx context.Context, params protocol.ProviderValidateParams) (protocol.ProviderValidateResult, error) {
 	type validator interface {
-		ValidateProvider(context.Context, ProviderValidateParams) (ProviderValidateResult, error)
+		ValidateProvider(context.Context, protocol.ProviderValidateParams) (protocol.ProviderValidateResult, error)
 	}
 	for {
 		c.mu.RLock()
@@ -360,35 +361,35 @@ func (c *RootClient) ValidateProvider(ctx context.Context, params ProviderValida
 		if state != RootLive || connection == nil {
 			if !c.started.Load() || !c.waitForLive(ctx) {
 				if err := ctx.Err(); err != nil {
-					return ProviderValidateResult{}, err
+					return protocol.ProviderValidateResult{}, err
 				}
-				return ProviderValidateResult{}, c.ctx.Err()
+				return protocol.ProviderValidateResult{}, c.ctx.Err()
 			}
 			continue
 		}
 		provider, ok := connection.(validator)
 		if !ok {
-			return ProviderValidateResult{}, errors.New("daemon connection does not support provider validation")
+			return protocol.ProviderValidateResult{}, errors.New("daemon connection does not support provider validation")
 		}
 		result, err := provider.ValidateProvider(ctx, params)
 		if err == nil {
 			return result, nil
 		}
 		if ctx.Err() != nil {
-			return ProviderValidateResult{}, ctx.Err()
+			return protocol.ProviderValidateResult{}, ctx.Err()
 		}
 		select {
 		case <-connection.Done():
 			continue
 		default:
-			return ProviderValidateResult{}, err
+			return protocol.ProviderValidateResult{}, err
 		}
 	}
 }
 
-func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, permissionID string, allow bool, reason, remember string) (PermissionDecisionResult, error) {
+func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, permissionID string, allow bool, reason, remember string) (protocol.PermissionDecisionResult, error) {
 	if action.CommandID == "" || action.Operation != "permission.decide" || action.RootID == "" || permissionID == "" {
-		return PermissionDecisionResult{}, errors.New("permission action requires stable command and permission identities")
+		return protocol.PermissionDecisionResult{}, errors.New("permission action requires stable command and permission identities")
 	}
 	for {
 		c.mu.RLock()
@@ -397,40 +398,40 @@ func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, pe
 		if state != RootLive || connection == nil {
 			if !c.waitForLive(ctx) {
 				if err := ctx.Err(); err != nil {
-					return PermissionDecisionResult{}, err
+					return protocol.PermissionDecisionResult{}, err
 				}
-				return PermissionDecisionResult{}, c.ctx.Err()
+				return protocol.PermissionDecisionResult{}, c.ctx.Err()
 			}
 			continue
 		}
 		approver, ok := connection.(interface {
-			DecidePermission(context.Context, PermissionDecision) (PermissionDecisionResult, error)
+			DecidePermission(context.Context, protocol.PermissionDecision) (protocol.PermissionDecisionResult, error)
 		})
 		if !ok {
-			return PermissionDecisionResult{}, errors.New("daemon connection cannot approve permissions")
+			return protocol.PermissionDecisionResult{}, errors.New("daemon connection cannot approve permissions")
 		}
-		result, err := approver.DecidePermission(ctx, PermissionDecision{
+		result, err := approver.DecidePermission(ctx, protocol.PermissionDecision{
 			CommandID: action.CommandID, RootID: action.RootID, PermissionID: permissionID, Allow: allow, Reason: reason, Remember: remember,
 		})
 		if err == nil {
 			return result, nil
 		}
 		if ctx.Err() != nil {
-			return PermissionDecisionResult{}, ctx.Err()
+			return protocol.PermissionDecisionResult{}, ctx.Err()
 		}
 		select {
 		case <-connection.Done():
 			continue
 		default:
-			return PermissionDecisionResult{}, err
+			return protocol.PermissionDecisionResult{}, err
 		}
 	}
 }
 
 // SetPermissionMode changes prompting behavior through the durable command path.
-func (c *RootClient) SetPermissionMode(ctx context.Context, action RootAction) (CommandResult, error) {
+func (c *RootClient) SetPermissionMode(ctx context.Context, action RootAction) (protocol.CommandResult, error) {
 	if action.CommandID == "" || action.Operation != "permission.mode" || action.RootID == "" {
-		return CommandResult{}, errors.New("permission mode requires stable command and root identities")
+		return protocol.CommandResult{}, errors.New("permission mode requires stable command and root identities")
 	}
 	return c.Command(ctx, action)
 }
@@ -493,7 +494,7 @@ func (c *RootClient) run() {
 		connection, err := c.connect(c.ctx, cursors)
 		if err != nil {
 			c.transition(RootDisconnected, err)
-			if failure, ok := errors.AsType[*RPCError](err); ok && failure.Code != -32002 && failure.Code != -32004 {
+			if failure, ok := errors.AsType[*protocol.RPCError](err); ok && failure.Code != -32002 && failure.Code != -32004 {
 				return
 			}
 			if !c.retry(delay) {
@@ -534,7 +535,9 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 		c.mu.Lock()
 		deferred := c.deferCreate
 		if !deferred && c.create != nil && c.create.ExecutionEngine == "" {
-			if initialized, ok := connection.(interface{ InitializeResult() InitializeResult }); ok {
+			if initialized, ok := connection.(interface {
+				InitializeResult() protocol.InitializeResult
+			}); ok {
 				c.create.ExecutionEngine = initialized.InitializeResult().DefaultExecutionEngine
 			}
 			if c.create.ExecutionEngine == "" {
@@ -550,7 +553,7 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 		if err != nil {
 			return err
 		}
-		result, err := connection.Command(c.ctx, CommandParams{
+		result, err := connection.Command(c.ctx, protocol.CommandParams{
 			CommandID: c.clientID + "-session-" + c.instanceID, Scope: string(session.CommandScopeDaemon),
 			Operation: "session.create", Payload: payload,
 		})
@@ -568,7 +571,7 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 
 	c.transition(RootSnapshotting, nil)
 	if cursor > 0 {
-		replay, err := connection.Replay(c.ctx, ReplayParams{RootID: rootID, Cursor: cursor})
+		replay, err := connection.Replay(c.ctx, protocol.ReplayParams{RootID: rootID, Cursor: cursor})
 		if err != nil {
 			return err
 		}
@@ -625,7 +628,7 @@ func (c *RootClient) consume(connection RootConnection) bool {
 	}
 }
 
-func (c *RootClient) emitEvent(event ProtocolEvent) bool {
+func (c *RootClient) emitEvent(event protocol.ProtocolEvent) bool {
 	c.mu.Lock()
 	if (event.SubscriptionID != "" && event.SubscriptionID != c.subscriptionID) || event.RootID != c.rootID || event.Seq <= c.cursor {
 		c.mu.Unlock()

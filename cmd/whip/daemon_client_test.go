@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/daemonconn"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -39,7 +40,7 @@ func useTestDaemon(t *testing.T) {
 	finished := make(chan error, 1)
 	var once sync.Once
 	started := false
-	connectDaemon = func(callCtx context.Context, clientKind, clientID string, cursors map[string]int64) (daemon.RootConnection, error) {
+	connectDaemon = func(callCtx context.Context, clientKind, clientID string, cursors map[string]int64) (daemonclient.RootConnection, error) {
 		dir, err := config.Dir()
 		if err != nil {
 			return nil, err
@@ -48,8 +49,8 @@ func useTestDaemon(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return daemon.EnsureClient(callCtx, paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: version, ClientKind: clientKind,
+		return daemonclient.EnsureClient(callCtx, paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, BuildID: version, ClientKind: clientKind,
 			ClientID: clientID, Capabilities: []string{"commands", "events", "snapshots"}, Cursors: cursors,
 		}, func() error {
 			once.Do(func() {
