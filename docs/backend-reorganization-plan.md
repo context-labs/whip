@@ -674,7 +674,8 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Provider operation boundary (plan PR 3a) | `fec68225b2e6e888f138d2721c30d827987add73`, [PR #305](https://github.com/context-labs/whip/pull/305). | Catalog/reload characterization passed three times before extraction; typed catalog results, compaction validation, model admission and context borrowing retain their operation order. Local validation below was recorded at historical head `a211fb0e7629f9692eb5133aa00244aea17e38a9`. The complete tree is unchanged by reordering; [fresh CI](https://github.com/context-labs/whip/actions/runs/36686153135) is pending. |
 | Provider integration test boundary (plan PR 3b1) | `675717575868c5b3b9bf2da1a9b2863238b12a28`, [PR #306](https://github.com/context-labs/whip/pull/306). | Five integration tests use HTTP/auth persistence rather than private provider callbacks. At historical head `d81f814b139d3a2320db6942e02c22a3e54d9b80`, targeted race tests passed three times (23.256s), full daemon race/shuffle passed (261.125s), and build/vet/whipvet plus fresh fixed-SDK compatibility passed. The complete tree is unchanged; [fresh CI](https://github.com/context-labs/whip/actions/runs/36686160171) is pending. |
 | Provider package extraction (plan PR 3b2) | `355b792bc99567068e65fdd0fd9f992a5b50ea0c`, [PR #308](https://github.com/context-labs/whip/pull/308), based on PR #306. | Eleven implementation files move to `internal/provider` with existing service/constructor names. The declaration proof preserves all 1,188 existing production declarations after type qualification; all 758 existing tests remain. Private tests move with the service; transport/runtime/default-pair/catalog-reload assertions remain in daemon. This code tree equals historical tested commit `f45cecb74dfe0c02826c044ace30112e53e0bccf`. Fresh publication-provenance compatibility passed against the new immediate parent. [Current CI](https://github.com/context-labs/whip/actions/runs/36685870687) is pending; security passed. |
-| Startup factory extraction (plan PR 4a) | `codex/backend-reorg-04a-startup`, based on PR #308 (`355b792bc99567068e65fdd0fd9f992a5b50ea0c`). | The existing runtime factory and five helpers move to `cmd/whip/daemon_runtime.go`. Exact body comparison, full CLI race/shuffle (71.763s), module build/vet/whipvet, and fresh fixed/immediate-base compatibility passed. Hosted checks follow publication. |
+| Startup factory extraction (plan PR 4a) | `13493cf20dd84c7c97a18d33b1a6202d849eae94`, [PR #309](https://github.com/context-labs/whip/pull/309), based on PR #308. | The existing runtime factory and five helpers move to `cmd/whip/daemon_runtime.go`. Exact body comparison, full CLI race/shuffle (71.763s), module build/vet/whipvet, and fresh fixed/immediate-base compatibility passed. [CI](https://github.com/context-labs/whip/actions/runs/36686776874) and [security](https://github.com/context-labs/whip/actions/runs/36686776543) started; results were pending when this entry was recorded. |
+| Host directory grouping (plan PR 4b) | `codex/backend-reorg-04b-host-directory`, based on PR #309 (`13493cf20dd84c7c97a18d33b1a6202d849eae94`). | Four existing directory listing, creation and native-picker functions move to `internal/daemon/host_directory.go`. AST-directed extraction preserves all six original function declarations and comments, leaving host dispatch and attention in `host.go`. Existing host/directory/RPC race/shuffle tests (4.644s), module build/vet/whipvet and exact source comparison passed. Fresh fixed/immediate-base compatibility passed. Hosted checks follow publication. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -843,3 +844,42 @@ binary SHA-256 is
 Both transport comparisons, deliberate response/order mutation rejection,
 cancellation/reconnect checks and fixed/immediate-base rollback passed. Rollback
 covers both engines, retained root/child state, content, schema and trace/export.
+
+
+### Host directory grouping (plan PR 4b)
+
+`internal/daemon/host_directory.go` groups directory listing, creation and native
+folder selection in the existing daemon package. `host.go` now contains 176
+lines of host RPC dispatch and attention aggregation. This makes filesystem and
+platform picker behavior independently findable without a new service or
+interface. Callers and tests stay unchanged.
+
+The Go AST-directed extraction moved exactly `hostDirectories`,
+`hostDirectoryCreate`, `directoryPickCommand`, and `hostDirectoryPick`. All six
+original function declarations and their comments are byte-identical; the
+remaining source is unchanged apart from imports and whitespace. Directory
+filtering, bounds, errors, permissions, platform commands and cancellation
+behavior therefore retain their original implementation. Three current directory
+source references in `docs/features.md` follow the move; theme references still
+point to host dispatch.
+
+Existing host, directory and related RPC race/shuffle tests passed (4.644s), as
+did module build, vet and whipvet. The same-package move adds no test or runtime
+interface; existing tests remain in place. The full daemon suite was not repeated
+locally for this byte-identical same-package move; all required hosted jobs
+remain enabled.
+
+Fresh compatibility evidence at
+`/private/tmp/whip-reorg-04b-compat-evidence/evidence.json` passed against fixed
+SDK/reference `271c0f8d2a35648d1b45056d57432590b783483c` and immediate parent
+`13493cf20dd84c7c97a18d33b1a6202d849eae94`, using Go 1.27.0 darwin/arm64 and
+Node 24.14.1. All four changed files, including the new Go file, were staged
+before the guard captured `candidateDiff`; its precommit `candidateRevision`
+is the parent. Subsequent changes only correct a documentation source reference
+and record these results; production source matches the tested candidate.
+
+Fresh fixed, parent and candidate binaries passed both transport transcript
+comparisons, deliberate response/event-order mutation rejection, lifecycle
+checks and fixed/immediate-base rollback covering both engines, retained
+root/child state, content, schema and trace/export. The candidate binary SHA-256
+is `7f2bff23200cb61ecdb73b4939ca643cc8064a2212ae89421c67b3a66a48e85f`.
