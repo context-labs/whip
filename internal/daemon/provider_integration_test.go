@@ -77,7 +77,7 @@ func providerOnboardingHTTPFixture(t *testing.T) {
 			http.Error(w, "bad session", http.StatusUnauthorized)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/rest/") && r.Header.Get("x-inference-team-id") != "team" {
+		if strings.HasPrefix(r.URL.Path, "/api/rest/") && r.Header.Get("X-Inference-Team-Id") != "team" {
 			t.Error("incorrect Inference.net workspace identity")
 		}
 		var body map[string]any
