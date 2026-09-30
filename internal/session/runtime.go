@@ -621,7 +621,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 			status = "failed"
 		}
 	}
-	if status != "succeeded" && status != "failed" && status != "cancelled" && status != "interrupted" {
+	if !IsTerminalTurnStatus(status) {
 		return fmt.Errorf("invalid root turn status %q", status)
 	}
 	eventKind := "turn." + status
@@ -1124,7 +1124,7 @@ func (s *Store) enqueueInboxTx(ctx context.Context, tx *sql.Tx, item InboxEnqueu
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM agents WHERE root_id=? AND id=?`, item.RootID, item.AgentID).Scan(&status); err != nil {
 		return InboxSequence{}, err
 	}
-	if status == "failed" || status == "stopped" || status == "cancelled" || status == "interrupted" || status == "deleted" || status == "succeeded" {
+	if isTerminalAgentStatus(status) {
 		return InboxSequence{}, ErrRootTerminal
 	}
 	var sequence InboxSequence
@@ -1375,7 +1375,7 @@ func (s *Store) commitRuntime(ctx context.Context, transition RuntimeTransition,
 }
 
 func (s *Store) FinishCommand(ctx context.Context, clientID, commandID, status string, outcome RuntimePayload) (RuntimeValue, error) {
-	if status != "succeeded" && status != "failed" && status != "cancelled" && status != "interrupted" {
+	if !IsTerminalCommandStatus(status) {
 		return RuntimeValue{}, fmt.Errorf("command outcome status %q is not terminal", status)
 	}
 	var scope CommandScope

@@ -454,10 +454,10 @@ func (s *Session) admitCommand(ctx context.Context, admission sessionstore.Comma
 			return admittedCommand{result: result}, nil
 		}
 		receipt := newReceipt(result.Command.IngressSeq)
-		switch result.Command.Status {
-		case "queued", "running", "waiting":
+		switch {
+		case result.Command.Status == "queued" || result.Command.Status == "running" || result.Command.Status == "waiting":
 			s.register(receipt)
-		case "succeeded", "failed", "cancelled", "interrupted":
+		case sessionstore.IsTerminalCommandStatus(result.Command.Status):
 			output, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.id, result.Command.Outcome)
 			if resolveErr != nil {
 				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Err: resolveErr})

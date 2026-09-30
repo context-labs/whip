@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -12,6 +13,87 @@ import (
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
+
+type statusRootConnection struct {
+	*staticRootConnection
+	status string
+}
+
+func (c *statusRootConnection) Command(_ context.Context, params protocol.CommandParams) (protocol.CommandResult, error) {
+	return protocol.CommandResult{CommandID: params.CommandID, Status: c.status}, nil
+}
+
+func TestRootClientCancellationTargetsPreserveStatusBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		status   string
+		terminal bool
+	}{
+		{"succeeded", true}, {"failed", true}, {"cancelled", true}, {"interrupted", true},
+		{"queued", false}, {"running", false}, {"waiting", false},
+		{"stopped", false}, {"deleted", false}, {"unknown", false},
+		{"", false}, {"Succeeded", false}, {" succeeded", false},
+	} {
+		t.Run(fmt.Sprintf("status=%q", test.status), func(t *testing.T) {
+			connection := &statusRootConnection{staticRootConnection: newStaticRootConnection(), status: test.status}
+			client, err := NewRootClient(RootClientOptions{
+				ClientID: "client", RootID: "root",
+				Connector: func(context.Context, map[string]int64) (RootConnection, error) { return connection, nil },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = client.Close() })
+			client.state, client.conn = RootLive, connection
+			for index, event := range []struct{ kind, status string }{
+				{"turn.started", "running"}, {"turn." + test.status, test.status},
+			} {
+				body, err := json.Marshal(session.LifecycleEvent{AgentID: "root", TurnID: "turn", Status: event.status})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !client.emitEvent(protocol.ProtocolEvent{RootID: "root", Seq: int64(index + 1), Kind: event.kind, Payload: body}) {
+					t.Fatal("event was not accepted")
+				}
+			}
+			cancel, err := client.NewAction("cancel", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var target struct {
+				TurnID          string `json:"turn_id"`
+				TargetCommandID string `json:"target_command_id"`
+			}
+			if err := json.Unmarshal(cancel.Payload, &target); err != nil {
+				t.Fatal(err)
+			}
+			wantTurn := "turn"
+			if test.terminal {
+				wantTurn = ""
+			}
+			if target.TurnID != wantTurn || target.TargetCommandID != "" {
+				t.Fatalf("turn cancellation = %+v; want turn %q", target, wantTurn)
+			}
+			if _, err := client.Command(t.Context(), RootAction{CommandID: "command", Operation: "submit", RootID: "root"}); err != nil {
+				t.Fatal(err)
+			}
+			cancel, err = client.NewAction("cancel", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target.TurnID, target.TargetCommandID = "", ""
+			if err := json.Unmarshal(cancel.Payload, &target); err != nil {
+				t.Fatal(err)
+			}
+			wantCommand := "command"
+			if test.terminal {
+				wantCommand = ""
+			}
+			if target.TargetCommandID != wantCommand || target.TurnID != "" {
+				t.Fatalf("command cancellation = %+v; want command %q", target, wantCommand)
+			}
+		})
+	}
+}
 
 type deferredRootConnection struct {
 	*staticRootConnection

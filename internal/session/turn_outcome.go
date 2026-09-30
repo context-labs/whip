@@ -33,6 +33,17 @@ type TurnOutcome struct {
 	LastActivityAt string `json:"last_activity_at,omitempty"`
 }
 
+// IsTerminalTurnStatus reports whether status is a completed turn outcome.
+// Completing a turn does not terminate its retained agent.
+func IsTerminalTurnStatus(status string) bool {
+	switch status {
+	case "succeeded", "failed", "cancelled", "interrupted":
+		return true
+	default:
+		return false
+	}
+}
+
 // Scan decodes the nullable JSON projection using database/sql's pointer scan.
 func (outcome *TurnOutcome) Scan(value any) error {
 	switch data := value.(type) {
@@ -54,10 +65,11 @@ func turnEventStatus(kind string) string {
 	if !strings.HasPrefix(kind, "turn.") && !strings.HasPrefix(kind, "agent.turn.") {
 		return ""
 	}
-	switch status := kind[strings.LastIndexByte(kind, '.')+1:]; status {
-	case "started":
+	status := kind[strings.LastIndexByte(kind, '.')+1:]
+	switch {
+	case status == "started":
 		return "running"
-	case "succeeded", "failed", "cancelled", "interrupted":
+	case IsTerminalTurnStatus(status):
 		return status
 	default:
 		return ""
