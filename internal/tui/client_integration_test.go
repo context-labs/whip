@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
@@ -47,7 +48,9 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = store.Close() })
-			owner, err := daemon.New(store, func(context.Context, session.Meta, []llm.Message) (daemon.Components, error) {
+			processes := capability.NewProcessManager()
+			t.Cleanup(func() { _ = processes.Close() })
+			owner, err := daemon.New(store, processes, func(context.Context, session.Meta, []llm.Message) (daemon.Components, error) {
 				return daemon.Components{Runner: &startupRunner{}}, nil
 			})
 			if err != nil {

@@ -43,7 +43,7 @@ func TestDesktopBrowserDiscoveryRequiresModuleButNoControlAdmission(t *testing.T
 		t.Fatalf("discovery crossed admission boundary: %+v", result)
 	}
 	authority.AgentID = "unrelated-child"
-	if err := s.BindDispatcher(ledger, p.store.Workspaces(), p.store.Processes(), authority); err != nil {
+	if err := s.BindDispatcher(ledger, p.store.Workspaces(), s.ProcessOptions().Processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	result = callDesktop(t, s, "browser.list_tabs", "{}")
@@ -121,6 +121,8 @@ func desktopTestServices(t *testing.T) (*Services, *countingLedger, *testDesktop
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
 	root, err := store.Create(session.SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
@@ -132,9 +134,10 @@ func desktopTestServices(t *testing.T) (*Services, *countingLedger, *testDesktop
 	ledger := &countingLedger{Store: store}
 	provider := &testDesktopProvider{store: store, lifetime: t.Context(), scope: capability.BrowserScope{ProviderID: "provider", ProviderEpoch: "epoch", TabID: "tab", TabGeneration: "tab-generation", ProfileID: "profile", AttachmentID: "attachment", AttachmentGeneration: "attachment-generation", Rights: []string{"create", "control"}}, backend: &fakeBackend{mode: browser.Mode("desktop"), eval: `"hello"`, shot: []byte("jpeg")}}
 	services := NewServices()
+	t.Cleanup(services.Close)
 	services.SetDesktopBrowserProvider(func() browser.DesktopProvider { return provider })
 	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateAllowOnce, "" })
-	if err := services.BindDispatcher(ledger, store.Workspaces(), store.Processes(), authority); err != nil {
+	if err := services.BindDispatcher(ledger, store.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	return services, ledger, provider, authority

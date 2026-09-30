@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/context-labs/whip/internal/buildinfo"
+	"github.com/context-labs/whip/internal/capability"
 	providersvc "github.com/context-labs/whip/internal/provider"
 
 	"github.com/context-labs/whip/internal/config"
@@ -76,9 +77,11 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	processes := capability.NewProcessManager()
 	store.SetGlobalPermissionRules(cfg.Permissions.Allow)
 	generation, err := store.BeginDaemonGeneration(context.Background(), version)
 	if err != nil {
+		_ = processes.Close()
 		_ = store.Close()
 		return err
 	}
@@ -93,8 +96,9 @@ func runDaemon(ctx context.Context, args []string) error {
 	kernels := rlm.NewManager(limits.MaxWorkers)
 	defer kernels.Close()
 	factory := daemonRuntimeFactory(store, providers, kernels, limits)
-	ownerDaemon, err := daemon.New(store, factory, providers)
+	ownerDaemon, err := daemon.New(store, processes, factory, providers)
 	if err != nil {
+		_ = processes.Close()
 		_ = store.Close()
 		return err
 	}

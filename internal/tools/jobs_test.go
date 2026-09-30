@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -18,6 +19,8 @@ func TestShellStartJobsAreOwnedCappedAndClosedWithServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
 	rootID, err := st.Create(session.SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +31,7 @@ func TestShellStartJobsAreOwnedCappedAndClosedWithServices(t *testing.T) {
 	}
 	services := NewServices()
 	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateAllowOnce, "" })
-	if err := services.BindDispatcher(&countingLedger{Store: st}, st.Workspaces(), st.Processes(), authority); err != nil {
+	if err := services.BindDispatcher(&countingLedger{Store: st}, st.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(services.Close)

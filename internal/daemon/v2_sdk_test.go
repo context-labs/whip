@@ -136,7 +136,7 @@ func TestV2SDKBridge(t *testing.T) {
 		}
 		return Components{Runner: value, Bind: func(_ context.Context, root *Session) error {
 			value.root = root
-			return value.services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority)
+			return value.services.BindDispatcher(root.store, root.store.Workspaces(), root.processes, root.authority)
 		}}, nil
 	}
 	if os.Getenv("WHIP_SDK_AGENTS_FIXTURE") == "1" {
@@ -146,7 +146,8 @@ func TestV2SDKBridge(t *testing.T) {
 		factory, closeModel = sdkAgentsFactory(store)
 		defer closeModel()
 	}
-	owner, err := New(store, factory)
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, factory)
 	if err != nil {
 		t.Fatal(err)
 	}

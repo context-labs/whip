@@ -668,14 +668,15 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Dependency-audit prerequisite | `db3a1cea247eee7cbaa0424fe3ee89eb0d36bf9d`, [PR #299](https://github.com/context-labs/whip/pull/299) | Only 11 `brace-expansion` lockfile entries changed. Local install, unchanged production-audit threshold, protocol freshness, 470 SDK unit tests, example build, and package smoke passed. [Full CI](https://github.com/context-labs/whip/actions/runs/36678816413) and security passed. This is the green maintenance base; the original development SDK remains the fixed oracle. |
 | Stacked-base CI prerequisite | `dba610243623b1a7f6f13f910ddec4d6df9bb711`, [PR #300](https://github.com/context-labs/whip/pull/300) | Only CI/security PR-base filters and their distribution-test expectation changed, plus this plan. All 36 distribution-policy tests and workflow validation passed. GitHub verified both workflows start against stacked bases. [Full current CI](https://github.com/context-labs/whip/actions/runs/36681079742) and current security passed. |
 | Isolated provider test environment | `a57b5261b6225b64451b0d5b06374f721cb83153`, [PR #301](https://github.com/context-labs/whip/pull/301) | Separate test-only repair prevents inherited provider credentials from changing fixtures. [Full current CI](https://github.com/context-labs/whip/actions/runs/36681286958) and current security passed. |
-| Dialog assertion readiness | `722b49321f3cb2a70c8d829911279ffd79caf0a0`, [PR #307](https://github.com/context-labs/whip/pull/307), based on PR #301. | Separate test-only repair waits for sheet focus before scroll assertions. The prior combined head `1882979ad414c256cada7b2fb71e11a02f46bd4e` passed the 36-test workflow-policy suite, [full CI](https://github.com/context-labs/whip/actions/runs/36681287194) and security, including both compatibility jobs and the 90% coverage floor. This repair now precedes the guard; [reordered-head CI](https://github.com/context-labs/whip/actions/runs/36685631006) is pending. |
+| Dialog assertion readiness | `722b49321f3cb2a70c8d829911279ffd79caf0a0`, [PR #307](https://github.com/context-labs/whip/pull/307), based on PR #301. | Separate test-only repair waits for sheet focus before scroll assertions. The prior combined head `1882979ad414c256cada7b2fb71e11a02f46bd4e` passed the 36-test workflow-policy suite, [full CI](https://github.com/context-labs/whip/actions/runs/36681287194) and security, including both compatibility jobs and the 90% coverage floor. This repair now precedes the guard; [reordered-head CI](https://github.com/context-labs/whip/actions/runs/36685631006) and [security](https://github.com/context-labs/whip/actions/runs/36685630150) passed. |
 | Frozen-contract gate | `8f0230444eb447e87c619d7c689eca811ac5d1f3`, [PR #302](https://github.com/context-labs/whip/pull/302), based on PR #307. | Local fixed-reference and immediate-base comparisons passed, including mutation rejection and both-engine rollback. At historical head `a7be9a28a0f37598985733e2fe50e06af1aa06f4`, [CI](https://github.com/context-labs/whip/actions/runs/36681287828) passed both compatibility jobs, Go coverage, lint and runtime but failed the independently reproduced UI race. The new head includes the separate repair and has the exact previously green combined prerequisite tree. [Fresh CI](https://github.com/context-labs/whip/actions/runs/36686140019) remains pending. |
 | Host MCP ownership (plan PR 2) | `bfd030fb7bee920982c8d0ab9f6a4820be962166`, [PR #304](https://github.com/context-labs/whip/pull/304). | Three operation bodies move unchanged from `ProviderService` to a private `hostMCPService`, owned by `Server`. The original-implementation cancellation characterization, focused MCP/icon race tests, build/vet/whipvet, full daemon race/shuffle (250.722s), and fixed/immediate-base compatibility passed. Historical head `d8175212d3db3371b14862dc07ad24fc62393108` passed [full CI](https://github.com/context-labs/whip/actions/runs/36682214774) and security. Its tree is unchanged by reordering; [fresh CI](https://github.com/context-labs/whip/actions/runs/36686146852) is pending. |
 | Provider operation boundary (plan PR 3a) | `fec68225b2e6e888f138d2721c30d827987add73`, [PR #305](https://github.com/context-labs/whip/pull/305). | Catalog/reload characterization passed three times before extraction; typed catalog results, compaction validation, model admission and context borrowing retain their operation order. Local validation below was recorded at historical head `a211fb0e7629f9692eb5133aa00244aea17e38a9`. The complete tree is unchanged by reordering; [fresh CI](https://github.com/context-labs/whip/actions/runs/36686153135) is pending. |
 | Provider integration test boundary (plan PR 3b1) | `675717575868c5b3b9bf2da1a9b2863238b12a28`, [PR #306](https://github.com/context-labs/whip/pull/306). | Five integration tests use HTTP/auth persistence rather than private provider callbacks. At historical head `d81f814b139d3a2320db6942e02c22a3e54d9b80`, targeted race tests passed three times (23.256s), full daemon race/shuffle passed (261.125s), and build/vet/whipvet plus fresh fixed-SDK compatibility passed. The complete tree is unchanged; [fresh CI](https://github.com/context-labs/whip/actions/runs/36686160171) is pending. |
-| Provider package extraction (plan PR 3b2) | `355b792bc99567068e65fdd0fd9f992a5b50ea0c`, [PR #308](https://github.com/context-labs/whip/pull/308), based on PR #306. | Eleven implementation files move to `internal/provider` with existing service/constructor names. The declaration proof preserves all 1,188 existing production declarations after type qualification; all 758 existing tests remain. Private tests move with the service; transport/runtime/default-pair/catalog-reload assertions remain in daemon. This code tree equals historical tested commit `f45cecb74dfe0c02826c044ace30112e53e0bccf`. Fresh publication-provenance compatibility passed against the new immediate parent. [Current CI](https://github.com/context-labs/whip/actions/runs/36685870687) is pending; security passed. |
+| Provider package extraction (plan PR 3b2) | `355b792bc99567068e65fdd0fd9f992a5b50ea0c`, [PR #308](https://github.com/context-labs/whip/pull/308), based on PR #306. | Eleven implementation files move to `internal/provider` with existing service/constructor names. The declaration proof preserves all 1,188 existing production declarations after type qualification; all 758 existing tests remain. Private tests move with the service; transport/runtime/default-pair/catalog-reload assertions remain in daemon. This code tree equals historical tested commit `f45cecb74dfe0c02826c044ace30112e53e0bccf`. Fresh publication-provenance compatibility passed against the new immediate parent. [Current CI](https://github.com/context-labs/whip/actions/runs/36685870687) and [security](https://github.com/context-labs/whip/actions/runs/36685870367) passed. |
 | Startup factory extraction (plan PR 4a) | `13493cf20dd84c7c97a18d33b1a6202d849eae94`, [PR #309](https://github.com/context-labs/whip/pull/309), based on PR #308. | The existing runtime factory and five helpers move to `cmd/whip/daemon_runtime.go`. Exact body comparison, full CLI race/shuffle (71.763s), module build/vet/whipvet, and fresh fixed/immediate-base compatibility passed. [CI](https://github.com/context-labs/whip/actions/runs/36686776874) and [security](https://github.com/context-labs/whip/actions/runs/36686776543) started; results were pending when this entry was recorded. |
-| Host directory grouping (plan PR 4b) | `codex/backend-reorg-04b-host-directory`, based on PR #309 (`13493cf20dd84c7c97a18d33b1a6202d849eae94`). | Four existing directory listing, creation and native-picker functions move to `internal/daemon/host_directory.go`. AST-directed extraction preserves all six original function declarations and comments, leaving host dispatch and attention in `host.go`. Existing host/directory/RPC race/shuffle tests (4.644s), module build/vet/whipvet and exact source comparison passed. Fresh fixed/immediate-base compatibility passed. Hosted checks follow publication. |
+| Host directory grouping (plan PR 4b) | `0099a665221ba54ac23ca6656a8a1a017af6f48d`, [PR #310](https://github.com/context-labs/whip/pull/310), based on PR #309 (`13493cf20dd84c7c97a18d33b1a6202d849eae94`). | Four existing directory listing, creation and native-picker functions move to `internal/daemon/host_directory.go`. AST-directed extraction preserves all six original function declarations and comments, leaving host dispatch and attention in `host.go`. Existing host/directory/RPC race/shuffle tests (4.644s), module build/vet/whipvet and exact source comparison passed. Fresh fixed/immediate-base compatibility passed. [CI](https://github.com/context-labs/whip/actions/runs/36687285608) and [security](https://github.com/context-labs/whip/actions/runs/36687285375) were pending at publication. |
+| Process ownership (plan PR 5) | `codex/backend-reorg-05-process-ownership`, based on PR #310 (`0099a665221ba54ac23ca6656a8a1a017af6f48d`). | Baseline lifecycle characterizations were committed and passed before production edits. Startup now constructs the shared manager explicitly and transfers ownership to the daemon only after successful construction. Validation and the detailed ownership map are recorded below. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -883,3 +884,66 @@ comparisons, deliberate response/event-order mutation rejection, lifecycle
 checks and fixed/immediate-base rollback covering both engines, retained
 root/child state, content, schema and trace/export. The candidate binary SHA-256
 is `7f2bff23200cb61ecdb73b4939ca643cc8064a2212ae89421c67b3a66a48e85f`.
+
+
+### Process ownership (plan PR 5)
+
+The process manager moves from `session.Store` to daemon composition. The
+production change touches eight files: startup construction/failure cleanup,
+the daemon and root fields/constructors/teardown, existing agent/tool/recursive
+borrowers, and removal of the Store field/constructor/accessor. The process
+implementation, SQL, schema, provider lifecycle, and client protocol are
+unchanged. Workspace ownership remains in storage for the separate next step.
+
+| Boundary | Owner and lifetime after this change | Preserved behavior |
+| --- | --- | --- |
+| Construction | `runDaemon` constructs one manager immediately after successful `session.Open`. | Environment snapshot precedes permission rules, daemon generation, provider discovery, kernels, and root factories. |
+| Failed startup | Caller closes manager, then Store, after generation or `daemon.New` failure. | Original failure remains the return value; provider/kernel defers retain their existing order. |
+| `daemon.New` | Successful construction adopts the supplied Store and manager. Failure adopts neither. | Existing nil Store/factory error has priority; duplicate ownership and recovery failure preserve caller resources; recovery failure releases the Store guard. Nil manager is rejected explicitly after the existing input checks. |
+| Borrowers | Every root borrows the same daemon pointer; root/child tool services and MCP retain that pointer and root scope. | No per-root manager, lazy allocation, new registry, or process policy. Standalone MCP probing keeps its independent owner. |
+| Root/partial bind teardown | Existing root teardown and failed-open defer call `StopRoot(rootID)`. | Defer placement, component close order, worker joins, settlement, and root isolation are unchanged. Root cleanup does not close the shared manager. |
+| Global shutdown | At the old final Store-close point, daemon joins `processes.Close()` then `store.Close()`. | Callbacks can still use the database; sentinel errors remain joined; `sync.Once` caches the same repeated Close result and guard release stays deferred. Root errors are not newly aggregated. |
+| Fixtures | Native/tagged fixtures name their manager and pass it explicitly; successful owners close it before fallback test cleanup. | Retry/duplicate constructors reuse a handle; reopened owners receive a fresh one. Direct borrowers close before their manager and database. `openStore` gains no hidden cleanup or runtime resource. |
+
+Before production edits, four characterizations locked down environment snapshot
+timing, live-resource recovery failure and retry, shutdown database usability
+with joined/cached errors, and partial-bind/root StopRoot isolation. Existing MCP,
+agent, fresh recursive child/grandchild, restored child, and duplicate-owner tests
+gained pointer/liveness assertions. The eight focused race cases passed in
+4.481s at test-only commit `05eef77e9ff1b8ca6ac2dac4a17994dc594bf59e`.
+The same cases plus explicit nil-manager/error-priority and storage-construction
+checks passed after the move in 4.493s. No test assertion was weakened to accept
+changed runtime behavior; only the obsolete Store-owned process accessor
+assertion was removed from storage's accessor test.
+
+The AST-directed fixture migration and an exact source conservation check cover
+all eight changed production files, permitting only the enumerated ownership
+edits. All 380 pre-existing test function names in changed files remain. Evidence:
+`/private/tmp/whip-pr5-fixtures-transform.log` and
+`/private/tmp/whip-pr5-production-proof.log`.
+
+Local validation passed: full daemon race/shuffle (275.485s), session (148.173s),
+capability (30.041s), tools (14.327s), MCP (22.298s), and agent (9.192s) race
+suites; full CLI race/shuffle (68.494s); integration-tagged daemon/TUI/CLI fixture
+compilation; and module build, vet, and whipvet. Final test-only cleanup-order
+adjustments passed focused daemon/tools race runs (2.381s/3.911s). Independent
+review caught a restart fixture reusing its old closed manager after direct
+`session.Open`; its new lifetime now receives a fresh named manager and an
+explicit registration/liveness assertion, which passed with race detection
+(2.083s). Production behavior was unchanged by that fixture correction.
+
+The initial frozen compatibility run against the fixed reference and full PR4b
+parent `0099a665221ba54ac23ca6656a8a1a017af6f48d` passed:
+`/private/tmp/whip-pr5-compat-evidence/evidence.json`. It covers Unix/WebSocket
+responses and ordered events, acceptance/cancellation lifecycle, and both-engine
+root/child persisted-data rollback with content, schema, trace pages, and OTLP
+export. The final published-parent run will refresh provenance after the
+inherited test-header lint correction is rebased through the stack; the current
+result records the pre-rebase parent and the initial captured working diff.
+
+A preflight with CI's golangci-lint 2.13.1 found only the inherited lowercase
+provider-header fixture after the new tests adopted explicit SQL contexts and a
+narrow explained exception for the required cached-error identity comparison.
+Those two fixture cases passed again with race detection (1.916s). The inherited
+header correction belongs to PR3b1 and will arrive through the parent rebase;
+PR5 does not mix that repair into its ownership change.

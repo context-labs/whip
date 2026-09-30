@@ -210,7 +210,8 @@ func TestMCPImportApplyValidatesBeforeWritingAndSkipsQuietly(t *testing.T) {
 func TestMCPBrandIconsFollowSuppliedProviderLifetime(t *testing.T) {
 	_, providers, _ := mcpImportFixture(t)
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	}, providers)
 	if err != nil {

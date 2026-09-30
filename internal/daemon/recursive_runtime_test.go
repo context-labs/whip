@@ -64,7 +64,8 @@ func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int, engi
 		t.Fatal(err)
 	}
 	var runtime *RecursiveRuntime
-	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(client, "model", 1024, "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 		limits := rlm.DefaultLimits()
@@ -94,7 +95,7 @@ func TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth(t *testing.T) {
 		streamText(w, "done")
 	}))
 	defer server.Close()
-	store, root, runtime := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4)
+	_, root, runtime := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4)
 	runs := &sync.Map{}
 	runtime.setRunTurnHook(observeRunTurn(runs))
 	receipt, err := root.Submit(t.Context(), "root work")
@@ -124,7 +125,7 @@ func TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth(t *testing.T) {
 	waitAgentIdle(t, child)
 
 	for _, node := range []*AgentSession{runtime.rootNode, child, grandchild} {
-		if options := node.agent.Services.ProcessOptions(); options.Processes != store.Processes() || options.RootID != root.ID() {
+		if options := node.agent.Services.ProcessOptions(); options.Processes != root.processes || options.RootID != root.ID() {
 			t.Fatalf("agent %q process scope = %p %q", node.name, options.Processes, options.RootID)
 		}
 		all := node.agent.AllTools()
@@ -463,7 +464,8 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 	rootID := createRoot(t, store)
 	makeOwner := func(store *session.Store) (*Daemon, **RecursiveRuntime) {
 		var runtime *RecursiveRuntime
-		owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 			limits := rlm.DefaultLimits()
@@ -527,7 +529,7 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 		t.Fatalf("retained child %q was not restored", childID)
 	}
 	for _, node := range []*AgentSession{second.rootNode, restored} {
-		if options := node.agent.Services.ProcessOptions(); options.Processes != store.Processes() || options.RootID != secondRoot.ID() {
+		if options := node.agent.Services.ProcessOptions(); options.Processes != secondOwner.processes || options.RootID != secondRoot.ID() {
 			t.Fatalf("restored agent %q process scope = %p %q", node.name, options.Processes, options.RootID)
 		}
 	}
@@ -574,7 +576,8 @@ func TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce(t *testing.T) {
 	}
 	makeOwner := func(store *session.Store) (*Daemon, **RecursiveRuntime) {
 		var runtime *RecursiveRuntime
-		owner, ownerErr := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		owner, ownerErr := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 			limits := rlm.DefaultLimits()
@@ -911,7 +914,8 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 	}
 	makeOwner := func(store *session.Store) (*Daemon, **RecursiveRuntime) {
 		var runtime *RecursiveRuntime
-		owner, ownerErr := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		owner, ownerErr := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 			var runtimeErr error

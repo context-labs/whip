@@ -629,7 +629,7 @@ func (session *AgentSession) bind(root *Session) error {
 	if root.executors != nil {
 		session.agent.Services.SetCustomTools(root.definition.ID, root.definitionRevision, customTools(root.definition), root.executors)
 	}
-	if err := session.agent.Services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority); err != nil {
+	if err := session.agent.Services.BindDispatcher(root.store, root.store.Workspaces(), root.processes, root.authority); err != nil {
 		return err
 	}
 	session.agent.SetSessionID(root.id)

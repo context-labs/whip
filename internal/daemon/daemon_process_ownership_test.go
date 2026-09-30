@@ -21,12 +21,13 @@ func TestDaemonProcessEnvironmentSnapshotsBeforeConstruction(t *testing.T) {
 	const variable = "LC_WHIP_PROCESS_OWNERSHIP"
 	t.Setenv(variable, "at-store-open")
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	processes := store.Processes()
+	processes := capability.NewProcessManager()
 	defer store.Close()
+	defer processes.Close()
 	rootID := createRoot(t, store)
 	t.Setenv(variable, "before-daemon-new")
 	services := tools.NewServices()
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: NewToolRunner(services)}, nil
 	})
 	if err != nil {
@@ -57,7 +58,8 @@ func TestNewRecoveryFailureLeavesResourcesCallerOwned(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	store := openStore(t, path)
 	defer store.Close()
-	processes := store.Processes()
+	processes := capability.NewProcessManager()
+	defer processes.Close()
 	rootID := createRoot(t, store)
 	if err := store.SetBudgetLimit(t.Context(), rootID, "", session.BudgetTokens, 100); err != nil {
 		t.Fatal(err)
@@ -68,10 +70,10 @@ func TestNewRecoveryFailureLeavesResourcesCallerOwned(t *testing.T) {
 	}
 	defer fixtureDB.Close()
 	const marker = "fixture process recovery failure"
-	if _, err := fixtureDB.Exec(`CREATE TRIGGER reject_process_ownership_recovery BEFORE UPDATE ON budgets BEGIN SELECT RAISE(ABORT,'fixture process recovery failure'); END`); err != nil {
+	if _, err := fixtureDB.ExecContext(t.Context(), `CREATE TRIGGER reject_process_ownership_recovery BEFORE UPDATE ON budgets BEGIN SELECT RAISE(ABORT,'fixture process recovery failure'); END`); err != nil {
 		t.Fatal(err)
 	}
-	defer fixtureDB.Exec(`DROP TRIGGER IF EXISTS reject_process_ownership_recovery`)
+	defer fixtureDB.ExecContext(t.Context(), `DROP TRIGGER IF EXISTS reject_process_ownership_recovery`)
 	var stopped atomic.Int32
 	if _, err := processes.RegisterStop(rootID, func() error { stopped.Add(1); return nil }); err != nil {
 		t.Fatal(err)
@@ -79,7 +81,7 @@ func TestNewRecoveryFailureLeavesResourcesCallerOwned(t *testing.T) {
 	factory := func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	}
-	owner, err := New(store, factory)
+	owner, err := New(store, processes, factory)
 	if owner != nil || err == nil || !strings.Contains(err.Error(), marker) {
 		t.Fatalf("recovery result = %v, %v", owner, err)
 	}
@@ -98,10 +100,10 @@ func TestNewRecoveryFailureLeavesResourcesCallerOwned(t *testing.T) {
 		t.Fatal("failed recovery retained the daemon ownership guard")
 	}
 	store.ReleaseDaemon()
-	if _, err := fixtureDB.Exec(`DROP TRIGGER reject_process_ownership_recovery`); err != nil {
+	if _, err := fixtureDB.ExecContext(t.Context(), `DROP TRIGGER reject_process_ownership_recovery`); err != nil {
 		t.Fatal(err)
 	}
-	owner, err = New(store, factory)
+	owner, err = New(store, processes, factory)
 	if err != nil {
 		t.Fatalf("retry with the same resources: %v", err)
 	}
@@ -117,9 +119,10 @@ func TestNewRecoveryFailureLeavesResourcesCallerOwned(t *testing.T) {
 func TestDaemonCloseStopsProcessesBeforeStoreAndCachesErrors(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	defer store.Close()
-	processes := store.Processes()
+	processes := capability.NewProcessManager()
+	defer processes.Close()
 	rootID := createRoot(t, store)
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -152,7 +155,7 @@ func TestDaemonCloseStopsProcessesBeforeStoreAndCachesErrors(t *testing.T) {
 	if _, err := store.LoadMeta(rootID); err == nil {
 		t.Fatal("database remained open after daemon shutdown")
 	}
-	if repeated := owner.Close(); repeated != first {
+	if repeated := owner.Close(); repeated != first { //nolint:errorlint // Close must return the identical cached error, not only matching wrapped errors.
 		t.Fatalf("Close did not return the cached error: first=%v repeated=%v", first, repeated)
 	}
 	for i, count := range counts {
@@ -169,11 +172,12 @@ func TestDaemonCloseStopsProcessesBeforeStoreAndCachesErrors(t *testing.T) {
 func TestFailedRootBindStopsOnlyItsProcessScope(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	defer store.Close()
-	processes := store.Processes()
+	processes := capability.NewProcessManager()
+	defer processes.Close()
 	healthyID, failingID := createRoot(t, store), createRoot(t, store)
 	bindErr := errors.New("fixture root bind failure")
 	var healthyStops, failingStops atomic.Int32
-	owner, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		services := tools.NewServices()
 		return Components{Runner: NewToolRunner(services), Bind: func(context.Context, *Session) error {
 			options := services.ProcessOptions()
@@ -233,4 +237,44 @@ func TestFailedRootBindStopsOnlyItsProcessScope(t *testing.T) {
 	if _, err := processes.RegisterStop("after-owner-close", func() error { return nil }); !errors.Is(err, capability.ErrProcessManagerClosed) {
 		t.Fatalf("owner shutdown did not close manager: %v", err)
 	}
+}
+
+func TestNewRequiresExplicitProcessOwnerAfterExistingInputChecks(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	defer store.Close()
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	factory := func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	}
+	for _, test := range []struct {
+		name      string
+		store     *session.Store
+		processes *capability.ProcessManager
+		factory   Factory
+		want      string
+	}{
+		{name: "nil store", factory: factory, want: "daemon requires a store and root factory"},
+		{name: "nil factory", store: store, want: "daemon requires a store and root factory"},
+		{name: "nil processes", store: store, factory: factory, want: "daemon requires a process manager"},
+		{name: "nil factory with processes", store: store, processes: processes, want: "daemon requires a store and root factory"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if owner, err := New(test.store, test.processes, test.factory); owner != nil || err == nil || err.Error() != test.want {
+				t.Fatalf("New = %v, %v; want %q", owner, err, test.want)
+			}
+		})
+	}
+	if !store.AcquireDaemon() {
+		t.Fatal("invalid constructor arguments acquired the daemon guard")
+	}
+	store.ReleaseDaemon()
+	if _, err := store.LoadMeta(createRoot(t, store)); err != nil {
+		t.Fatal(err)
+	}
+	unregister, err := processes.RegisterStop("after-invalid-new", func() error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	unregister()
 }

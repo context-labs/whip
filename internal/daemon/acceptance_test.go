@@ -362,7 +362,8 @@ func TestRuntimeAcceptanceDaemonHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := rlm.NewManager(1)
-	value, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		kernel, kernelErr := rlm.NewKernel(rlm.KernelOptions{
 			Command: []string{executable, "-test.run=^TestRuntimeAcceptanceKernelWorker$", "--", "-acceptance-start", filepath.Join(home, "kernel-starts.log")},
 			Manager: manager, Host: acceptanceHost{corpus: string(corpus)},

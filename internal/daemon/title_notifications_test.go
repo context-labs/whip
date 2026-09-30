@@ -21,7 +21,8 @@ import (
 func titleNotificationServer(t *testing.T, options ServerOptions) (*Daemon, *Server) {
 	t.Helper()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -495,7 +496,8 @@ func TestTitleNotificationsColdRenameCommitAndFailure(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "sessions.db")
 			store := openStore(t, path)
 			rootID := createRoot(t, store)
-			owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 				t.Error("cold rename reconstructed a root")
 				return Components{}, errors.New("unavailable workspace")
 			})

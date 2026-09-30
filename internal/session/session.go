@@ -63,7 +63,6 @@ type Store struct {
 	db          *sql.DB
 	content     *contentstore.Store
 	workspaces  *capability.Workspaces
-	processes   *capability.ProcessManager
 	daemonOwned atomic.Bool
 	globalRules atomic.Pointer[[]string] // config permissions.allow, "operation:rule" entries
 }
@@ -108,7 +107,7 @@ func Open(path string) (*Store, error) {
 	}
 	store := &Store{
 		db: db, content: content,
-		workspaces: capability.NewWorkspaces(), processes: capability.NewProcessManager(),
+		workspaces: capability.NewWorkspaces(),
 	}
 	failed = false
 	return store, nil
@@ -168,7 +167,7 @@ func (s *Store) SetUsage(id string, in, cached, out int) error {
 	return err
 }
 
-func (s *Store) Close() error { return errors.Join(s.processes.Close(), s.db.Close()) }
+func (s *Store) Close() error { return s.db.Close() }
 
 // stampLayout is RFC 3339 with a fixed nine-digit fraction: stored stamps
 // keep nanoseconds, sort lexicographically as text, and still parse with

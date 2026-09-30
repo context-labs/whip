@@ -19,7 +19,8 @@ func terminalTestServer(t *testing.T, networkTerminals bool) *Server {
 	t.Helper()
 	t.Setenv("SHELL", "/bin/sh")
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {

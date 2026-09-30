@@ -23,7 +23,8 @@ func TestSessionCreateFreezesEngineBeforeDefaultsChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := openStore(t, filepath.Join(t.TempDir(), "engine.db"))
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {

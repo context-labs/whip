@@ -18,7 +18,8 @@ import (
 func TestSessionCreationStoresConcreteEffort(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -78,7 +79,8 @@ func TestOpenResolvesLegacyBlankEffort(t *testing.T) {
 		t.Fatalf("fixture effort = %q %v", meta.Effort, err)
 	}
 	constructed := ""
-	value, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		constructed = meta.Effort
 		return Components{Runner: &fakeRunner{}}, nil
 	})

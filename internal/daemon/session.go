@@ -286,6 +286,7 @@ type Session struct {
 	titleChanged func(string)
 	providers    *providersvc.ProviderService
 	store        *sessionstore.Store
+	processes    *capability.ProcessManager // borrowed from the daemon; roots stop only their scope
 	// Identity is fixed for the root's lifetime. Saved facts (title, goal,
 	// archive state, directory) are read from the store when a decision needs
 	// them; nothing here mirrors the sessions row.
@@ -356,13 +357,13 @@ type runConfiguration struct {
 	cacheKey string
 }
 
-func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority capability.Authority, components Components, factories ...Factory) *Session {
+func newSession(store *sessionstore.Store, processes *capability.ProcessManager, meta sessionstore.Meta, authority capability.Authority, components Components, factories ...Factory) *Session {
 	goalMax := components.GoalMaxRounds
 	if goalMax <= 0 {
 		goalMax = config.DefaultGoalMaxRounds
 	}
 	root := &Session{
-		store: store, id: meta.ID, kind: meta.Kind, engine: meta.ExecutionEngine, definitionRevision: meta.DefinitionRevision,
+		store: store, processes: processes, id: meta.ID, kind: meta.Kind, engine: meta.ExecutionEngine, definitionRevision: meta.DefinitionRevision,
 		model: meta.Model, provider: meta.Provider, effort: meta.Effort, authority: authority, definition: effectiveDefinition(components), runner: components.Runner, mcp: components.MCP, loadMCP: components.LoadMCP, mcpServers: slices.Clone(effectiveDefinition(components).MCP.Servers), runtime: components.Runtime,
 		supervisor: newSupervisor(), mailbox: make(chan inboxReady, 1), done: make(chan struct{}),
 		receipts: make(map[int64][]*Receipt), goalMax: goalMax,
@@ -667,7 +668,7 @@ func (s *Session) run() {
 	if s.runtime != nil {
 		cleanupErr = errors.Join(cleanupErr, safeClose("runtime", s.runtime.Close))
 	}
-	cleanupErr = errors.Join(cleanupErr, s.store.Processes().StopRoot(s.id))
+	cleanupErr = errors.Join(cleanupErr, s.processes.StopRoot(s.id))
 	// Settle control calls that were admitted before stopping. Some of those
 	// callers are supervised workers, so waiting for workers first would leave
 	// each side waiting on the other.

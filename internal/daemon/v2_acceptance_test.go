@@ -32,7 +32,8 @@ func newV2Fixture(t *testing.T, runner Runner, origins ...string) v2Fixture {
 	}
 	store := openStore(t, filepath.Join(paths.Home, "sessions.db"))
 	rootID := createRoot(t, store)
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

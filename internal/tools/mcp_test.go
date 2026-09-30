@@ -71,6 +71,8 @@ func newMCPServices(t *testing.T) (*Services, *countingLedger, *testMCPProvider,
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
 	rootID, err := store.Create(session.SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
@@ -85,8 +87,9 @@ func newMCPServices(t *testing.T) (*Services, *countingLedger, *testMCPProvider,
 		Generation:  "connection-1", Source: "imported Claude config",
 	}}
 	services := NewServices()
+	t.Cleanup(services.Close)
 	services.SetMCPProvider(func() MCPProvider { return provider })
-	if err := services.BindDispatcher(ledger, store.Workspaces(), store.Processes(), authority); err != nil {
+	if err := services.BindDispatcher(ledger, store.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	return services, ledger, provider, authority
@@ -311,10 +314,11 @@ func TestMCPChildWithoutCapabilityCannotCallTrustedTool(t *testing.T) {
 	childAuthority := capability.Authority{
 		RootID: authority.RootID, AgentID: "reader",
 	}
-	clone, err := services.CloneForAuthority(ledger, ledger.Workspaces(), ledger.Processes(), childAuthority)
+	clone, err := services.CloneForAuthority(ledger, ledger.Workspaces(), services.ProcessOptions().Processes, childAuthority)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(clone.Close)
 	if _, err := clone.InvokeMCP(t.Context(), "my-server", "write.raw", nil); !errors.Is(err, capability.ErrDenied) {
 		t.Fatalf("child lacking MCP authority error=%v", err)
 	}
@@ -342,10 +346,11 @@ func TestMCPOnlyRestoredAuthorityBindsWithoutLocalGrants(t *testing.T) {
 	if restored.Files.ID != "" || restored.Shell.ID != "" || restored.MCP.ID == "" {
 		t.Fatalf("restored capability set=%+v", restored)
 	}
-	clone, err := services.CloneForAuthority(ledger, ledger.Workspaces(), ledger.Processes(), restored)
+	clone, err := services.CloneForAuthority(ledger, ledger.Workspaces(), services.ProcessOptions().Processes, restored)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(clone.Close)
 	if _, err := clone.InvokeMCP(t.Context(), "my-server", "write.raw", nil); err != nil {
 		t.Fatalf("restored MCP-only child call error=%v", err)
 	}
@@ -474,7 +479,7 @@ func (l *pausedMCPLedger) Begin(ctx context.Context, admission capability.Admiss
 func TestMCPGenerationRetirementDuringAdmission(t *testing.T) {
 	for _, stage := range []string{"before begin", "permission persisted", "operation running"} {
 		t.Run(stage, func(t *testing.T) {
-			_, ledger, provider, authority := newMCPServices(t)
+			boundServices, ledger, provider, authority := newMCPServices(t)
 			provider.descriptor.Trusted = stage == "operation running"
 			lifetime, retire := context.WithCancel(t.Context())
 			defer retire()
@@ -484,9 +489,10 @@ func TestMCPGenerationRetirementDuringAdmission(t *testing.T) {
 				entered: make(chan context.Context, 1), resume: make(chan struct{}),
 			}
 			services := NewServices()
+			t.Cleanup(services.Close)
 			services.SetExternalPermissions(true)
 			services.SetMCPProvider(func() MCPProvider { return provider })
-			if err := services.BindDispatcher(paused, ledger.Workspaces(), ledger.Processes(), authority); err != nil {
+			if err := services.BindDispatcher(paused, ledger.Workspaces(), boundServices.ProcessOptions().Processes, authority); err != nil {
 				t.Fatal(err)
 			}
 			result := make(chan error, 1)
@@ -559,9 +565,10 @@ func TestMCPCopiedPermissionPolicyKeepsReplacementProvider(t *testing.T) {
 			replacementProvider.descriptor.Generation = "replacement"
 			replacementProvider.descriptor.Trusted = mode == "explicit denial"
 			replacement := NewServices()
+			t.Cleanup(replacement.Close)
 			replacement.SetMCPProvider(func() MCPProvider { return replacementProvider })
 			replacement.CopyPermissionPolicyFrom(previous)
-			if err := replacement.BindDispatcher(ledger, ledger.Workspaces(), ledger.Processes(), authority); err != nil {
+			if err := replacement.BindDispatcher(ledger, ledger.Workspaces(), previous.ProcessOptions().Processes, authority); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)

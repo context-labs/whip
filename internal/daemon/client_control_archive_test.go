@@ -27,7 +27,8 @@ func TestClientArchiveIsDurableIdempotentAndDoesNotStopWork(t *testing.T) {
 			return "", ctx.Err()
 		}
 	}}
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -108,7 +109,8 @@ func TestControlSessionMetadataCommandWhenRootCannotOpen(t *testing.T) {
 	if err := store.SetWorkingDirectory(rootID, missing); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		// Production runner construction stats the workspace; mirror that here.
 		if _, err := os.Stat(meta.CWD); err != nil {
 			return Components{}, err

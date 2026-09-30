@@ -12,6 +12,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
@@ -27,6 +28,8 @@ func TestServeInProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +43,7 @@ func TestServeInProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	services := tools.NewServices()
-	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+	if err := services.BindDispatcher(store, store.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(services.Close)

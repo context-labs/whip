@@ -87,7 +87,8 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 			if _, err := store.AddSchedule(rootID, "@every 10m", "existing", time.Now().UTC().Add(time.Hour)); err != nil {
 				t.Fatal(err)
 			}
-			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 				components := Components{Runner: &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: home}, MCP: &controlSurfaceMCP{}}
 				if operation.Name == "mcp.refresh" {
 					components.MCP = nil

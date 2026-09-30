@@ -46,6 +46,8 @@ func TestBoundToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
 	rootID, err := st.Create(session.SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
@@ -57,12 +59,13 @@ func TestBoundToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 
 	ledger := &countingLedger{Store: st}
 	services := NewServices()
+	t.Cleanup(services.Close)
 	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateAllowOnce, "" })
-	if err := services.BindDispatcher(ledger, st.Workspaces(), st.Processes(), authority); err != nil {
+	if err := services.BindDispatcher(ledger, st.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	dispatcher := services.dispatcher
-	if err := services.BindDispatcher(ledger, st.Workspaces(), st.Processes(), authority); err != nil {
+	if err := services.BindDispatcher(ledger, st.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	if services.dispatcher != dispatcher {
@@ -153,6 +156,8 @@ func TestBoundHostCallsHaveDistinctOperationIDs(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = store.Close() })
+			processes := capability.NewProcessManager()
+			t.Cleanup(func() { _ = processes.Close() })
 			rootID, err := store.Create(session.SessionKindAgent, workspace, "model", "provider")
 			if err != nil {
 				t.Fatal(err)
@@ -163,7 +168,8 @@ func TestBoundHostCallsHaveDistinctOperationIDs(t *testing.T) {
 			}
 			ledger := &countingLedger{Store: store}
 			services := NewServices()
-			if err := services.BindDispatcher(ledger, store.Workspaces(), store.Processes(), authority); err != nil {
+			t.Cleanup(services.Close)
+			if err := services.BindDispatcher(ledger, store.Workspaces(), processes, authority); err != nil {
 				t.Fatal(err)
 			}
 			ctx, err := WithTurnIdentity(t.Context(), "host-call-test")
@@ -222,6 +228,8 @@ func TestAuthorityCloneKeepsHostIntegrationsAndPermissionMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
 	rootID, err := store.Create(session.SessionKindAgent, root, "model", "provider")
 	if err != nil {
 		t.Fatal(err)
@@ -234,6 +242,7 @@ func TestAuthorityCloneKeepsHostIntegrationsAndPermissionMode(t *testing.T) {
 	manager := browser.NewManager(browser.ModeHeadless)
 	policy := computer.NewPolicy([]string{"Finder"}, nil, true)
 	parent := NewServices()
+	t.Cleanup(parent.Close)
 	parent.SetBrowser(manager, true)
 	parent.SetComputerPolicy(policy)
 	parent.SetComputerApprover(func(string) bool { return true })
@@ -241,10 +250,11 @@ func TestAuthorityCloneKeepsHostIntegrationsAndPermissionMode(t *testing.T) {
 	parent.SetExternalPermissions(true)
 	parent.noteGeneration("Finder", 7)
 
-	clone, err := parent.CloneForAuthority(store, store.Workspaces(), store.Processes(), authority)
+	clone, err := parent.CloneForAuthority(store, store.Workspaces(), processes, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(clone.Close)
 	cloneBrowser, allowPrivate, screenshot := clone.browserConfig()
 	clonePolicy, approver := clone.computerApproval()
 	if cloneBrowser != manager || !allowPrivate || clonePolicy != policy || approver == nil {

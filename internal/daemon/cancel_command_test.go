@@ -15,7 +15,8 @@ func TestExactCommandCancellationBeforeAndAfterTurnStart(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "runtime.db"))
 	rootID := createRoot(t, store)
 	started := make(chan struct{}, 3)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{turn: func(ctx context.Context, _ string, _ bool) (string, error) {
 			started <- struct{}{}
 			<-ctx.Done()

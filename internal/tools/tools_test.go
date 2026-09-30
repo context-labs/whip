@@ -345,10 +345,11 @@ func TestWorkspaceProcessHonorsPermissionAndEnvironment(t *testing.T) {
 		t.Fatalf("workspace process bypassed its authority: %+v", admission)
 	}
 	services.SetScreenshotSink(func([][]byte) { t.Error("parent screenshot sink reached a clone") })
-	clone, err := services.CloneForAuthority(ledger, ledger.Workspaces(), ledger.Processes(), authority)
+	clone, err := services.CloneForAuthority(ledger, ledger.Workspaces(), services.ProcessOptions().Processes, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(clone.Close)
 	if !services.ScreenshotsEnabled() || clone.ScreenshotsEnabled() {
 		t.Fatal("authority clone inherited an agent-specific screenshot destination")
 	}

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -190,10 +191,12 @@ func startTestServer(path string, paths RuntimePaths, buildID string, generation
 	if err != nil {
 		return runningServer{}, err
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := capability.NewProcessManager()
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
+		_ = processes.Close()
 		_ = store.Close()
 		return runningServer{}, err
 	}

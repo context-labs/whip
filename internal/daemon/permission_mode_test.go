@@ -27,7 +27,8 @@ import (
 func TestPermissionModeSnapshotAndUpdateEvent(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: NewToolRunner(tools.NewServices())}, nil
 	})
 	if err != nil {
@@ -82,7 +83,8 @@ func TestPermissionModeSnapshotAndUpdateEvent(t *testing.T) {
 
 func permissionModeOwner(t *testing.T, store *session.Store, factoryMode bool) *Daemon {
 	t.Helper()
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		runner := NewToolRunner(tools.NewServices()).(*toolRunner)
 		runner.SetExternalPermissions(factoryMode)
 		return Components{Runner: runner}, nil
@@ -266,10 +268,11 @@ func TestPermissionModeRestoresChildrenBeforeResumedWork(t *testing.T) {
 			external := mode == session.PermissionModePrompt
 			var runtime *RecursiveRuntime
 			var runs, firstModes *sync.Map
+			processes := newTestProcesses(t)
 			open := func() (*Daemon, *Session) {
 				t.Helper()
 				runs, firstModes = &sync.Map{}, &sync.Map{}
-				owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+				owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 					value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 					value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 					value.Services.SetExternalPermissions(!external)
@@ -328,6 +331,7 @@ func TestPermissionModeRestoresChildrenBeforeResumedWork(t *testing.T) {
 				t.Fatal(err)
 			}
 			store = openStore(t, path)
+			processes = newTestProcesses(t)
 			// Queued durable input causes the retained child to wake inside Bind.
 			if _, err := store.SendMailboxMessage(t.Context(), rootID, rootID, childID, session.MailboxSend{Subject: "resume", Body: "work again"}); err != nil {
 				t.Fatal(err)

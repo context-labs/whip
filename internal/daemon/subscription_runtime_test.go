@@ -97,7 +97,8 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	var runtime *RecursiveRuntime
-	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(client, "gpt-5.5", llm.SubscriptionOutputLimit("gpt-5.5"), "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = "gpt-5.5", openaiauth.Provider, meta.CWD
 		value.ContextLimit = 400000

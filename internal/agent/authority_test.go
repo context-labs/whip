@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
@@ -21,6 +22,9 @@ func bindTestServices(t *testing.T, services *tools.Services, root string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
+	t.Cleanup(services.Close)
 	rootID, err := store.Create(session.SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +34,7 @@ func bindTestServices(t *testing.T, services *tools.Services, root string) {
 		t.Fatal(err)
 	}
 	services.SetProcessMarkers(rootID, "m")
-	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+	if err := services.BindDispatcher(store, store.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 }

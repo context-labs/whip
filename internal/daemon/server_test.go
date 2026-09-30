@@ -38,7 +38,8 @@ func TestServerServesWithUnresumableSessionAndRecoversAfterRepair(t *testing.T) 
 	if _, err := store.AddSchedule(rootID, "@every 1h", "wake", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	value, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		current, err := config.Load()
 		if err != nil {
 			return Components{}, err
@@ -114,7 +115,8 @@ func TestProviderValidationIsEphemeralAndNeverCreatesACommand(t *testing.T) {
 
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -150,7 +152,8 @@ func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &fakeRunner{}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -237,7 +240,8 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 		t.Fatal("nil daemon server was created")
 	}
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -285,7 +289,8 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 
 func TestProtocolRejectsMalformedInitialization(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -338,7 +343,8 @@ func (*failingListener) Addr() net.Addr              { return &net.TCPAddr{} }
 func TestServerServeReportsListenerFailureAndHonorsPreClose(t *testing.T) {
 	newValue := func(path string) *Daemon {
 		store := openStore(t, path)
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: &fakeRunner{}}, nil
 		})
 		if err != nil {
@@ -372,7 +378,8 @@ func TestServerServeReportsListenerFailureAndHonorsPreClose(t *testing.T) {
 
 func TestProtocolHandlersRejectMalformedParameters(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -400,7 +407,8 @@ func TestProtocolHandlersRejectMalformedParameters(t *testing.T) {
 
 func TestServerReportsClosedStoreAndEncodingFailures(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -408,6 +416,9 @@ func TestServerReportsClosedStoreAndEncodingFailures(t *testing.T) {
 	}
 	server, err := NewServer(value, ServerOptions{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := processes.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -430,7 +441,8 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	rootID := createRoot(t, store)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{turn: func(context.Context, string, bool) (string, error) {
 			close(started)
 			<-release
@@ -523,7 +535,8 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 
 func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -579,7 +592,8 @@ func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 
 func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -622,7 +636,8 @@ func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
 
 func TestOutboundQueueOverflowClosesConnection(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -657,7 +672,8 @@ func TestSnapshotBoundsLargeHistoryAndPagesContentReferences(t *testing.T) {
 	if err := store.Save(rootID, 0, []llm.Message{{Role: "system", Content: "system"}, {Role: "user", Content: large}}, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -705,7 +721,8 @@ func TestSnapshotBoundsLargeHistoryAndPagesContentReferences(t *testing.T) {
 func TestServerCommandValidation(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {

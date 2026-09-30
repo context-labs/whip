@@ -33,8 +33,6 @@ type storedCapabilityScopes struct {
 
 func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
 
-func (s *Store) Processes() *capability.ProcessManager { return s.processes }
-
 // EnsureAuthority installs the root agent and its initial grants once.
 // EnsureAuthority bootstraps or reloads a root with full grants: every file,
 // shell, and MCP operation.

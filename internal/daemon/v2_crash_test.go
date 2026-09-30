@@ -153,7 +153,8 @@ func serveCrashFixture(t *testing.T, home string, store *session.Store, rootID s
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

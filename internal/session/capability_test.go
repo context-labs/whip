@@ -549,9 +549,6 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 
 	t.Run("accessors and bootstrap", func(t *testing.T) {
 		st, rootID, agentID := actorFailureFixture(t)
-		if st.Processes() == nil {
-			t.Fatal("process manager is nil")
-		}
 		if _, err := st.WorkspaceRoot(ctx, "missing"); err == nil {
 			t.Fatal("missing workspace root was accepted")
 		}

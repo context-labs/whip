@@ -22,7 +22,8 @@ func TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution(t *test
 		<-ctx.Done()
 		return "", ctx.Err()
 	}}
-	oldDaemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	oldDaemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: oldRunner}, nil
 	})
 	if err != nil {
@@ -55,8 +56,14 @@ func TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	processes = newTestProcesses(t)
+	unregister, err := processes.RegisterStop("reopened-owner", func() error { return nil })
+	if err != nil {
+		t.Fatalf("reopened owner has no live process manager: %v", err)
+	}
+	unregister()
 	newRunner := &fakeRunner{}
-	newDaemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	newDaemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: newRunner}, nil
 	})
 	if err != nil {
