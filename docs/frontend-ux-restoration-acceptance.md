@@ -9,21 +9,23 @@
 
 ## Provider follow-ups — user-approved corrections
 
-Commits `32157959b` and `fb8e7e716` implement environment-provider import at host
+Commits `32157959b`, `fb8e7e716` and `aed5ae24d` implement environment-provider import at host
 startup, explicit provider selection with known model/effort presets, composer
 selection for unknown presets, removal of the onboarding model-confirmation and
-draft-bypass paths, and preservation of supported Settings reasoning effort.
+draft-bypass paths, preservation of supported Settings reasoning effort, and
+hidden Disconnect actions for externally managed credentials.
 
 | Checkpoint | Evidence and limit |
 | --- | --- |
 | Provider selection | 168 focused tests; app types/build; 12 provider/settings groups per Chromium and Firefox. `/private/tmp/whip-provider-onboarding-browser/report.json`, renderer `8c64f09ddbce2cd987fed41ded4653bc0e2dbcd30d993406bc03271673e4a98e` |
 | Draft-bypass removal | 58 affected tests; app types/build; 14 native slash/composer groups in Chromium. `/private/tmp/whip-remove-draft-bypass-browser/report.json`, renderer `228ea6fd74d294c624affd01a6e6dfa955216e7027f0e415359ce37be0dd71a7` |
 | Settings effort | 25 provider-default/model-selection tests; app types; renderer build/pack `02487f5bf1ac3432d708dc2d510196f50816b28abddd4c107430ef4b2c334994`. Supported High/Off fail before the change and pass afterward; unsupported effort resets without an early write |
+| External Disconnect visibility | 80 affected app tests, 223 SDK tests, app/desktop/mobile types, build/pack, 18 protocol interop tests/generated drift and `task check:fast` pass. Chromium/Firefox each pass 12 provider/settings groups at renderer `ee89b869ad9cfbafa09800b49a8fdbd589384702914aa5d6cca14a69668f94e6`; `/private/tmp/whip-disconnect-browser/report.json` |
 | Commit gate | `task check:fast` passed. Protocol types, 18 interop tests and generated drift passed. Subsequent Settings-only edits do not change that backend/contract |
 
 Counts overlap and must not be added. Each browser result applies to its recorded
 renderer. No packaged-desktop acceptance was rerun for these follow-ups; remaining
-desktop/web parity and hosted acceptance stay open. See increments 12–13 in the
+desktop/web parity and hosted acceptance stay open. See increments 12–14 in the
 [progress record](frontend-ux-restoration-progress.md) for commands and limits.
 
 ## Earlier restoration checkpoint — retained evidence

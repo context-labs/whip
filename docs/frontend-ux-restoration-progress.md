@@ -372,3 +372,28 @@ passed before committing the unchanged backend, including the runtime suite.
 `npm run check -w @whip/protocol` passed all 18 interop tests, types and generated
 drift. The focused Settings change does not rerun or extend the earlier browser
 and packaged-desktop acceptance claims.
+
+## Increment 14 — hide unavailable Disconnect actions
+
+Implementation commit: `aed5ae24d`. The user chose to hide Disconnect for
+externally managed credentials. Provider inventory now reports
+`credential.can_disconnect` using the host authority's existing owned-key check
+and managed account source. Environment, external-file, command and
+unauthenticated routes hide Disconnect and retain Disable. Owned/shared Whip
+keys and managed accounts keep their current disconnect/cleanup flows. The host
+still checks revision, shared references and cleanup safety when acting; the
+renderer does not infer file ownership from paths.
+
+Validation: 80 focused provider/onboarding/settings tests, 223 SDK tests and SDK
+test types, app/desktop/mobile types, all 18 protocol interop tests and generated
+drift, `task check:fast`, and production renderer build/pack passed. Chromium and
+Firefox each passed all 12 native provider/settings groups, including absence
+of external Disconnect requests, untouched external key/command sources, owned
+key deletion, shared-key preservation and account cleanup. Exact renderer:
+`ee89b869ad9cfbafa09800b49a8fdbd589384702914aa5d6cca14a69668f94e6`;
+report: `/private/tmp/whip-disconnect-browser/report.json`.
+
+The SDK check exposed one retained fixture using the removed environment-candidate
+shape; it now uses the account-only candidate contract. An initial sandboxed SDK
+run could not open Unix socket fixtures; the authorized rerun passed all 223 tests.
+No new packaged-desktop or physical-device acceptance is claimed.

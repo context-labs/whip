@@ -182,9 +182,9 @@ Preserve native invariants: verified identities; exact request/recovery identity
 
 ### UX-19 — Inapplicable external credential Disconnect
 
-**Source.** Old UI suppressed action/explained external ownership. Native can offer Disconnect then error; advanced route fields expanded.
-- **Decision/constraint:** Protect ownership/secrets. Choose hidden/disabled action plus explanation and deliberate advanced disclosure.
-- **Compare/pass:** Environment/imported/local credentials. Accurate available actions before acting; no secret exposure.
+**Source; approved correction implemented.** The user chose to hide Disconnect for externally managed credentials. The host reports whether it owns a key or manages an account; the renderer no longer offers the inapplicable action.
+- **Decision/constraint:** Environment, external-file, command and unauthenticated routes keep Disable on this host. Owned/shared Whip keys and managed accounts retain Disconnect. Backend cleanup checks and recovery messages remain authoritative. Advanced configuration is unchanged by this decision.
+- **Compare/pass:** Hidden action and no disconnect requests for external sources; key file and command remain untouched. Managed-key deletion, shared-key preservation and account cleanup continue through the existing native paths.
 - **Sources:** provider-connections.tsx: [reference](/private/tmp/whip-ux-reference/packages/app/src/settings/provider-connections.tsx), [native](/private/tmp/whip-native-final-acceptance/packages/app/src/settings/provider-connections.tsx)
 
 ### UX-20 — Import and MCP application
@@ -391,7 +391,7 @@ The earlier review found PR #298 draft/unmerged with no reported checks; remote 
 
 ## Next steps
 
-1. **Finish adjacent provider settings decisions:** UX-01–03, the onboarding portion of UX-04 and UX-17 are implemented. UX-19 and configured-host suggestions remain to review. The user accepts the current credential status wording for now.
+1. **Finish adjacent provider settings decisions:** UX-01–03, the onboarding portion of UX-04, UX-17 and external Disconnect visibility in UX-19 are implemented. Configured-host suggestions remain to review. The user accepts the current credential status wording for now.
 2. **Verify ordinary continuity:** UX-05–08, 10, 14–16, 28, 33. Reproduce conditional paths, then implement only agreed behavior.
 3. **Make scope/authority decisions individually:** UX-18, 20–24, 37–40, 43. Prioritize remembered approval, compaction scope, goals, history/file expectations and terminal close.
 4. **Complete navigation/inspection/platform comparisons:** remaining entries and P01–P12. Track approved differences, baseline defects and unresolved hypotheses separately.

@@ -6210,3 +6210,20 @@ renderer identities and remaining acceptance limits are recorded in the
 frontend acceptance index and progress increments 12–13. These increments do not
 establish full UX parity or new packaged-desktop acceptance. The current user
 request authorizes committing the work using the existing draft-PR process.
+
+## 2026-09-29 — source-aware Disconnect visibility
+
+The user selected hidden, rather than disabled, Disconnect controls for external
+credentials (UX-19). Increment `aed5ae24d` exposes the authority's existing
+ownership decision as read-only `credential.can_disconnect` and gates the
+desktop/web connection menu. Environment/external-file/command sources retain
+Disable without making an inapplicable Disconnect request; owned/shared keys
+and managed accounts retain native cleanup and recovery. Backend authorization
+and deletion safeguards are unchanged.
+
+The required fast gate, protocol drift/18 interop checks, 80 affected frontend
+tests, 223 SDK tests, app/desktop/mobile type checks and renderer build pass.
+Both browsers pass 12 provider/settings groups at the exact renderer and report
+recorded in progress increment 14. A stale SDK environment-candidate fixture was
+updated to the account-only contract; a socket-permission retry is recorded.
+This is focused UX evidence, not a new complete desktop/package parity claim.
