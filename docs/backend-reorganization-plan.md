@@ -638,15 +638,34 @@ Primary implementation references at the recorded revision:
 
 Research included local source/dependency inspection, language-server reference
 mapping, the previous redesign plan and selected GitHub PRs, and current
-development CI logs. Full baseline acceptance remains a prerequisite; this
-document does not claim it has passed.
+development CI logs. At research time, full baseline acceptance remained a
+prerequisite. The execution ledger below records subsequent repairs and results.
 
 ## Execution ledger
 
+All PRs remain unmerged. Rebased dependency heads are recorded below; successful
+checks on an earlier head are not a claim that a current-head rerun has finished.
+
 | Step | Revision and PR | Evidence and status |
 | --- | --- | --- |
-| Dependency-audit prerequisite | [`db3a1cea247eee7cbaa0424fe3ee89eb0d36bf9d`](https://github.com/context-labs/whip/commit/db3a1cea247eee7cbaa0424fe3ee89eb0d36bf9d), [PR #299](https://github.com/context-labs/whip/pull/299) | Only `package-lock.json` changed: 11 `brace-expansion` patch-version entries. Local `npm ci`, production audit at the unchanged high threshold, protocol generation/freshness, all 470 SDK unit tests, client-example build, and packaged SDK smoke passed. Audit reports zero high/critical findings and 15 moderate findings. [Full CI run 36678816413](https://github.com/context-labs/whip/actions/runs/36678816413) is in progress; this is not yet a green execution baseline. |
-| Stacked-base CI prerequisite | This PR, based on PR #299. | Extend only the `ci.yml` and `security.yml` pull-request base filters to `codex/backend-reorg-*`. Preserve all existing jobs, the aggregate gate, 90% coverage floor, audit threshold, security scans, and push/schedule/release/publish triggers. Validate the workflow and confirm GitHub starts the full workflow for this non-development-base PR. |
+| Dependency-audit prerequisite | `db3a1cea247eee7cbaa0424fe3ee89eb0d36bf9d`, [PR #299](https://github.com/context-labs/whip/pull/299) | Only 11 `brace-expansion` lockfile entries changed. Local install, unchanged production-audit threshold, protocol freshness, 470 SDK unit tests, example build, and package smoke passed. [Full CI](https://github.com/context-labs/whip/actions/runs/36678816413) and security passed. This is the green maintenance base; the original development SDK remains the fixed oracle. |
+| Stacked-base CI prerequisite | `dba610243623b1a7f6f13f910ddec4d6df9bb711`, [PR #300](https://github.com/context-labs/whip/pull/300) | Only CI/security PR-base filters and their distribution-test expectation changed, plus this plan. All 36 distribution-policy tests and workflow validation passed. GitHub verified both workflows start against stacked bases. [Current CI](https://github.com/context-labs/whip/actions/runs/36681079742) is running; current security passed. |
+| Isolated provider test environment | `a57b5261b6225b64451b0d5b06374f721cb83153`, [PR #301](https://github.com/context-labs/whip/pull/301) | Separate test-only repair prevents inherited provider credentials from changing fixtures. [Current CI](https://github.com/context-labs/whip/actions/runs/36681286958) is running; current security passed. |
+| Frozen-contract gate | `a7be9a28a0f37598985733e2fe50e06af1aa06f4`, [PR #302](https://github.com/context-labs/whip/pull/302) | Local fixed-reference and immediate-base comparisons passed, including mutation rejection and both-engine data rollback. Hosted compatibility passed on Linux/macOS before the final workflow-policy assertion update. [Current full CI](https://github.com/context-labs/whip/actions/runs/36681287828) is running; current security passed. |
+| Dialog assertion readiness | `1882979ad414c256cada7b2fb71e11a02f46bd4e`, [PR #303](https://github.com/context-labs/whip/pull/303) | Separate test-only repair waits for sheet focus before scroll assertions. The combined 36-test workflow-policy suite passed. [Current CI](https://github.com/context-labs/whip/actions/runs/36681287194) is running; current security passed. |
+| Host MCP ownership (plan PR 2) | This change, based on PR #303. | Three operation bodies move unchanged from `ProviderService` to a private `hostMCPService`, owned by `Server`. The real HTTP cancellation characterization passed against the original implementation before extraction. Focused MCP/icon race tests, full-module build/vet/whipvet, and the full daemon race/shuffle suite passed. Fresh fixed-SDK comparisons passed against the original reference and immediate base `1882979ad414c256cada7b2fb71e11a02f46bd4e`, including both transports, mutation rejection, lifecycle and both-engine data rollback. |
 
-The prerequisite PRs remain unmerged. Full hosted acceptance and the fixed-client
-guardrails must be established before production-code restructuring.
+### Host MCP ownership and lifetime
+
+| Concern | Preserved behavior after extraction |
+| --- | --- |
+| Construction and owner | `NewServer` creates one `hostMCPService` after selecting its provider; `Server` owns the component. The production composition has one server per daemon/provider. |
+| Borrowers | The three existing host MCP RPC cases call the component directly with the same protocol values. No forwarding methods remain on `ProviderService`. |
+| Cancellation | The component borrows the exact selected provider context. Supplied providers retain their independent lifetime; server or connection cancellation does not replace it. `ProviderService.Close` still cancels icon requests at the existing shutdown point. |
+| Lazy resources and sharing | The first enabled icon lookup creates one resolver through the existing `sync.Once`. Cache location, timeout, in-flight sharing and disk cache behavior remain unchanged. Imports do not construct or launch MCP servers. |
+| Close and failure cleanup | The component has no independent close action or goroutine. Server shutdown order is unchanged, including provider close before worker join. Construction allocates no resolver, so there is no new partial-construction cleanup. |
+| Persistent and session state | Host imports retain the existing single versioned config update, validation and idempotence. Session MCP lifecycle, provider configuration updates, protocol and schema remain unchanged. |
+
+This step removes host import and icon implementation ownership from provider
+onboarding. Provider context borrowing is intentional until a later separately
+reviewed composition change can preserve the same cancellation boundary.

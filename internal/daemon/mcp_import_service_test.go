@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"image"
 	"image/png"
 	"net/http"
@@ -11,19 +13,22 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/brandicon"
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // mcpImportFixture isolates WHIPCODE_HOME with a healthy config that already
 // owns "ahrefs", points discovery at a Codex file with three servers and an
-// empty OpenCode slot, and returns the service plus a project directory. The
+// empty OpenCode slot, and returns both host services plus a project directory. The
 // state rules themselves are pinned in internal/mcp; these tests cover what
 // the service adds on top.
-func mcpImportFixture(t *testing.T) (*ProviderService, string) {
+func mcpImportFixture(t *testing.T) (*hostMCPService, *ProviderService, string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
@@ -52,11 +57,11 @@ func mcpImportFixture(t *testing.T) (*ProviderService, string) {
 	t.Cleanup(func() { mcp.CodexPath, mcp.ClaudeGlobalPath, mcp.OpenCodePaths = origC, origG, origOC })
 	service := NewProviderService(t.Context(), "mcp-import")
 	t.Cleanup(service.Close)
-	return service, project
+	return &hostMCPService{ctx: service.ctx}, service, project
 }
 
 func TestMCPImportCandidatesReportOfferPathAndUnreadableSources(t *testing.T) {
-	service, project := mcpImportFixture(t)
+	service, _, project := mcpImportFixture(t)
 	result, err := service.MCPImportCandidates(protocol.MCPImportCandidatesParams{CWD: project})
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +96,7 @@ func TestMCPImportCandidatesReportOfferPathAndUnreadableSources(t *testing.T) {
 }
 
 func TestMCPImportApplyWritesNativeEntriesAndRecordsTheOffer(t *testing.T) {
-	service, project := mcpImportFixture(t)
+	service, providers, project := mcpImportFixture(t)
 	result, err := service.MCPImportApply(protocol.MCPImportApplyParams{CWD: project, Names: []string{"paper", "ahrefs"}})
 	if err != nil {
 		t.Fatal(err)
@@ -121,13 +126,13 @@ func TestMCPImportApplyWritesNativeEntriesAndRecordsTheOffer(t *testing.T) {
 			t.Errorf("paper should be native after import, got %s", c.State)
 		}
 	}
-	if snapshot, err := service.ReadConfiguration(); err != nil || !snapshot.MCPImportOffered {
+	if snapshot, err := providers.ReadConfiguration(); err != nil || !snapshot.MCPImportOffered {
 		t.Errorf("config.get must report the answered offer, got %+v %v", snapshot.MCPImportOffered, err)
 	}
 }
 
 func TestMCPBrandIconsHonourTheHostSwitch(t *testing.T) {
-	service, _ := mcpImportFixture(t)
+	service, providers, _ := mcpImportFixture(t)
 	var hits atomic.Int32
 	var img bytes.Buffer
 	if err := png.Encode(&img, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
@@ -147,19 +152,19 @@ func TestMCPBrandIconsHonourTheHostSwitch(t *testing.T) {
 	if entries, _ := os.ReadDir(filepath.Join(os.Getenv("WHIPCODE_HOME"), "icons")); len(entries) != 1 {
 		t.Errorf("the cache lives under WHIPCODE_HOME/icons, found %d entries", len(entries))
 	}
-	snapshot, err := service.ReadConfiguration()
+	snapshot, err := providers.ReadConfiguration()
 	if err != nil || !snapshot.BrandIcons {
 		t.Fatalf("config.get must report the default as on: %+v %v", snapshot.BrandIcons, err)
 	}
 	// Off: nothing answered, nothing dialed, and config.get says so.
 	off := false
-	if _, err := service.UpdateConfiguration(ConfigurationUpdate{Revision: snapshot.Revision, BrandIcons: &off}); err != nil {
+	if _, err := providers.UpdateConfiguration(ConfigurationUpdate{Revision: snapshot.Revision, BrandIcons: &off}); err != nil {
 		t.Fatal(err)
 	}
 	if got, err = service.MCPBrandIcons(protocol.MCPBrandIconsParams{Keys: []string{"figma.com"}}); err != nil || len(got.Icons) != 0 || hits.Load() != 1 {
 		t.Fatalf("off must answer nothing and dial nothing: %v %v hits %d", got.Icons, err, hits.Load())
 	}
-	if snapshot, err = service.ReadConfiguration(); err != nil || snapshot.BrandIcons {
+	if snapshot, err = providers.ReadConfiguration(); err != nil || snapshot.BrandIcons {
 		t.Fatalf("config.get must report off: %+v %v", snapshot.BrandIcons, err)
 	}
 	if _, err := service.MCPBrandIcons(protocol.MCPBrandIconsParams{Keys: make([]string, 65)}); err == nil {
@@ -168,7 +173,7 @@ func TestMCPBrandIconsHonourTheHostSwitch(t *testing.T) {
 }
 
 func TestMCPImportApplyValidatesBeforeWritingAndSkipsQuietly(t *testing.T) {
-	service, project := mcpImportFixture(t)
+	service, _, project := mcpImportFixture(t)
 	if _, err := service.MCPImportApply(protocol.MCPImportApplyParams{CWD: project, Names: []string{"paper", "ghost"}}); err == nil || !strings.Contains(err.Error(), "ghost") {
 		t.Fatalf("unknown name should fail the call, got %v", err)
 	}
@@ -198,5 +203,77 @@ func TestMCPImportApplyValidatesBeforeWritingAndSkipsQuietly(t *testing.T) {
 	}
 	if after, err := os.Stat(path); err != nil || !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
 		t.Errorf("an unchanged apply must not rewrite config.json (%v)", err)
+	}
+}
+
+func TestMCPBrandIconsFollowSuppliedProviderLifetime(t *testing.T) {
+	_, providers, _ := mcpImportFixture(t)
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	}, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(owner, ServerOptions{})
+	if err != nil {
+		_ = owner.Close()
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	endpoint := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(started)
+		<-request.Context().Done()
+		close(cancelled)
+	}))
+	t.Cleanup(endpoint.Close)
+	t.Cleanup(func() { _ = server.Close() })
+	old := brandicon.Endpoint
+	brandicon.Endpoint = endpoint.URL + "/%s.ico"
+	t.Cleanup(func() { brandicon.Endpoint = old })
+
+	// A supplied provider has its own lifetime: server/connection cancellation
+	// must not end icon resolution before that provider is closed.
+	server.cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		result, rpcErr, handled := server.handleProvider(&serverConn{ctx: server.ctx}, rpcMessage{
+			Method: "mcp.brand.icons", Params: json.RawMessage(`{"keys":["example.com"]}`),
+		})
+		if !handled || rpcErr != nil {
+			t.Errorf("icon response = %v, handled=%t", rpcErr, handled)
+			return
+		}
+		icons, ok := result.(protocol.MCPBrandIconsResult)
+		if !ok || len(icons.Icons) != 0 {
+			t.Errorf("cancelled icon result = %#v", result)
+		}
+	}()
+	t.Cleanup(func() {
+		providers.Close()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("icon RPC outlived cleanup")
+		}
+	})
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server cancellation prevented icon request under the live provider")
+	}
+	providers.Close()
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("provider shutdown did not cancel the icon request")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("icon RPC did not settle after provider shutdown")
 	}
 }

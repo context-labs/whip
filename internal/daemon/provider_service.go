@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/context-labs/whip/internal/brandicon"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferencenet"
 	"github.com/context-labs/whip/internal/llm"
@@ -59,8 +58,6 @@ type ProviderService struct {
 	generation    string
 	mu            sync.Mutex
 	flows         map[string]*providerLoginFlow
-	iconsOnce     sync.Once
-	icons         *brandicon.Resolver // created by the first mcp.brand.icons call
 	wg            sync.WaitGroup
 	login         func(context.Context, func(string, string)) (providerLoginIdentity, error)
 	projects      func(context.Context, string, inferencenet.Team) ([]inferencenet.Project, error)

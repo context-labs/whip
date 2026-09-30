@@ -47,6 +47,7 @@ type ServerOptions struct {
 
 type Server struct {
 	providers     *ProviderService
+	hostMCP       *hostMCPService
 	daemon        *Daemon
 	options       ServerOptions
 	ctx           context.Context
@@ -130,6 +131,7 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 	server := &Server{
 		daemon: value, options: options, ctx: ctx, cancel: cancel, runtimeID: runtimeID, providers: providers,
 		clients: make(map[*serverConn]struct{}), slots: make(chan struct{}, options.MaxConnections),
+		hostMCP:       &hostMCPService{ctx: providers.ctx},
 		uploads:       newUploadManager(value.store, options.RuntimeDir),
 		gatewayStatus: protocol.GatewayStatus{State: "disabled"},
 	}
