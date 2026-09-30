@@ -1,9 +1,24 @@
 # Backend reorganization with a frozen client contract
 
-Status: structural work complete; documentation prepared for human review.
-All active PRs remain unmerged. Final local integrated acceptance passed on the
-implementation tip below. Hosted closeout checks are pending as of this record;
-completed hosted results belong in the closeout PR and final handoff.
+Status: structural work and documentation complete; awaiting holistic human
+review in one combined PR against `development`, on
+`codex/backend-reorg-combined`. Nothing is authorized to merge yet.
+
+Review instruction, September 30: after an initial Desktop review, the user
+requested consolidation of the completed stack into a single PR. This supersedes
+the delivery and checkpoint-merge cadence below. Preserve all 30 original
+commits, including the separately proposed dependency and test-fixture repairs;
+close the superseded review PRs while retaining their branches and review
+history. The implementation, frozen baseline, and compatibility constraints do
+not change. This consolidation adds only this documentation update to the
+tested stack tip `529026159836fee4f74bd3cd117c937f64dee147`.
+
+The original stack's final [CI](https://github.com/context-labs/whip/actions/runs/36699507090)
+and [Security](https://github.com/context-labs/whip/actions/runs/36699506671)
+passed. The combined PR requires fresh checks against `development`; its live
+results belong in that PR. The sequential PR navigation, checkpoint instructions,
+and evidence ledger below record implementation history, not additional active
+merge targets. Earlier "pending" entries retain the status at recording time.
 
 Implementation review tip: [`882d1377800830c2723161d2b6f0a5e7db68ee6f`](https://github.com/context-labs/whip/commit/882d1377800830c2723161d2b6f0a5e7db68ee6f),
 [PR #318](https://github.com/context-labs/whip/pull/318). This documentation-only
@@ -545,6 +560,11 @@ A structural PR can change who holds a pointer. It cannot change when the
 pointed-to resource becomes available or ceases to be usable.
 
 ## 8. PR, CI, and review policy
+
+**Current review delivery:** the September 30 instruction above replaces the
+stacked merge cadence in this section with one combined PR against
+`development`. The original PRs remain references for focused diffs and evidence.
+All compatibility gates still apply; consolidation does not authorize a merge.
 
 This execution prepares one sequential review stack on
 `codex/backend-reorg-<step>-<topic>` branches. Every successor targets its
