@@ -94,7 +94,7 @@ func TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth(t *testing.T) {
 		streamText(w, "done")
 	}))
 	defer server.Close()
-	_, root, runtime := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4)
+	store, root, runtime := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4)
 	runs := &sync.Map{}
 	runtime.setRunTurnHook(observeRunTurn(runs))
 	receipt, err := root.Submit(t.Context(), "root work")
@@ -124,6 +124,9 @@ func TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth(t *testing.T) {
 	waitAgentIdle(t, child)
 
 	for _, node := range []*AgentSession{runtime.rootNode, child, grandchild} {
+		if options := node.agent.Services.ProcessOptions(); options.Processes != store.Processes() || options.RootID != root.ID() {
+			t.Fatalf("agent %q process scope = %p %q", node.name, options.Processes, options.RootID)
+		}
 		all := node.agent.AllTools()
 		if len(all) != 1 || all[0].Def.Function.Name != "rlm_exec" {
 			t.Fatalf("agent %q tools = %#v", node.name, all)
@@ -522,6 +525,11 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 	restored := second.agents[childID]
 	if restored == nil {
 		t.Fatalf("retained child %q was not restored", childID)
+	}
+	for _, node := range []*AgentSession{second.rootNode, restored} {
+		if options := node.agent.Services.ProcessOptions(); options.Processes != store.Processes() || options.RootID != secondRoot.ID() {
+			t.Fatalf("restored agent %q process scope = %p %q", node.name, options.Processes, options.RootID)
+		}
 	}
 	if all := restored.agent.AllTools(); len(all) != 1 || all[0].Def.Function.Name != "rlm_exec" {
 		t.Fatalf("restored tools = %#v", all)

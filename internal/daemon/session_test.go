@@ -883,6 +883,9 @@ func TestOpenBindsMCPProcesses(t *testing.T) {
 	if manager.processes != store.Processes() || manager.rootID != rootID || manager.cwd != root.WorkingDirectory() {
 		t.Fatalf("MCP process scope=%p %q %q", manager.processes, manager.rootID, manager.cwd)
 	}
+	if options := ag.Services.ProcessOptions(); options.Processes != store.Processes() || options.RootID != rootID {
+		t.Fatalf("agent process scope = %p %q", options.Processes, options.RootID)
+	}
 	if len(ag.AllTools()) != 0 {
 		t.Fatal("MCP process setup changed the model-facing tool surface")
 	}
