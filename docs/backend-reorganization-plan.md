@@ -1,6 +1,16 @@
 # Backend reorganization with a frozen client contract
 
-Status: implementation authorized; preparing an unmerged PR stack for review.
+Status: structural work complete; documentation prepared for human review.
+All active PRs remain unmerged. Final local integrated acceptance passed on the
+implementation tip below. Hosted closeout checks are pending as of this record;
+completed hosted results belong in the closeout PR and final handoff.
+
+Implementation review tip: [`882d1377800830c2723161d2b6f0a5e7db68ee6f`](https://github.com/context-labs/whip/commit/882d1377800830c2723161d2b6f0a5e7db68ee6f),
+[PR #318](https://github.com/context-labs/whip/pull/318). This documentation-only
+closeout is based on that tip; it is not merged development.
+
+Start with [PR navigation and review checkpoints](#8-pr-ci-and-review-policy) or
+the [final evidence and limitations](#documentation-closeout-and-integrated-review-tip).
 
 Execution instruction, September 29: the user authorized end-to-end overnight
 execution with all work ready for morning review. For this execution, prepare
@@ -81,10 +91,12 @@ These apply to every PR, including an apparently mechanical move.
    intervening commits. Review those deltas explicitly before updating the
    baseline; never silently redefine compatibility as whatever now passes.
 7. **Work sequentially in reviewed stacks.** One PR under active implementation
-   or review at a time; human approval before starting the next. Reviewed PRs
-   remain stacked until the checkpoint for their group, then merge in dependency
-   order. No parallel stream of speculative follow-up PRs. Each step must work
-   independently and preserve all existing gates.
+   or review at a time, with agent source review and local evidence before the
+   next structural step. The overnight instruction supersedes the originally
+   agreed human approval between steps. Human review remains pending; every
+   active PR stays unmerged until authorized checkpoint merges. No parallel
+   stream of speculative follow-up PRs. Each step must work independently and
+   preserve all existing gates.
 8. **Allow mechanical Go client moves.** Moving the existing Go client into a
    dedicated package and updating CLI/TUI/ACP imports is in scope. Preserve its
    APIs and behavior apart from internal Go import paths. The TypeScript SDK
@@ -124,19 +136,21 @@ This plan supersedes [backend-redesign-plan.md](backend-redesign-plan.md) **as
 the proposal for this reorganization**. The earlier plan remains historical
 context, not an additional set of requirements. Current implementation guides
 remain authoritative about implemented behavior; a stale reference in a guide
-must be checked against code. For example, some architecture prose still calls
-the protocol v4, while `internal/protocol/types.go` declares 6.9.
+must be checked against code. At research time, architecture prose still called
+the protocol v4 although `internal/protocol/types.go` declared 6.9. Closeout
+corrects that prose without changing the implementation.
 
-### Current ownership and coupling
+### Starting-revision ownership and coupling
 
-The package inventory found 44 Go packages. On the active macOS build,
+This is the research snapshot at `271c0f8d2a35648d1b45056d57432590b783483c`,
+not an inventory of the completed review tip. The package inventory found 44 Go packages. On the active macOS build,
 `internal/daemon` has 82 production Go files and 123 test files;
 `internal/session` has 55 and 67 respectively. These are orientation figures,
 not targets. Go language-server analysis found 376 references to `Store`
 across 91 files and 73 to `ProviderService` across 21 files, including tests.
 Refresh references for the exact revision and build tags before each move.
 
-| Area | Current evidence | Consequence for the plan |
+| Area | Starting-revision evidence | Consequence for the plan |
 | --- | --- | --- |
 | Daemon | `daemon.go`, `session.go`, `server.go`, provider services, clients, host handlers, recursive runtime, and transport-facing code share a package. | Separate coherent outer responsibilities before touching actor scheduling. |
 | Provider setup | `ProviderService` owns login flows, credentials/catalog operations, and configuration, but also MCP import methods and lazy brand-icon state. | Separate the unrelated MCP host responsibility before moving provider implementation. |
@@ -150,7 +164,7 @@ Refresh references for the exact revision and build tags before each move.
 | Tracing | `daemon/spans.go` records causal relationships at runtime; `session/span.go` and OTLP code persist/query/export them. | Keep recording at the same execution points. Moving tracing into a delayed observer would change behavior. |
 | Startup | `cmd/whip/daemon.go` combines locks, configuration, provider discovery, factory construction, kernels, server, gateway, and shutdown. | Small construction helpers and explicit ownership improve readability without a new framework. |
 
-### Baseline is not yet green
+### Historical baseline failure and separate prerequisite repairs
 
 The [CI run for the starting revision](https://github.com/context-labs/whip/actions/runs/36674593257)
 failed. The inspected [SDK job](https://github.com/context-labs/whip/actions/runs/36674593257/job/109756705168)
@@ -159,13 +173,13 @@ stopped at `npm audit --omit=dev --audit-level=high`, reporting a high-severity
 did not run. This is not evidence of an SDK behavior regression, and successful
 Go jobs do not establish a green product baseline.
 
-Resolve baseline failures in separate prerequisite PRs, then run the complete
-required gate. Do not lower the audit threshold, drop tests, waive the aggregate
-gate, or call skipped checks successful. Any additional failures exposed after
-the audit is repaired require the same treatment. This proposal records a
-research result, not a completed local acceptance run.
+That audit failure and later exposed fixture failures were diagnosed and
+repaired in separate prerequisite PRs, recorded in the [execution ledger](#execution-ledger).
+The audit threshold, product assertions and aggregate gate were preserved.
+This paragraph records the original research finding; later evidence must be
+read at its recorded revision and must not count a skipped check as successful.
 
-## 4. Intended boundaries
+## 4. Boundaries implemented in the review stack
 
 Keep one Go module and ordinary `internal` packages. Use constructors and direct
 calls. No DI container, service locator, generic repository layer, event bus,
@@ -176,17 +190,19 @@ new workflow framework, or package per database table. This fits Go's
 | --- | --- | --- |
 | `cmd/whip` startup | Configuration, process locks, construction, handoff of ownership, shutdown wiring. | May compose all backend packages. Keep explicit startup order. Add a separate application package only if a real second caller needs it. |
 | `internal/daemon` | Server entry points, root registry, root actor, command coordination, existing runtime composition. | Calls provider/host services and storage. It remains the integration point; shrinking it does not require emptying it. |
-| Proposed `internal/provider` | Existing provider setup, authentication flows, discovery/catalog selection, host configuration operations used by that service. | Existing config/auth/LLM packages and unchanged protocol types. Must not import `daemon` or own turns. |
-| Host MCP component | Import offers, applying host MCP configuration, and current icon lookup used by that surface. | Initially a small component inside `daemon`; separate package only when dependencies justify it. No session MCP lifecycle ownership. |
-| Host directory component | Current list/create/pick behavior and OS-specific implementation. | Initially grouped separately inside `daemon`. A later package must preserve existing protocol errors directly, without inventing an error translation model. |
+| `internal/provider` | Existing provider setup, authentication flows, discovery/catalog selection, host configuration operations used by that service. | Existing config/auth/LLM packages and unchanged protocol types. Must not import `daemon` or own turns. |
+| Host MCP component | Import offers, applying host MCP configuration, and current icon lookup used by that surface. | Private `hostMCPService` in `daemon`, owned by `Server`, borrowing provider cancellation. No session MCP lifecycle ownership. |
+| Host directory component | Current list/create/pick behavior and OS-specific implementation. | Grouped in `daemon/host_directory.go`; existing protocol errors and callers remain in the same package. |
 | `internal/session` | SQLite/content persistence, existing durable models, atomic transitions and queries. | No actor or provider construction. Keep existing transaction logic and representations. It may borrow the existing workspace resolver for authority checks. |
-| Daemon resource owner | One shared process manager and workspace lock coordinator, passed to tools/MCP/runtime as today. | Ownership is explicit; scope and lifetime stay unchanged. Resource implementations remain in `capability`. |
+| Explicit resource composition | Startup constructs one process manager immediately after store open and transfers it only on successful `daemon.New`; startup constructs workspaces immediately before store open and storage borrows them. | Root/child/tool/MCP pointers, snapshot timing and teardown order are unchanged. Failed daemon construction leaves resources with the caller. Implementations remain in `capability`; workspaces have no close operation. |
 | Existing `agent`, `rlm`, `tools`, `capability`, `mcp`, `llm` | Existing model loop primitives, kernels, tools, authority enforcement, integration machinery, provider encoders. | Keep their established responsibilities. No broad modernization sweep. |
 | `internal/client` | Existing Go `Client`/`RootClient` and client service methods. | Existing protocol and framing; no dependency on the server/agent runtime implementation. Mechanical Go caller import changes are allowed; client APIs and behavior remain unchanged. |
-| Existing `protocol` and `protocoltransport` | Current public representations, schemas, negotiation, and framing. | Preserve contract and representation ownership. Do not force storage to import protocol and create a cycle. |
+| `internal/daemonconn` | Shared paths, local dialing, launch primitives, initialization constants and event envelope. | No daemon ownership locks, restart/admission policy or client implementation. One existing executable-resolution seam remains. |
+| `internal/commandpresentation` | Existing stored command-result text decoder shared by native consumers. | One unchanged decoder; client-only fill logic stays in `client`. Canonical native `CreateSession` lives in `session` with type aliases preserving identity. |
+| Existing `protocol` and `protocoltransport` | Current public representations, schemas, negotiation, and framing. | Preserve contract and representation ownership. Protocol still imports existing session/config/LLM/capability/MCP values; do not force storage to import protocol and create a cycle. |
 
 The desired direction is startup → daemon orchestration → services/storage,
-with clients → protocol/framing. This is a responsibility map, not a claim that
+with clients → protocol/framing/daemonconn. This is a responsibility map, not a claim that
 the existing type graph has already become a strict layered architecture.
 Check actual imports after each step and document remaining justified edges.
 
@@ -282,18 +298,21 @@ than SQLite file bytes. No two binaries may own the same home concurrently.
 
 Each numbered item describes a reviewable change with its own evidence. If it
 needs multiple coherent moves, split it **before implementation**, preserving
-the same review-before-next cadence. Aim for roughly 100–500 substantive changed
+the sequential agent-review/evidence cadence for this overnight execution. Aim for roughly 100–500 substantive changed
 lines per PR. A large pure move needs a clear move-aware diff and explicit
 review scope; it is not permission to include cleanup or behavior changes.
 
 ### Prerequisites: repair and establish the baseline
 
-- Handle the current dependency-audit failure and any subsequently exposed
+The following requirements were carried out in the separate prerequisite PRs
+listed in the ledger; they remain requirements for any newly exposed failure.
+
+- Handle the starting dependency-audit failure and any subsequently exposed
   failures as independent maintenance/bug PRs. Avoid broad automated upgrades.
 - Re-run the full existing CI and acceptance gates. Record a green execution
   base and its relationship to the starting revision.
-- Enable CI for the stacked PR bases before creating dependent PRs. Currently
-  `ci.yml` triggers PRs only against `main` or `development`. Extend PR
+- Enable CI for the stacked PR bases before creating dependent PRs. At the starting revision,
+  `ci.yml` triggered PRs only against `main` or `development`. Extend PR
   triggering to this effort's `codex/backend-reorg-*` base branches using the
   **same full gate**, and verify it runs on a PR targeting a parent branch.
   Do not broaden release/publish triggers or add a reduced substitute workflow.
@@ -450,13 +469,20 @@ acceptance, transport tests, replay/cancellation tests, and package builds pass.
 Do not retain a forwarding layer in `daemon` as a substitute for migrating the
 internal Go callers.
 
-### PR 9 and later — Smaller actor and persistence responsibilities, selectively
+### PR 9 — Selected persistence grouping; actor and tracing splits deferred
 
-Do not begin with a wholesale split of `Session`, `RecursiveRuntime`, or
-`Store`. Choose one concrete responsibility at a time after refreshing the
-reference map and identifying a future change it would make easier.
+The selected follow-up is [PR #318](https://github.com/context-labs/whip/pull/318):
+move only `Store`, `Open`, `Close`, `AcquireDaemon` and `ReleaseDaemon` unchanged
+into `internal/session/store.go`. This groups connection setup and lifetime
+without changing the package, callers, domain models, SQL or transactions.
 
-Candidate individual PRs, in increasing risk:
+The original candidates below record the selection criteria, not remaining
+promised work. Actor and tracing extractions stop here: their behavior crosses
+existing scheduling, locks, causal contexts and commit boundaries, and research
+did not establish a comparably useful low-risk seam. No wholesale split of
+`Session`, `RecursiveRuntime` or `Store` is authorized.
+
+Original candidates, in increasing risk:
 
 - Group persistence operations by existing responsibility within `session`
   without moving durable types or changing SQL/transactions. Do not introduce
@@ -488,7 +514,8 @@ ownership map, including intentional remaining coupling. Follow
 [frontend.md](frontend.md) if a Go client move affects documented client
 boundaries. Keep a concise PR/evidence ledger in this plan; avoid a second
 competing architecture guide. Run full final acceptance and the fixed-client
-and data rollback scenarios on the integrated development revision.
+and data rollback scenarios on the integrated review-tip revision. Development
+is verified separately and remains unchanged until authorized merges.
 
 ## 7. Lifecycle rules for every extraction
 
@@ -519,31 +546,35 @@ pointed-to resource becomes available or ceases to be usable.
 
 ## 8. PR, CI, and review policy
 
-Use `codex/backend-reorg-<step>-<topic>` branches from the accepted development
-base. Preserve each useful change as a separate PR and commit history. Review
-the first PR before starting its successor.
+This execution prepares one sequential review stack on
+`codex/backend-reorg-<step>-<topic>` branches. Every successor targets its
+immediate parent's branch, including across checkpoint groups. Each structural
+step receives agent source review and local compatibility evidence before its
+successor begins; hosted results and separate baseline repairs are recorded in
+the ledger. Human review remains pending, and no active PR has been merged.
 
-The first PR of each group targets development. Each successor targets its
-immediate parent's branch, and work begins only after that parent is approved
-and green. Reviewed parents remain open until the group's checkpoint. There is
-only one PR under active implementation or review; the other open PRs are
-already reviewed dependencies.
+The groups below are suggested human review and eventual merge boundaries, not
+claims of human approval. Review individual diffs against their immediate parent
+and the combined tip against the fixed starting revision. Assess the improvement
+at each checkpoint before deciding whether later groups warrant their risk.
 
-| Merge checkpoint | Group | Evidence required before merging the group |
+| Review and eventual merge checkpoint | Actual PR navigation, in dependency order | Required evidence |
 | --- | --- | --- |
-| Baseline and guardrails | Separate prerequisite repairs/CI setup, then PR 1 (split into sequential PRs if needed). | Full baseline is green; stacked-base CI and frozen-client checks work. Land prerequisite repairs before establishing their dependent baseline. |
-| Provider boundary | PRs 2, 3a, 3b1, and 3b2. | Host MCP and provider responsibilities are separated; configuration atomicity, provider semantics, and unchanged clients are verified. |
-| Resource ownership | PRs 4, 5, and 6. | Startup, process ownership, and workspace ownership are explicit; lifecycle, authority, and data compatibility evidence passes. |
-| Native Go client | PRs 7 and 8. | Client/server dependency is separated; Go clients, unchanged TypeScript SDK, reconnect, and cancellation acceptance passes. |
-| Selected follow-ups | Each separately agreed actor, tracing, persistence, or cleanup change, or a small group defined before work starts. | The specific benefit is demonstrated and the same compatibility gates pass. No open-ended final stack. |
+| Prerequisites and guard | [299](https://github.com/context-labs/whip/pull/299) audit repair → [300](https://github.com/context-labs/whip/pull/300) stacked CI → [301](https://github.com/context-labs/whip/pull/301) credential isolation → [307](https://github.com/context-labs/whip/pull/307) dialog readiness → [302](https://github.com/context-labs/whip/pull/302) frozen guard. | Audit, full existing CI and calibrated fixed-client/data checks; review repairs separately from restructuring. |
+| Provider responsibility | [304](https://github.com/context-labs/whip/pull/304) host MCP → [305](https://github.com/context-labs/whip/pull/305) operation boundary → [306](https://github.com/context-labs/whip/pull/306) test seams → [308](https://github.com/context-labs/whip/pull/308) provider package. | Configuration atomicity, provider semantics, lifecycle and unchanged clients. |
+| Composition and resources | [309](https://github.com/context-labs/whip/pull/309) runtime factory → [310](https://github.com/context-labs/whip/pull/310) host directory → [311](https://github.com/context-labs/whip/pull/311) processes → [312](https://github.com/context-labs/whip/pull/312) workspaces. | Construction/failure/restart/shutdown characterizations, unchanged authority and data compatibility. |
+| Later fixture prerequisites | [313](https://github.com/context-labs/whip/pull/313) gateway write/rejection ordering → [314](https://github.com/context-labs/whip/pull/314) performance receipt instrumentation. | Reproduce inherited failures; preserve original assertions and budgets. |
+| Native clients | [315](https://github.com/context-labs/whip/pull/315) shared plumbing → [316](https://github.com/context-labs/whip/pull/316) tagged TUI title fixture → [317](https://github.com/context-labs/whip/pull/317) client package. | API/body/test conservation, TUI/PTY/ACP acceptance, fixed SDK, reconnect and cancellation. Review the fixture repair independently. |
+| Bounded persistence and closeout | [318](https://github.com/context-labs/whip/pull/318) store lifecycle → this documentation-only closeout. | Same-package declaration conservation, integrated review-tip acceptance, fixed/immediate-base guard and explicit native limitations. |
 
-At each checkpoint, review the combined result and decide whether the next
-group still warrants its risk. Merge approved PRs bottom-up into development,
-retargeting and rebasing descendants as needed. After each merge or rebase,
-run the required checks on the resulting revision; verify the integrated
-development revision before starting the next group. Preserve separate PR
-review records. Do not auto-merge or use one final integration-only PR to
-repair broken intermediate states.
+This is one unmerged chain; groups do not permit skipping prerequisites. After
+human approval, merge approved PRs bottom-up into development, retargeting or
+rebasing descendants as needed. Recheck changed ancestry and run the required
+checks on the resulting revision, including fixed-reference and immediate-base
+comparisons. Preserve individual review records. This execution verifies an
+integrated review tip; verifying merged development is a later step after
+authorized merges. Do not auto-merge or use a final integration-only PR to hide
+broken intermediate states.
 
 Every PR description should contain:
 
@@ -568,12 +599,13 @@ Local full-module build/vet/test checks complement hosted coverage; browser
 and TUI tests require their appropriate browser/TTY environment. Use targeted
 tests during edits and complete the required gate once the PR is ready.
 
-Move existing tests with implementation only when necessary. Update
-architecture tests to follow the new owners while preserving their assertions.
-For example, provider-call checks currently scan the daemon directory and
-name `agent_session.go`; after a relevant move, scanning only the old directory
-could silently stop enforcing the boundary. Update coverage/package selection
-to include new packages, not exclude moved code.
+Move existing tests with implementation only when necessary. Keep architecture
+scans, package selectors and named tests attached to their actual owner. A
+successful selector against only the old package can silently omit a moved
+assertion. The provider-call guard now scans daemon, provider and client while
+retaining the exact `daemon/agent_session.go` exception; runtime and named
+reconnect acceptance selectors include client. Existing coverage remains in
+force for moved code.
 
 Add focused import checks for boundaries actually introduced: provider must
 not import daemon; client must not import the server implementation; storage
@@ -625,7 +657,8 @@ the backend easier to work on enough to justify its review and regression risk.
 
 ## Research source map
 
-Primary implementation references at the recorded revision:
+Historical implementation references at the starting revision
+`271c0f8d2a35648d1b45056d57432590b783483c` (moved paths are intentional):
 
 - Startup/lifecycle: `cmd/whip/daemon.go`, `internal/daemon/daemon.go`,
   `server.go`, `session.go`, `socket_unix.go`.
@@ -651,7 +684,7 @@ prerequisite. The execution ledger below records subsequent repairs and results.
 
 All active review PRs remain unmerged. Rebased dependency heads are recorded below; successful
 checks on an earlier head are not a claim that a current-head rerun has finished.
-The current order is 299 → 300 → 301 → 307 → 302 → 304 → 305 → 306 → 308 → 309 → 310 → 311 → 312 → 313 → 314 → 315 → 316 → native client extraction.
+The implemented order is 299 → 300 → 301 → 307 → 302 → 304 → 305 → 306 → 308 → 309 → 310 → 311 → 312 → 313 → 314 → 315 → 316 → 317 → 318 → documentation closeout.
 The separate UI-readiness repair now precedes the compatibility gate so that
 PR #302 inherits that repair in its own required CI. The combined tree at the
 new PR #302 head is identical to the previous PR #303 tree; PRs #304–#306 and
@@ -663,7 +696,12 @@ parent when the reordered parent contained its commit. Replacement PR #307 keeps
 that separate repair reviewable against PR #301. No merge command ran, and
 development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 
-| Step | Revision and PR | Evidence and status |
+The table and detailed entries preserve evidence as recorded during each step,
+including historical failures and runs then pending. They are not a live hosted
+status dashboard. Final closeout results are reported on the documentation PR
+and in the handoff, with their exact heads/bases and remaining limits.
+
+| Step | Revision and PR | Evidence and status at recording |
 | --- | --- | --- |
 | Dependency-audit prerequisite | `db3a1cea247eee7cbaa0424fe3ee89eb0d36bf9d`, [PR #299](https://github.com/context-labs/whip/pull/299) | Only 11 `brace-expansion` lockfile entries changed. Local install, unchanged production-audit threshold, protocol freshness, 470 SDK unit tests, example build, and package smoke passed. [Full CI](https://github.com/context-labs/whip/actions/runs/36678816413) and security passed. This is the green maintenance base; the original development SDK remains the fixed oracle. |
 | Stacked-base CI prerequisite | `dba610243623b1a7f6f13f910ddec4d6df9bb711`, [PR #300](https://github.com/context-labs/whip/pull/300) | Only CI/security PR-base filters and their distribution-test expectation changed, plus this plan. All 36 distribution-policy tests and workflow validation passed. GitHub verified both workflows start against stacked bases. [Full current CI](https://github.com/context-labs/whip/actions/runs/36681079742) and current security passed. |
@@ -677,13 +715,13 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Startup factory extraction (plan PR 4a) | `b251786c8d868cba722f103d0a77ce72d07377f5`, [PR #309](https://github.com/context-labs/whip/pull/309). | The existing runtime factory and five helpers move to `cmd/whip/daemon_runtime.go`. Exact body comparison, full CLI race/shuffle (71.763s), module build/vet/whipvet, and fresh fixed/immediate-base compatibility passed. [CI](https://github.com/context-labs/whip/actions/runs/36686776874) and [security](https://github.com/context-labs/whip/actions/runs/36686776543) started; results were pending when this entry was recorded.  The current head includes the inherited header-spelling correction; earlier run results refer to the prior head. |
 | Host directory grouping (plan PR 4b) | `774623f12ef182856862209d186bc70150d17cf1`, [PR #310](https://github.com/context-labs/whip/pull/310). | Four existing directory listing, creation and native-picker functions move to `internal/daemon/host_directory.go`. AST-directed extraction preserves all six original function declarations and comments, leaving host dispatch and attention in `host.go`. Existing host/directory/RPC race/shuffle tests (4.644s), module build/vet/whipvet and exact source comparison passed. Fresh fixed/immediate-base compatibility passed. [CI](https://github.com/context-labs/whip/actions/runs/36687285608) and [security](https://github.com/context-labs/whip/actions/runs/36687285375) were pending at publication.  The current head includes the inherited header-spelling correction; earlier run results refer to the prior head. |
 | Process ownership (plan PR 5) | `42285977df445ac79334ac96e465d44f057f0350`, [PR #311](https://github.com/context-labs/whip/pull/311), based on PR #310. | Baseline lifecycle characterizations were committed and passed before production edits. Startup now constructs the shared manager explicitly and transfers ownership to the daemon only after successful construction. Validation and the detailed ownership map are recorded below. |
-| Workspace ownership (plan PR 6) | `codex/backend-reorg-06-workspace-ownership`, based on PR #311 (`42285977df445ac79334ac96e465d44f057f0350`). | A green, mutation-calibrated composition test precedes the ownership change. Host startup supplies one coordinator to storage; existing root/child/tool borrowers retain the same accessor and implementation. Validation and the deliberate remaining dependency are recorded below. |
+| Workspace ownership (plan PR 6) | `26a6fec9b505fd6c00cd10d64c753c779509a2a4`, [PR #312](https://github.com/context-labs/whip/pull/312), based on PR #311. | A green, mutation-calibrated composition test precedes the ownership change. Host startup supplies one coordinator to storage; existing root/child/tool borrowers retain the same accessor and implementation. Validation and the deliberate remaining dependency are recorded below. |
 | Gateway fixture synchronization | `067fe82cd90b99aed42efa80c24e3917ba96e820`, [PR #313](https://github.com/context-labs/whip/pull/313), following workspace ownership. | Eight test-only lines synchronize the two pipelined browser writes before backend rejection. Existing assertions remain exact; the detailed baseline diagnosis and checks are below. |
-| Browser performance probe repair | `codex/backend-reorg-06b-performance-probe`, based on PR #313. | A separate instrumentation repair measures commit markers received in snapshots as well as notifications, preserving exact event sequences and first receipt. Focused negative-control regressions, full ordinary/controlled browser runs, and source conservation are recorded below. |
+| Browser performance probe repair | `0081b66e5445b90d10e4d5ada7786335943a6edc`, [PR #314](https://github.com/context-labs/whip/pull/314), based on PR #313. | A separate instrumentation repair measures commit markers received in snapshots as well as notifications, preserving exact event sequences and first receipt. Focused negative-control regressions, full ordinary/controlled browser runs, and source conservation are recorded below. |
 | Shared native plumbing (plan PR 7) | `3127d8ef67c3d59cd70f55ad697102e275c2a6fc`, [PR #315](https://github.com/context-labs/whip/pull/315), based on PR #314. | Shared connection primitives and command presentation move without changing client/server policy. The declaration, characterization, full affected-suite and fresh fixed/immediate-base evidence is recorded below. The PR remains unmerged. |
 | Tagged TUI title fixture repair | `e289b4ea3344b6fdd45a8782d17c5c66084e90e4`, [PR #316](https://github.com/context-labs/whip/pull/316), based on PR #315. | Separate test-only prerequisite fixes a title-generation fixture that already failed on the starting revision's policy. Both transports retain the original final assertions; the existing tagged acceptance test is added to Linux/macOS runtime CI. Diagnosis and evidence are recorded below. |
 | Native client extraction (plan PR 8) | `d36711aeaf48257025107dd4552f777854010f50`, [PR #317](https://github.com/context-labs/whip/pull/317), based on PR #316. | Exact implementation/private-test moves and canonical Go imports preserve all client APIs, bodies and assertions. Full affected race/PTY suites, named native acceptance and static checks passed. After the separate inherited title-fixture repair, the tagged TUI gate and refreshed fixed/immediate-parent guard passed at clean code commit `ecf96616acf48233658620c81286a08fd9bada80`; final documentation records the complete evidence below. |
-| Store lifecycle grouping (plan PR 9) | `codex/backend-reorg-09-store-lifecycle`, based on PR #317 (`d36711aeaf48257025107dd4552f777854010f50`). | Five unchanged declarations and their comments move into `internal/session/store.go`; all 58 remaining declarations are preserved. Connection setup, borrowed references, the daemon guard and database closure now have one small source home. Detailed conservation and validation evidence is recorded below. |
+| Store lifecycle grouping (plan PR 9) | `882d1377800830c2723161d2b6f0a5e7db68ee6f`, [PR #318](https://github.com/context-labs/whip/pull/318), based on PR #317. | Five unchanged declarations and their comments move into `internal/session/store.go`; all 58 remaining declarations are preserved. Connection setup, borrowed references, the daemon guard and database closure now have one small source home. Detailed conservation and validation evidence is recorded below. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -1467,3 +1505,88 @@ installation; recorded timestamps confirm no concurrent installation or build
 in that directory (`/private/tmp/whip-pr9-installer-timing.json`). Hosted checks
 will record the submitted commit and actual PR base separately. This PR remains
 unmerged pending human review.
+
+
+### Documentation closeout and integrated review tip
+
+This closeout changes only the canonical architecture guide, this plan and the
+historical redesign status pointer. It is based on the clean implementation tip
+[PR #318](https://github.com/context-labs/whip/pull/318),
+`882d1377800830c2723161d2b6f0a5e7db68ee6f`; it does not claim that its own eventual
+commit was the subject of an earlier run. Development remains at the original
+`271c0f8d2a35648d1b45056d57432590b783483c`. All active PRs are unmerged and await
+human review. Historical PR #303 was marked merged into a former stack parent,
+not development; active PR #307 replaces it.
+
+The completed improvement is concrete responsibility and ownership:
+
+- Provider setup has one package without a daemon import; unrelated host MCP
+  imports and icons have a server-owned component. Atomic host updates and
+  provisioning locks remain intact.
+- Native Go client, TUI and ACP production code no longer imports server implementation.
+  Integration tests retain real daemon fixtures where required. Shared
+  connection primitives and one stored-result decoder have narrow homes;
+  canonical `CreateSession` identity is retained with aliases, not conversion.
+- Startup visibly constructs the runtime factory and shared resources. Failed
+  construction, successful ownership transfer, root-only cleanup and final
+  manager-before-database shutdown have before-change characterizations.
+- Store lifecycle has one small same-package source home. SQL, migrations,
+  permission transactions, root/child scheduling and tracing stay where their
+  existing boundaries require them.
+
+Move-aware declaration/API/comment/test proofs in the per-PR entries establish
+mechanical conservation; file/line counts are relocation metrics, not evidence
+of deleted complexity. The dependency and ownership changes above are the
+reason to keep the work. Protocol still depends on existing domain values and
+storage still borrows the workspace coordinator. No new actor, universal
+resource registry, duplicate mutable projection or translation layer was added.
+Further actor/tracing extraction is deferred because no equally useful safe
+seam was established, not because protocol redesign is required to gain value.
+
+The final static audit at the implementation tip found zero drift in
+`packages/sdk`, `packages/protocol`, `internal/protocol`,
+`internal/protocoltransport`, the contract generator, or schema/migration
+sources. `internal/rlm`, `internal/llm` and the existing daemon/session span
+sources are also unchanged. Protocol **6.9**, schema **21**, recognized historical
+upgrade paths, both execution engines and tracing remain the existing
+implementation. The lockfile change is limited to the 11 `brace-expansion`
+entries in the independent audit repair. Frontend changes are the separately
+reviewed fixture/probe repairs and one moved-source reference comment, not
+product changes. Audit: `/private/tmp/whip-final-source-audit.json`.
+
+The latest structural compatibility evidence is the fresh PR #318 run at
+`/private/tmp/whip-pr9-compat-fresh/evidence.json`, detailed above. It compares
+the fixed starting SDK/backend and exact PR #317 parent against the staged
+candidate implementation, with current sources conserved into the final
+implementation tip. Its schema-21 binary rollback checks do not claim downgrade
+through older one-way migrations.
+
+Final integrated `task acceptance` passed on clean implementation tip
+`882d1377800830c2723161d2b6f0a5e7db68ee6f` in a real PTY, from 09:50:53 to
+09:53:53 UTC on September 30 (180.15 seconds). Every command in that existing
+target passed, including all 49 SDK acceptance cases (zero failures or skips),
+packed-SDK imports outside the repository, checkpoint/model/pricing/usage checks
+and native CLI/TUI/ACP/runtime gates. `npm run check:web` and web packaging
+completed before that run. No global skip flag or live provider credentials
+were used. Evidence: `/private/tmp/whip-final-acceptance-result.json` and
+`/private/tmp/whip-final-acceptance.log`. Hosted closeout results remain pending
+at documentation preparation and must be supplied with the exact head/base in
+the PR/handoff; local acceptance does not stand in for hosted CI.
+
+Native browser evidence was collected at PR #315
+(`3127d8ef67c3d59cd70f55ad697102e275c2a6fc`); all 49 relevant source/dependency
+hashes match the implementation tip. A disposable Electron 44.2.0 fixture
+passed 20 checks, and `TestDesktopNativeRod` passed with race instrumentation.
+The browser/extrelay race/shuffle suites passed 46 top-level tests, including
+the real headed Chrome-for-Testing extension fixture: 47 native Go tests passed
+in total. `TestDriverParity` skipped because it assumes Linux browser paths
+unavailable on macOS. Native guest/BrowserWindow capture passed; OS compositor
+capture was unavailable because macOS screen permission was denied. No user
+browser, installed daemon or permission setting was changed; fixture cleanup
+was verified. Evidence: `/private/tmp/whip-native-acceptance-315/report.md` and
+`source-hashes.json` in that directory.
+
+The separately repaired tagged TUI title acceptance passes on both transports.
+An optional supplemental lint run with integration tags still reports inherited
+`noctx` in the TUI fixture; required default lint passes. This limitation,
+the platform skip and unavailable compositor capture are not recorded as passes.
