@@ -4,8 +4,8 @@ import { fixture } from './welcome-fixture';
 import { revision } from './provider-fixture';
 import { welcomeDraftKey } from '../src/session-tabs';
 
-async function skillFixture(ready = true) {
-  const f = await fixture(false, ready);
+async function skillFixture() {
+  const f = await fixture();
   const call = f.on('host.skills.complete', () => ({ candidates: [{ text: '$ponytail', description: 'Least code that works.' }], truncated: false }));
   return { ...f, call };
 }
@@ -13,16 +13,8 @@ async function typeSlash(text = '/') {
   const input = await screen.findByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement;
   act(() => input.focus()); fireEvent.change(input, { target: { value: text } }); return input;
 }
-it('allows explicit drafting and metadata-only skill completion before provider setup; repeat Enter does not send', async () => {
-  const f = await skillFixture(false); f.render();
-  await screen.findByRole('region', { name: 'Provider setup' });
-  expect(f.call).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Draft before connecting' }));
-  expect(screen.getByRole('button', { name: 'Project folder' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Session options' }));
-  await screen.findByRole('dialog', { name: 'Session options' });
-  expect(screen.getByRole('combobox', { name: 'Agent' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+it('allows metadata-only skill completion in the composer; repeat Enter does not send', async () => {
+  const f = await skillFixture(); f.render();
   const input = await typeSlash('/po');
   await screen.findByRole('option', { name: /ponytail/ });
   expect(f.call).toHaveBeenCalledWith({ scope: 'project', cwd: '/project/whip', definition: { id: 'coding', revision }, prefix: '', limit: 1024 }, expect.any(AbortSignal));
@@ -30,12 +22,8 @@ it('allows explicit drafting and metadata-only skill completion before provider 
   fireEvent.keyDown(input, { key: 'Enter', repeat: true });
   expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('$ponytail ');
-  expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', false);
   expect(f.rpc['sessions.submit']).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Connect a provider' }));
-  await screen.findByRole('region', { name: 'Provider setup' });
-  fireEvent.click(screen.getByRole('button', { name: 'Draft before connecting' }));
-  expect((await screen.findByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement).value).toBe('$ponytail ');
 });
 it('filters a Unicode host name and inserts its canonical reference', async () => {
   const f = await skillFixture();

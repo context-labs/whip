@@ -142437,7 +142437,7 @@ return errors === 0;
 }
 
 export const ProviderCandidates = validate200;
-const schema201 = {"type":"object","properties":{"revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"items":{"type":"array","items":{"type":"object","properties":{"provider":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"source":{"type":"string","enum":["env","inference-net","openai-codex"]},"environment":{"type":"string","maxLength":256},"credential_state":{"type":"string","enum":["available","refresh_required"]}},"required":["provider","source","environment","credential_state"],"additionalProperties":false},"maxItems":24}},"$id":"https://whip.dev/protocol/v4/ProviderCandidates","$schema":"http://json-schema.org/draft-07/schema#","title":"ProviderCandidates","required":["revision","items"],"additionalProperties":false};
+const schema201 = {"type":"object","properties":{"revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"items":{"type":"array","items":{"type":"object","properties":{"provider":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"source":{"type":"string","enum":["inference-net","openai-codex"]},"credential_state":{"type":"string","enum":["available","refresh_required"]}},"required":["provider","source","credential_state"],"additionalProperties":false},"maxItems":24}},"$id":"https://whip.dev/protocol/v4/ProviderCandidates","$schema":"http://json-schema.org/draft-07/schema#","title":"ProviderCandidates","required":["revision","items"],"additionalProperties":false};
 
 function validate200(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/ProviderCandidates" */;
@@ -142538,8 +142538,8 @@ vErrors.push(err7);
 }
 errors++;
 }
-if(data2.environment === undefined){
-const err8 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "environment"},message:"must have required property '"+"environment"+"'"};
+if(data2.credential_state === undefined){
+const err8 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "credential_state"},message:"must have required property '"+"credential_state"+"'"};
 if(vErrors === null){
 vErrors = [err8];
 }
@@ -142548,8 +142548,9 @@ vErrors.push(err8);
 }
 errors++;
 }
-if(data2.credential_state === undefined){
-const err9 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "credential_state"},message:"must have required property '"+"credential_state"+"'"};
+for(const key1 in data2){
+if(!(((key1 === "provider") || (key1 === "source")) || (key1 === "credential_state"))){
+const err9 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err9];
 }
@@ -142558,9 +142559,12 @@ vErrors.push(err9);
 }
 errors++;
 }
-for(const key1 in data2){
-if(!((((key1 === "provider") || (key1 === "source")) || (key1 === "environment")) || (key1 === "credential_state"))){
-const err10 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+}
+if(data2.provider !== undefined){
+let data3 = data2.provider;
+if(typeof data3 === "string"){
+if(!pattern0.test(data3)){
+const err10 = {instancePath:instancePath+"/items/" + i0+"/provider",schemaPath:"#/properties/items/items/properties/provider/pattern",keyword:"pattern",params:{pattern: "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},message:"must match pattern \""+"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"+"\""};
 if(vErrors === null){
 vErrors = [err10];
 }
@@ -142570,11 +142574,8 @@ vErrors.push(err10);
 errors++;
 }
 }
-if(data2.provider !== undefined){
-let data3 = data2.provider;
-if(typeof data3 === "string"){
-if(!pattern0.test(data3)){
-const err11 = {instancePath:instancePath+"/items/" + i0+"/provider",schemaPath:"#/properties/items/items/properties/provider/pattern",keyword:"pattern",params:{pattern: "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},message:"must match pattern \""+"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"+"\""};
+else {
+const err11 = {instancePath:instancePath+"/items/" + i0+"/provider",schemaPath:"#/properties/items/items/properties/provider/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err11];
 }
@@ -142584,8 +142585,10 @@ vErrors.push(err11);
 errors++;
 }
 }
-else {
-const err12 = {instancePath:instancePath+"/items/" + i0+"/provider",schemaPath:"#/properties/items/items/properties/provider/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data2.source !== undefined){
+let data4 = data2.source;
+if(typeof data4 !== "string"){
+const err12 = {instancePath:instancePath+"/items/" + i0+"/source",schemaPath:"#/properties/items/items/properties/source/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err12];
 }
@@ -142594,11 +142597,8 @@ vErrors.push(err12);
 }
 errors++;
 }
-}
-if(data2.source !== undefined){
-let data4 = data2.source;
-if(typeof data4 !== "string"){
-const err13 = {instancePath:instancePath+"/items/" + i0+"/source",schemaPath:"#/properties/items/items/properties/source/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(!((data4 === "inference-net") || (data4 === "openai-codex"))){
+const err13 = {instancePath:instancePath+"/items/" + i0+"/source",schemaPath:"#/properties/items/items/properties/source/enum",keyword:"enum",params:{allowedValues: schema201.properties.items.items.properties.source.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err13];
 }
@@ -142607,8 +142607,11 @@ vErrors.push(err13);
 }
 errors++;
 }
-if(!(((data4 === "env") || (data4 === "inference-net")) || (data4 === "openai-codex"))){
-const err14 = {instancePath:instancePath+"/items/" + i0+"/source",schemaPath:"#/properties/items/items/properties/source/enum",keyword:"enum",params:{allowedValues: schema201.properties.items.items.properties.source.enum},message:"must be equal to one of the allowed values"};
+}
+if(data2.credential_state !== undefined){
+let data5 = data2.credential_state;
+if(typeof data5 !== "string"){
+const err14 = {instancePath:instancePath+"/items/" + i0+"/credential_state",schemaPath:"#/properties/items/items/properties/credential_state/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err14];
 }
@@ -142617,12 +142620,8 @@ vErrors.push(err14);
 }
 errors++;
 }
-}
-if(data2.environment !== undefined){
-let data5 = data2.environment;
-if(typeof data5 === "string"){
-if(func5(data5) > 256){
-const err15 = {instancePath:instancePath+"/items/" + i0+"/environment",schemaPath:"#/properties/items/items/properties/environment/maxLength",keyword:"maxLength",params:{limit: 256},message:"must NOT have more than 256 characters"};
+if(!((data5 === "available") || (data5 === "refresh_required"))){
+const err15 = {instancePath:instancePath+"/items/" + i0+"/credential_state",schemaPath:"#/properties/items/items/properties/credential_state/enum",keyword:"enum",params:{allowedValues: schema201.properties.items.items.properties.credential_state.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err15];
 }
@@ -142632,8 +142631,9 @@ vErrors.push(err15);
 errors++;
 }
 }
+}
 else {
-const err16 = {instancePath:instancePath+"/items/" + i0+"/environment",schemaPath:"#/properties/items/items/properties/environment/type",keyword:"type",params:{type: "string"},message:"must be string"};
+const err16 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/type",keyword:"type",params:{type: "object"},message:"must be object"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -142643,10 +142643,9 @@ vErrors.push(err16);
 errors++;
 }
 }
-if(data2.credential_state !== undefined){
-let data6 = data2.credential_state;
-if(typeof data6 !== "string"){
-const err17 = {instancePath:instancePath+"/items/" + i0+"/credential_state",schemaPath:"#/properties/items/items/properties/credential_state/type",keyword:"type",params:{type: "string"},message:"must be string"};
+}
+else {
+const err17 = {instancePath:instancePath+"/items",schemaPath:"#/properties/items/type",keyword:"type",params:{type: "array"},message:"must be array"};
 if(vErrors === null){
 vErrors = [err17];
 }
@@ -142655,49 +142654,15 @@ vErrors.push(err17);
 }
 errors++;
 }
-if(!((data6 === "available") || (data6 === "refresh_required"))){
-const err18 = {instancePath:instancePath+"/items/" + i0+"/credential_state",schemaPath:"#/properties/items/items/properties/credential_state/enum",keyword:"enum",params:{allowedValues: schema201.properties.items.items.properties.credential_state.enum},message:"must be equal to one of the allowed values"};
+}
+}
+else {
+const err18 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
 if(vErrors === null){
 vErrors = [err18];
 }
 else {
 vErrors.push(err18);
-}
-errors++;
-}
-}
-}
-else {
-const err19 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/type",keyword:"type",params:{type: "object"},message:"must be object"};
-if(vErrors === null){
-vErrors = [err19];
-}
-else {
-vErrors.push(err19);
-}
-errors++;
-}
-}
-}
-else {
-const err20 = {instancePath:instancePath+"/items",schemaPath:"#/properties/items/type",keyword:"type",params:{type: "array"},message:"must be array"};
-if(vErrors === null){
-vErrors = [err20];
-}
-else {
-vErrors.push(err20);
-}
-errors++;
-}
-}
-}
-else {
-const err21 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
-if(vErrors === null){
-vErrors = [err21];
-}
-else {
-vErrors.push(err21);
 }
 errors++;
 }
@@ -223352,7 +223317,7 @@ return errors === 0;
 }
 
 export const UseProviderCandidateParams = validate321;
-const schema322 = {"type":"object","properties":{"revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"provider":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"source":{"type":"string","enum":["env","inference-net","openai-codex"]},"environment":{"type":"string","maxLength":256}},"$id":"https://whip.dev/protocol/v4/UseProviderCandidateParams","$schema":"http://json-schema.org/draft-07/schema#","title":"UseProviderCandidateParams","required":["revision","provider","source","environment"],"additionalProperties":false};
+const schema322 = {"type":"object","properties":{"revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"provider":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"source":{"type":"string","enum":["inference-net","openai-codex"]}},"$id":"https://whip.dev/protocol/v4/UseProviderCandidateParams","$schema":"http://json-schema.org/draft-07/schema#","title":"UseProviderCandidateParams","required":["revision","provider","source"],"additionalProperties":false};
 
 function validate321(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/UseProviderCandidateParams" */;
@@ -223389,8 +223354,9 @@ vErrors.push(err2);
 }
 errors++;
 }
-if(data.environment === undefined){
-const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "environment"},message:"must have required property '"+"environment"+"'"};
+for(const key0 in data){
+if(!(((key0 === "revision") || (key0 === "provider")) || (key0 === "source"))){
+const err3 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err3];
 }
@@ -223399,9 +223365,12 @@ vErrors.push(err3);
 }
 errors++;
 }
-for(const key0 in data){
-if(!((((key0 === "revision") || (key0 === "provider")) || (key0 === "source")) || (key0 === "environment"))){
-const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+}
+if(data.revision !== undefined){
+let data0 = data.revision;
+if(typeof data0 === "string"){
+if(!pattern2.test(data0)){
+const err4 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[a-f0-9]{64}$"},message:"must match pattern \""+"^[a-f0-9]{64}$"+"\""};
 if(vErrors === null){
 vErrors = [err4];
 }
@@ -223411,11 +223380,8 @@ vErrors.push(err4);
 errors++;
 }
 }
-if(data.revision !== undefined){
-let data0 = data.revision;
-if(typeof data0 === "string"){
-if(!pattern2.test(data0)){
-const err5 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[a-f0-9]{64}$"},message:"must match pattern \""+"^[a-f0-9]{64}$"+"\""};
+else {
+const err5 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err5];
 }
@@ -223425,8 +223391,11 @@ vErrors.push(err5);
 errors++;
 }
 }
-else {
-const err6 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.provider !== undefined){
+let data1 = data.provider;
+if(typeof data1 === "string"){
+if(!pattern0.test(data1)){
+const err6 = {instancePath:instancePath+"/provider",schemaPath:"#/properties/provider/pattern",keyword:"pattern",params:{pattern: "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},message:"must match pattern \""+"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"+"\""};
 if(vErrors === null){
 vErrors = [err6];
 }
@@ -223436,11 +223405,8 @@ vErrors.push(err6);
 errors++;
 }
 }
-if(data.provider !== undefined){
-let data1 = data.provider;
-if(typeof data1 === "string"){
-if(!pattern0.test(data1)){
-const err7 = {instancePath:instancePath+"/provider",schemaPath:"#/properties/provider/pattern",keyword:"pattern",params:{pattern: "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},message:"must match pattern \""+"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"+"\""};
+else {
+const err7 = {instancePath:instancePath+"/provider",schemaPath:"#/properties/provider/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err7];
 }
@@ -223450,8 +223416,10 @@ vErrors.push(err7);
 errors++;
 }
 }
-else {
-const err8 = {instancePath:instancePath+"/provider",schemaPath:"#/properties/provider/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.source !== undefined){
+let data2 = data.source;
+if(typeof data2 !== "string"){
+const err8 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err8];
 }
@@ -223460,11 +223428,8 @@ vErrors.push(err8);
 }
 errors++;
 }
-}
-if(data.source !== undefined){
-let data2 = data.source;
-if(typeof data2 !== "string"){
-const err9 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(!((data2 === "inference-net") || (data2 === "openai-codex"))){
+const err9 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/enum",keyword:"enum",params:{allowedValues: schema322.properties.source.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err9];
 }
@@ -223473,50 +223438,15 @@ vErrors.push(err9);
 }
 errors++;
 }
-if(!(((data2 === "env") || (data2 === "inference-net")) || (data2 === "openai-codex"))){
-const err10 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/enum",keyword:"enum",params:{allowedValues: schema322.properties.source.enum},message:"must be equal to one of the allowed values"};
+}
+}
+else {
+const err10 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
 if(vErrors === null){
 vErrors = [err10];
 }
 else {
 vErrors.push(err10);
-}
-errors++;
-}
-}
-if(data.environment !== undefined){
-let data3 = data.environment;
-if(typeof data3 === "string"){
-if(func5(data3) > 256){
-const err11 = {instancePath:instancePath+"/environment",schemaPath:"#/properties/environment/maxLength",keyword:"maxLength",params:{limit: 256},message:"must NOT have more than 256 characters"};
-if(vErrors === null){
-vErrors = [err11];
-}
-else {
-vErrors.push(err11);
-}
-errors++;
-}
-}
-else {
-const err12 = {instancePath:instancePath+"/environment",schemaPath:"#/properties/environment/type",keyword:"type",params:{type: "string"},message:"must be string"};
-if(vErrors === null){
-vErrors = [err12];
-}
-else {
-vErrors.push(err12);
-}
-errors++;
-}
-}
-}
-else {
-const err13 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
-if(vErrors === null){
-vErrors = [err13];
-}
-else {
-vErrors.push(err13);
 }
 errors++;
 }

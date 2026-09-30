@@ -1840,8 +1840,12 @@ receipts resolve before a changed or invalid current host file is read. Startup
 instruction registries remain a separately scoped runtime snapshot.
 
 `providerhost.Service` owns bounded disposable catalog observations and borrows
-credential managers. Route creation/update/removal and default/compaction changes
-use explicit host revision CAS. Removing a selected default requires an atomic
+credential managers. Startup imports missing preset routes for available
+environment credentials through host revision CAS, retaining environment names
+rather than key bytes. Existing routes (including disabled ones) and model
+defaults remain unchanged. Saved account candidates still require explicit use.
+Route edits and default/compaction changes use explicit host revision CAS.
+Removing a selected default requires an atomic
 replacement or clear; referenced compaction routes must be changed explicitly.
 An uncatalogued explicit model selection remains valid on a configured route,
 including after cache expiry/restart. This deliberately removes legacy dependence

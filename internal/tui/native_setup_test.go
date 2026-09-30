@@ -51,12 +51,13 @@ func TestNativeSetupPresetsKeyValidationMaskAndExplicitDefaults(t *testing.T) {
 		t.Fatal("pasted key displayed")
 	}
 	f.status.Store(http.StatusUnauthorized)
+	before := m.inventory.Revision
 	nativeMenuRun(t, m, m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}))
 	if m.input.Value() != "" || strings.Contains(m.View(100, 30), "fixture-secret-key") {
 		t.Fatal("failed key retained in dialog")
 	}
 	inventory := nativeMenuRPC[protocol.ProviderInventory](t, f.connection, "providers.list", protocol.EmptyParams{})
-	if len(inventory.Routes) != 1 || inventory.Defaults != nil {
+	if inventory.Revision != before || inventory.Defaults != nil {
 		t.Fatal("failed discovery published route/default", inventory)
 	}
 	f.status.Store(0)
@@ -122,7 +123,7 @@ func TestNativeSetupCustomRouteLimitsEndpointScopeAndRemovalGuard(t *testing.T) 
 	if m.mode != "setup-remove" || m.message == "" || m.setup.id != "new-provider" {
 		t.Fatal("removal failure escaped active dialog", m.mode, m.message)
 	}
-	if actual := nativeMenuRPC[protocol.ProviderInventory](t, f.connection, "providers.list", protocol.EmptyParams{}); len(actual.Routes) != 2 {
+	if actual := nativeMenuRPC[protocol.ProviderInventory](t, f.connection, "providers.list", protocol.EmptyParams{}); actual.Revision != defaults.Revision {
 		t.Fatal("guard failed to preserve route", actual.Routes)
 	}
 }

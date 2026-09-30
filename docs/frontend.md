@@ -374,12 +374,24 @@ Access, standing grants, intrinsic questions and tool-denial policy are distinct
 
 ### Provider and model settings
 
-Provider screens read explicit host routes and a bounded set of candidate sources
-through `Client.listProviders()` and `providerCandidates()`. Candidate evidence is
+At host startup, supported providers with available environment credentials are
+automatically imported as configured routes, storing variable names rather than
+secret values. Existing routes, including disabled routes, take precedence;
+model defaults remain unchanged. Restart the host after changing its environment.
+Provider screens read these routes through `Client.listProviders()` without a
+**Use** activation step. Onboarding requires a provider choice, with no bypass to
+draft before connecting and no model picker or confirmation panel. Selecting a
+canonical provider with a known preset
+saves its suggested model and effort as the host default and opens the composer;
+completing its connection does the same. Providers without a preset, including
+custom endpoints, open the composer with the provider selected and model unset.
+That partial choice belongs to the persistent New Chat draft; the composer owns
+model/effort selection and blocks sending until a model is chosen.
+`providerCandidates()` reports saved account sources only. Candidate evidence is
 read-only: it contains source labels and availability, never secret values, and
 never runs credential commands or publishes routes. Opening Settings or New Chat
 does not refresh a catalog, start sign-in, or change a default. Using a detected
-source is an explicit CAS operation. Cached and bundled model reads do not
+account is an explicit CAS operation. Cached and bundled model reads do not
 establish inference access. Unknown token prices remain null and display as
 unknown; exact decimal prices are formatted without a JavaScript number. A
 current, successful empty catalog is not filled from the offline bundle.

@@ -33,12 +33,12 @@ func dispatchProvider(ctx context.Context, host HostServices, method string, raw
 		value, err := service.Candidates(ctx)
 		result := protocol.ProviderCandidates{Revision: value.Revision, Items: []protocol.ProviderCandidate{}}
 		for _, candidate := range value.Items {
-			result.Items = append(result.Items, protocol.ProviderCandidate{Provider: protocol.ID(candidate.Provider), Source: candidate.Source, Environment: candidate.Environment, CredentialState: candidate.CredentialState})
+			result.Items = append(result.Items, protocol.ProviderCandidate{Provider: protocol.ID(candidate.Provider), Source: candidate.Source, CredentialState: candidate.CredentialState})
 		}
 		return result, err
 	case "providers.use_candidate":
 		return decode(raw, func(p protocol.UseProviderCandidateParams) (any, error) {
-			value, err := service.UseCandidate(ctx, p.Revision, providerhost.Candidate{Provider: string(p.Provider), Source: p.Source, Environment: p.Environment})
+			value, err := service.UseCandidate(ctx, p.Revision, providerhost.Candidate{Provider: string(p.Provider), Source: p.Source})
 			return providerInventory(value), err
 		})
 	case "providers.set_enabled":

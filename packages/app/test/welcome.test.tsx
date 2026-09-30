@@ -263,7 +263,7 @@ it('preserves the collapsed provider top spacing while expanded and restores cen
   expect(column.style.marginBottom).toBe('');
 });
 
-it('shows standalone provider setup, reuses the connection dialog and restores the draft after explicit model confirmation', async () => {
+it('shows standalone provider setup, reuses the connection dialog and restores the draft with the preset after connecting', async () => {
   const f = await fixture(false, false);
   f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep my task'); f.render();
   await screen.findByRole('heading', { name: 'Connect a provider to get started', level: 1 });
@@ -274,15 +274,12 @@ it('shows standalone provider setup, reuses the connection dialog and restores t
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenAI' }));
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'fixture-api-key' } });
   fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
-  const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra', exact: true });
-  expect(f.rpc['providers.defaults']).not.toHaveBeenCalled(); expect(f.rpc['trees.create']).not.toHaveBeenCalled();
-  fireEvent.click(confirm);
   const input = await screen.findByRole('textbox', { name: 'Your first message' });
   expect(screen.getByRole('heading', { name: 'What do you want to work on?' }).parentElement!.style.marginTop).toBe('');
   expect((input as HTMLTextAreaElement).value).toBe('Keep my task');
   expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
   expect(f.rpc['providers.create']).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ provider: 'openai', key: { id: expect.any(String), key: 'fixture-api-key' } }), expect.anything());
-  expect(f.rpc['providers.defaults']).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ defaults: expect.objectContaining({ selection: { name: 'gpt-6-astra', provider: 'openai', effort: '' } }) }), expect.anything());
+  expect(f.rpc['providers.defaults']).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ defaults: expect.objectContaining({ selection: { name: 'gpt-6-astra', provider: 'openai', effort: 'medium' } }) }), expect.anything());
   expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
 

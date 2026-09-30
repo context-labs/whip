@@ -23,8 +23,8 @@ type Preset struct {
 	SuggestedEffort string   `json:"suggested_effort"`
 }
 
-// Presets are setup templates, never discovered/configured routes. No ambient
-// credential can change their endpoint, add a route, or select a default.
+// Presets fix the endpoints used by setup and environment imports.
+// An ambient credential never changes an endpoint or selects a model default.
 func Presets() []Preset {
 	return []Preset{
 		{ID: "inference-net", Name: "Inference.net", Kind: "openai-chat", BaseURL: "https://api.inference.net/v1", Methods: []string{"login", "api_key"}, Environments: []string{"INFERENCE_API_KEY"}, KeyURL: "https://inference.net/dashboard", SuggestedModels: []string{"kimi-k3-fast", "kimi-k3"}, SuggestedEffort: "high"},

@@ -6623,8 +6623,7 @@ export interface ProviderCandidates {
    */
   items: {
     provider: string;
-    source: "env" | "inference-net" | "openai-codex";
-    environment: string;
+    source: "inference-net" | "openai-codex";
     credential_state: "available" | "refresh_required";
   }[];
 }
@@ -11887,8 +11886,7 @@ export interface UseBundledComputerParams {
 export interface UseProviderCandidateParams {
   revision: string;
   provider: string;
-  source: "env" | "inference-net" | "openai-codex";
-  environment: string;
+  source: "inference-net" | "openai-codex";
 }
 export interface WorkspaceAction {
   id: string;

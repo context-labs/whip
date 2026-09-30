@@ -136,8 +136,8 @@ for (const name of names) {
     await page.goto(`${origin}/?new=1&runtimeId=${fixture.info.runtime_id}`);
     await expect(page.getByRole('heading', { name: 'Connect a provider to get started', exact: true })).toBeVisible();
     await expect(page.locator('[data-startup-phase="visible"]')).toBeVisible();
-    assert.equal(await first.count(), 0, 'Primary onboarding remains visible until explicit drafting');
-    await page.getByRole('button', { name: 'Draft before connecting', exact: true }).click();
+    assert.equal(await first.count(), 0, 'Provider setup is required before the composer');
+    await seed.configureProvider(); await page.reload();
     await expect(first).toBeEnabled();
     assert.match(new URL(page.url()).pathname, /^\/new\//);
     await expect(page.getByRole('button', { name: 'Project folder', exact: true })).toHaveText('Choose folder');
@@ -153,8 +153,8 @@ for (const name of names) {
     assert.deepEqual(sends(), []);
     assert.equal(frames.some(frame => ['sessions.get', 'sessions.history_page', 'sessions.turns'].includes(frame.method)), false);
     assert.deepEqual(await fixture.effects(), effectsBefore);
-    await screenshot('global-no-folder-no-provider');
-    checks.push('explicit folderless/no-provider draft lists only named globals; selection preserves caret/focus, with zero creates, submissions, session hydration or model effects');
+    await screenshot('global-no-folder');
+    checks.push('folderless draft lists only named globals; selection preserves caret/focus, with zero creates, submissions, session hydration or model effects');
     const projectDraft = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1));
     await page.getByRole('button', { name: 'Project folder', exact: true }).click();
     const folderDialog = page.getByRole('dialog', { name: 'Choose a folder', exact: true });
@@ -173,14 +173,12 @@ for (const name of names) {
     assert.deepEqual(sends(), []); assert.deepEqual(await fixture.effects(), effectsBefore);
     const hostRequest = frames.filter(frame => frame.method === 'host.skills.complete').at(-1);
     assert.deepEqual(hostRequest.params, { scope: 'project', cwd, definition: definition.ref, prefix: '', limit: 1024 });
-    await expect(page.getByRole('button', { name: 'Send first message', exact: true })).toBeDisabled();
-    assert.equal((await client.listProviders(deadline())).defaults, null);
-    await screenshot('new-session-no-provider');
-    checks.push('project completion inserts canonical reference but Send remains disabled without a configured model');
+    await expect(page.getByRole('button', { name: 'Send first message', exact: true })).toBeEnabled();
+    await screenshot('new-session-skill-draft');
+    checks.push('project completion inserts a canonical reference without submitting the draft');
     const globalCallsBefore = frames.filter(frame => frame.method === 'host.skills.complete' && frame.params.scope === 'global' && frame.params.definition?.id === definition.ref.id).length;
     await page.getByRole('button', { name: 'Pane 1 actions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'New session', exact: true }).click();
-    await page.getByRole('button', { name: 'Draft before connecting', exact: true }).click();
     await expect(first).toHaveValue(''); await expect(page.getByRole('button', { name: 'Project folder', exact: true })).toHaveText('Choose folder');
     await first.focus();
     await eventually(() => frames.filter(frame => frame.method === 'host.skills.complete' && frame.params.scope === 'global' && frame.params.definition?.id === definition.ref.id).length === globalCallsBefore + 1);
@@ -192,14 +190,11 @@ for (const name of names) {
     await first.fill('/global-alpha'); await expect(options).toHaveCount(1);
     await screenshot('fresh-folderless-draft');
     await page.locator(`[role="tab"][id="whip-workspace-tab-${projectDraft}"]`).click();
-    // Returning to the existing draft preserves authored data; explicit drafting
-    // remains a per-mounted-pane presentation choice, not a host configuration.
-    if (await page.getByRole('button', { name: 'Draft before connecting', exact: true }).count()) await page.getByRole('button', { name: 'Draft before connecting', exact: true }).click();
     await expect(first).toHaveValue('$accept-alpha ');
     await expect(page.getByRole('button', { name: 'Project folder', exact: true })).toHaveAttribute('title', cwd);
     assert.deepEqual(sends(), []); assert.deepEqual(await fixture.effects(), effectsBefore);
     checks.push('a fresh folderless draft cannot reuse project candidates; the original draft and exact definition survive navigation');
-    await seed.configureProvider(); await page.reload(); await expect(first).toHaveValue('$accept-alpha ');
+    await page.reload(); await expect(first).toHaveValue('$accept-alpha ');
     await first.fill('$accept-alpha Synthetic first message');
     await page.getByRole('button', { name: 'Send first message', exact: true }).click();
     await expect(input).toBeEnabled(); await eventually(() => commands('sessions.submit').length === 1);

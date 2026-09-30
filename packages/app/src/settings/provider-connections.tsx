@@ -24,14 +24,13 @@ type ProviderCredentialInput = NonNullable<ChangeProviderParams['declaration']['
 export interface ProviderEntry { id: string; name: string; preset?: ProviderPreset; route?: ProviderRoute; candidates?: ProviderCandidates['items'] }
 const keySetupEndpoints: Record<string, string> = { 'inference-net': 'https://api.inference.net/v1', openrouter: 'https://openrouter.ai/api/v1' };
 export function sourceLabel(entry: ProviderEntry) {
-  const source = entry.route?.credential.source ?? preferredCandidate(entry)?.source;
+  const source = entry.route?.credential.source ?? entry.candidates?.[0]?.source;
   return source ? ({ env: 'Environment', file: 'Key file', command: 'Command', none: 'No authentication', 'inference-net': 'Inference.net account', 'openai-codex': 'ChatGPT subscription' })[source] : '';
 }
-export function preferredCandidate(entry: ProviderEntry) { return entry.candidates?.find(value => value.source !== 'env') ?? entry.candidates?.[0]; }
-export function locallyAvailable(entry: ProviderEntry) { return entry.route ? providerReady({ configured: true, disabled: entry.route.disabled, credential_state: entry.route.credential.state }) === true : !!preferredCandidate(entry); }
+export function locallyAvailable(entry: ProviderEntry) { return entry.route ? providerReady({ configured: true, disabled: entry.route.disabled, credential_state: entry.route.credential.state }) === true : !!entry.candidates?.[0]; }
 export function stateLabel(entry: ProviderEntry) {
   if (entry.route?.disabled) return 'Disabled on this host';
-  if (!entry.route) return preferredCandidate(entry) ? 'Detected on this host' : 'Not connected';
+  if (!entry.route) return entry.candidates?.[0] ? 'Detected on this host' : 'Not connected';
   return ({ available: 'Credentials available', not_required: 'No authentication required', missing: 'Credentials missing', unavailable: 'Credential source unavailable', unchecked: 'Credential command not checked', refresh_required: 'Account refresh required' })[entry.route.credential.state];
 }
 export function useProviderConnections(client: Client, enabled: boolean) {
@@ -64,7 +63,7 @@ export function useProviderConnections(client: Client, enabled: boolean) {
 export function ProviderConnectionRow({ entry, enabled, connect, onSelect, setup = false, hostName }: {
   entry: ProviderEntry; enabled: boolean; connect: boolean; onSelect(): void; setup?: boolean; hostName?: string;
 }) {
-  const action = entry.route?.disabled ? 'Manage' : connect ? 'Connect' : setup ? 'Use' : 'Manage';
+  const action = entry.route?.disabled ? 'Manage' : connect ? 'Connect' : setup ? 'Select' : 'Manage';
   return <div {...stylex.props(styles.row, setup && styles.setupRow)}>
     <div {...stylex.props(styles.identity, setup && styles.setupIdentity)}><span {...stylex.props(styles.logoSlot)}><ProviderLogo id={entry.id} size={20} /></span>
       <div {...stylex.props(styles.details)}><div {...stylex.props(styles.nameLine)}><strong {...stylex.props(styles.name)}>{entry.name}</strong>{connect && entry.id === 'inference-net' && entry.preset?.base_url === keySetupEndpoints[entry.id] && (!entry.route || entry.route.base_url === entry.preset.base_url && entry.route.kind === entry.preset.kind) && <Badge tone="success">Recommended</Badge>}{!setup && locallyAvailable(entry) && sourceLabel(entry) && <Badge>{sourceLabel(entry)}</Badge>}{!entry.preset && <Badge>Custom</Badge>}</div>
@@ -146,7 +145,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
   const [key, setKey] = useState('');
   const keyInput = useRef<HTMLInputElement>(null);
   const [advanced, setAdvanced] = useState(!entry.preset && !entry.route);
-  const [showKey, setShowKey] = useState(!entry.route && !preferredCandidate(entry) && !entry.preset?.methods.some(method => method === 'login') && !!entry.preset?.methods.some(method => method === 'api_key'));
+  const [showKey, setShowKey] = useState(!entry.route && !entry.candidates?.[0] && !entry.preset?.methods.some(method => method === 'login') && !!entry.preset?.methods.some(method => method === 'api_key'));
   const [discardDestination, setDiscardDestination] = useState<'back' | 'close'>('close');
   const publication = useRef<{ key: string; id: string } | null>(null);
   const [id, setID] = useState(entry.id);
@@ -224,10 +223,10 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
   const initialConnection = !entry.route || !locallyAvailable(entry) && !entry.route.disabled;
   const canKey = entry.id !== 'openai-codex';
   const editKey = () => { setSource('key'); setShowKey(true); setAdvanced(false); setError(''); setNotice(''); };
-  const detected = preferredCandidate(entry);
+  const detected = entry.candidates?.[0];
   const useDetected = () => void action(async signal => {
     if (!detected) return;
-    const result = await client.useProviderCandidate({ revision, provider: entry.id, source: detected.source, environment: detected.environment }, { signal });
+    const result = await client.useProviderCandidate({ revision, provider: entry.id, source: detected.source }, { signal });
     runtime.queries.setQueryData(['provider-list', client.runtimeID], result);
     await changed(`${entry.name} connected.`, signal);
   });

@@ -39,6 +39,7 @@ export interface NewChatTab {
   readonly cwd: string;
   readonly permissionMode?: PermissionMode;
   readonly executionEngine?: 'starlark' | 'quickjs';
+  /** Empty while a selected provider awaits a model choice in the composer. */
   readonly model?: string;
   readonly provider?: string;
   readonly effort?: string;
@@ -201,7 +202,7 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
       (value.hostProfileId !== undefined && !identity(value.hostProfileId)) ||
       (value.runtimeId !== undefined && !identity(value.runtimeId)) ||
       (value.executionEngine !== undefined && value.executionEngine !== 'starlark' && value.executionEngine !== 'quickjs') ||
-      (value.model !== undefined && !identity(value.model)) ||
+      (value.model !== undefined && value.model !== '' && !identity(value.model)) ||
       (value.provider !== undefined && !identity(value.provider)) ||
       ((value.model === undefined) !== (value.provider === undefined)) ||
       (value.effort !== undefined && (typeof value.effort !== 'string' || value.effort.length > 64 || /[\0\r\n]/.test(value.effort))) ||

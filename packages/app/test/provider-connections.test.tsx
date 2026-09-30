@@ -102,14 +102,41 @@ it.each(['persistence_required', 'setup_required', 'cleanup_required'] as const)
   fireEvent.click(screen.getByRole('button', { name: 'Continue setup' })); await waitFor(() => expect(update).toHaveBeenCalled());
   expect(f.calls.find(call => call.method === 'accounts.inference.retry')?.params).toEqual({ flow_id: flow.id }); expect(f.count('accounts.inference.begin')).toBe(0); expect(f.count('accounts.inference.rotate')).toBe(0);
 });
-it('cached catalogs never change defaults until an explicit setup choice', async () => {
-  const f = await providerFixture(); f.data.inventory.defaults = null; f.data.presets.items = [preset()];
+it('selects a known provider and its model and effort in one action', async () => {
+  const f = await providerFixture(); f.data.inventory.defaults = null; f.data.presets.items = [{ ...preset(), suggested_effort: 'max' }];
   f.data.handlers['providers.defaults'] = request => { const p = request.params as ProviderDefaultsParams; f.data.inventory = { ...f.data.inventory, revision: nextRevision, defaults: p.defaults.selection }; return f.data.inventory; };
   const ready = vi.fn();
   function Setup() { const connections = useProviderConnections(f.client, true); return <ProviderSetup client={f.client} enabled hostName="Remote" connections={connections} onReady={ready} />; }
-  f.mount(<Setup />); await screen.findByRole('button', { name: 'Use fixture' }); expect(f.count('providers.defaults')).toBe(0); expect(f.count('providers.refresh')).toBe(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Use fixture' })); await waitFor(() => expect(ready).toHaveBeenCalledOnce());
-  expect(f.calls.find(call => call.method === 'providers.defaults')?.params).toMatchObject({ revision, defaults: { selection: { name: 'fixture', provider: 'openrouter', effort: '' }, settings: { prices: { input: null, output: null } } } });
+  f.mount(<Setup />); await screen.findByRole('button', { name: 'Select OpenRouter' }); expect(f.count('providers.defaults')).toBe(0); expect(f.count('providers.refresh')).toBe(0);
+  expect(screen.queryByRole('button', { name: 'Set default model' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Change model' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Use OpenRouter' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Select OpenRouter' })); await waitFor(() => expect(ready).toHaveBeenCalledExactlyOnceWith('openrouter', 'fixture', 'max'));
+  expect(f.calls.find(call => call.method === 'providers.defaults')?.params).toMatchObject({ revision, defaults: { selection: { name: 'fixture', provider: 'openrouter', effort: 'max' }, settings: { prices: { input: null, output: null } } } });
+  expect(f.count('providers.use_candidate')).toBe(0); expect(f.count('providers.create')).toBe(0); expect(f.count('sessions.submit')).toBe(0);
+});
+it('leaves model choice to the composer for a customized preset endpoint', async () => {
+  const f = await providerFixture(); f.data.inventory.defaults = null;
+  f.data.inventory.routes[0]!.base_url = 'https://custom.test/v1';
+  const ready = vi.fn();
+  function Setup() { const connections = useProviderConnections(f.client, true); return <ProviderSetup client={f.client} enabled hostName="Remote" connections={connections} onReady={ready} />; }
+  f.mount(<Setup />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select OpenRouter' }));
+  await waitFor(() => expect(ready).toHaveBeenCalledExactlyOnceWith('openrouter', '', ''));
+  expect(f.count('providers.defaults')).toBe(0);
+  expect(f.count('providers.refresh')).toBe(0);
+});
+it('keeps a failed preset selection visible and never repeats it automatically', async () => {
+  const f = await providerFixture(); f.data.inventory.defaults = null;
+  f.data.handlers['providers.defaults'] = () => { throw new DeliveryError('Default acknowledgement lost'); };
+  const ready = vi.fn();
+  function Setup() { const connections = useProviderConnections(f.client, true); return <ProviderSetup client={f.client} enabled hostName="Remote" connections={connections} onReady={ready} />; }
+  f.mount(<Setup />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select OpenRouter' }));
+  await screen.findByText('Default acknowledgement lost');
+  expect(f.count('providers.defaults')).toBe(1);
+  expect(ready).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Set default model' })).toBeNull();
 });
 it('route removal is explicit, preserves credential ownership, and does not disconnect an account', async () => {
   const f = await providerFixture(); f.data.handlers['providers.remove'] = () => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [] }; return f.data.inventory; };
@@ -174,19 +201,19 @@ it('keeps failed removal feedback in its active dialog and preserves the provide
   expect(f.count('providers.remove')).toBe(1);
 });
 
-it('previews detected credentials without publishing and applies Use in explicit route/default steps', async () => {
+it('keeps detected accounts explicit and publishes their route before selecting a default', async () => {
   const f = await providerFixture(); f.data.inventory.routes = []; f.data.inventory.defaults = null;
-  f.data.handlers['providers.candidates'] = () => ({ revision: f.data.inventory.revision, items: [{ provider: 'openrouter', source: 'env', environment: 'OPENROUTER_API_KEY', credential_state: 'available' }] });
-  f.data.handlers['providers.use_candidate'] = () => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [route()] }; return f.data.inventory; };
+  f.data.handlers['providers.candidates'] = () => ({ revision: f.data.inventory.revision, items: [{ provider: 'inference-net', source: 'inference-net', credential_state: 'available' }] });
+  f.data.handlers['providers.use_candidate'] = () => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [route('inference-net')] }; return f.data.inventory; };
   f.data.handlers['providers.defaults'] = request => { f.data.inventory.defaults = (request.params as ProviderDefaultsParams).defaults.selection; return f.data.inventory; };
   const ready = vi.fn();
   function Setup() { const connections = useProviderConnections(f.client, true); return <ProviderSetup client={f.client} enabled hostName="Remote workstation" connections={connections} onReady={ready} />; }
   f.mount(<Setup />);
-  await screen.findByText('Already available'); await screen.findByRole('button', { name: 'Use fixture' });
+  await screen.findByText('Already available'); await screen.findByRole('button', { name: 'Select inference-net' });
   expect(f.count('providers.use_candidate')).toBe(0); expect(f.count('providers.defaults')).toBe(0); expect(f.count('providers.refresh')).toBe(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Use fixture' })); await waitFor(() => expect(ready).toHaveBeenCalledOnce());
-  expect(f.calls.find(call => call.method === 'providers.use_candidate')?.params).toEqual({ revision, provider: 'openrouter', source: 'env', environment: 'OPENROUTER_API_KEY' });
-  expect(f.calls.find(call => call.method === 'providers.defaults')?.params).toMatchObject({ revision: nextRevision, defaults: { selection: { provider: 'openrouter', name: 'fixture', effort: '' }, settings: { max_attempts: 0, context_window_tokens: null, max_output_tokens: '0' } } });
+  fireEvent.click(screen.getByRole('button', { name: 'Select inference-net' })); await waitFor(() => expect(ready).toHaveBeenCalledOnce());
+  expect(f.calls.find(call => call.method === 'providers.use_candidate')?.params).toEqual({ revision, provider: 'inference-net', source: 'inference-net' });
+  expect(f.calls.find(call => call.method === 'providers.defaults')?.params).toMatchObject({ revision: nextRevision, defaults: { selection: { provider: 'inference-net', name: 'fixture', effort: '' }, settings: { max_attempts: 0, context_window_tokens: null, max_output_tokens: '0' } } });
   expect(f.count('sessions.submit')).toBe(0);
 });
 

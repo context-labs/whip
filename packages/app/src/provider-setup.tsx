@@ -3,56 +3,59 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Client } from '@whip/sdk';
 import { Button } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
-import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
-import { CatalogModelPicker, useProviderCatalog } from './model-selection';
+import { scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { modelSettings, readModelCatalog } from './model-options';
 import { SettingsGroup } from './settings/section-layout';
 import { errorMessage } from './platform';
-import { ProviderConnectionDialog, ProviderConnectionList, ProviderConnectionRow, type ProviderEntry, type useProviderConnections, locallyAvailable, preferredCandidate } from './settings/provider-connections';
+import { ProviderConnectionDialog, ProviderConnectionList, ProviderConnectionRow, type ProviderEntry, type useProviderConnections, locallyAvailable } from './settings/provider-connections';
 
 type Connections = ReturnType<typeof useProviderConnections>;
 
-/** A view of host-owned readiness. Choosing a default is always an explicit write. */
+/** A provider choice applies its known preset or leaves model selection to the composer. */
 export function ProviderSetup({ client, enabled, hostName, connections, onReady, actions, onExpandedChange }: {
-  client: Client; enabled: boolean; hostName: string; connections: Connections; onReady(): void; actions?: ReactNode; onExpandedChange?(expanded: boolean): void;
+  client: Client; enabled: boolean; hostName: string; connections: Connections; onReady(provider: string, model: string, effort: string): void; actions?: ReactNode; onExpandedChange?(expanded: boolean): void;
 }) {
   const { inventory, candidates, flows, refresh, entries } = connections;
   const available = entries.filter(locallyAvailable);
-  const [selected, setSelected] = useState<string>();
   const [connecting, setConnecting] = useState<string>();
-  const [pair, setPair] = useState<{ model: string; provider: string }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const request = useRef<AbortController | null>(null);
   useEffect(() => { setBusy(false); request.current = null; return () => request.current?.abort(); }, [client]);
-  const candidate = entries.find(entry => entry.id === selected) ?? (!connections.ready && available.length === 1 ? available[0] : undefined);
-  const model = pair && pair.provider === candidate?.id ? pair.model : candidate?.preset?.suggested_models[0] ?? '';
   const active = entries.find(entry => entry.id === connecting);
   const host = client.runtimeID;
-  const catalog = useProviderCatalog(client, enabled && !!candidate, candidate?.id);
   function choose(entry: ProviderEntry) {
-    setError(''); setPair(undefined);
-    if (locallyAvailable(entry)) setSelected(entry.id);
+    setError('');
+    if (locallyAvailable(entry)) void useProvider(entry);
     else setConnecting(entry.id);
   }
-  async function useModel() {
-    if (!enabled || busy || !candidate || !model || !inventory.data) return;
+  async function useProvider(entry: ProviderEntry, justConnected = false) {
+    if (!enabled || request.current || !inventory.data) return;
     const controller = new AbortController(); request.current = controller;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setConnecting(undefined);
     try {
-      let current = inventory.data;
-      if (!candidate.route) {
-        const detected = preferredCandidate(candidate);
+      let current = justConnected ? await client.listProviders({ signal: controller.signal }) : inventory.data;
+      if (!current.routes.some(route => route.id === entry.id)) {
+        const detected = entry.candidates?.[0];
         if (!detected) throw new Error('Choose a connection method first');
-        current = await client.useProviderCandidate({ revision: current.revision, provider: detected.provider, source: detected.source, environment: detected.environment }, { signal: controller.signal });
+        current = await client.useProviderCandidate({ revision: current.revision, provider: detected.provider, source: detected.source }, { signal: controller.signal });
       }
-      const models = await readModelCatalog(client, controller.signal, candidate.id);
-      await client.setProviderDefaults({ revision: current.revision, defaults: { selection: { name: model, provider: candidate.id, effort: '' }, settings: modelSettings(models, candidate.id, model) } }, { signal: controller.signal });
-      await refresh();
-      if (!controller.signal.aborted) onReady();
+      const route = current.routes.find(route => route.id === entry.id);
+      const preset = entry.preset && route?.kind === entry.preset.kind && route.base_url.replace(/\/$/, '') === entry.preset.base_url.replace(/\/$/, '') ? entry.preset : undefined;
+      const model = preset?.suggested_models[0] ?? '';
+      const effort = model ? preset?.suggested_effort ?? '' : '';
+      if (model) {
+        const models = await readModelCatalog(client, controller.signal, entry.id);
+        await client.setProviderDefaults({ revision: current.revision, defaults: { selection: { name: model, provider: entry.id, effort }, settings: modelSettings(models, entry.id, model) } }, { signal: controller.signal });
+        await refresh();
+      }
+      if (!controller.signal.aborted) onReady(entry.id, model, effort);
     } catch (error) {
       if (!controller.signal.aborted) { setError(errorMessage(error)); await inventory.refetch(); }
-    } finally { if (!controller.signal.aborted) setBusy(false); }
+    } finally {
+      if (request.current === controller) request.current = null;
+      if (!controller.signal.aborted) setBusy(false);
+    }
   }
   const pending = entries.filter(entry => !available.includes(entry));
   const rows = (values: ProviderEntry[]) => values.map(entry => <ProviderConnectionRow key={entry.id} setup entry={entry} hostName={hostName}
@@ -63,31 +66,21 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady,
     {inventory.error && enabled && <ErrorNotice type="resource" owner={`${host}:providers`} title="Could not load providers" error={inventory.error} action={refreshButton} />}
 
     {!!available.length && <SettingsGroup title="Already available" panelXstyle={styles.providerPanel}>{rows(available)}</SettingsGroup>}
-    {candidate && <div {...stylex.props(styles.confirmation)}>
-      <p {...stylex.props(styles.note)}>Default for new sessions on {hostName}. Your first message makes the request.</p>
-      <CatalogModelPicker label="Change model" settings model={model} provider={candidate.id} catalog={catalog.data}
-        loading={catalog.isFetching} error={enabled ? catalog.error?.message : undefined} disabled={!enabled || busy}
-        onChange={(model, provider) => { setSelected(provider); setPair({ model, provider }); }} />
-      {!model && <p role="status" {...stylex.props(styles.note)}>Choose a model for {candidate.name}.</p>}
-      {catalog.error && <Button variant="ghost" disabled={!enabled || busy} onClick={() => void catalog.refetch()}>Retry cached models</Button>}
-      <Button data-provider-confirm variant="primary" disabled={!enabled || busy || !model} loading={busy} onClick={() => void useModel()}>Use {model || 'selected model'}</Button>
-    </div>}
     <ProviderConnectionList key={host} entries={pending} enabled={enabled && !busy} hostName={hostName} onSelect={choose}
       title={available.length ? 'Connect another provider' : undefined} actions={actions} refresh={refreshButton} onExpandedChange={onExpandedChange} />
     {!inventory.isPending && !inventory.error && !entries.length && <p role="status" {...stylex.props(styles.note)}>No providers are available on this host. Try refreshing or connect a remote host.</p>}
     {candidates.error && enabled && <ErrorNotice type="resource" owner={`${host}:provider-candidates`} title="Could not check available credentials" error={candidates.error} />}
     {flows.error && enabled && <ErrorNotice type="resource" owner={`${host}:sign-ins`} title="Could not load sign-in progress" error={flows.error} />}
-    {error && <ErrorNotice type="action" owner={`${host}:default-model`} title="Could not save the default model" error={error} />}
+    {error && <ErrorNotice type="action" owner={`${host}:default-model`} title="Could not select provider" error={error} />}
     {active && inventory.data && <ProviderConnectionDialog key={active.id} client={client} entry={active} enabled={enabled}
       revision={inventory.data.revision} hostName={hostName} flows={flows.data ?? []}
       refresh={refresh} refreshFlows={async () => { await flows.refetch(); }} close={() => setConnecting(undefined)}
-      onConnected={() => { setSelected(active.id); setConnecting(undefined); void refresh(); }} />}
+      onConnected={() => void useProvider(active, true)} />}
   </section>;
 }
 
 const styles = stylex.create({
+  note: { fontSize: typography.size12, color: surface.secondaryText, margin: 0, lineHeight: 1.5 },
   panel: { display: 'flex', flexDirection: 'column', width: '100%', gap: scale.space2, textAlign: 'start' },
   providerPanel: { padding: scale.space3, gap: scale.space2, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder },
-  note: { fontSize: typography.size12, color: surface.secondaryText, margin: 0, lineHeight: 1.5, overflowWrap: 'anywhere' },
-  confirmation: { display: 'flex', flexDirection: 'column', gap: scale.space3, padding: scale.space4, borderRadius: scale.radiusControl, backgroundColor: colors.panel },
 });

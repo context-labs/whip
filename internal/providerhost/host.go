@@ -111,7 +111,12 @@ func New(ctx context.Context, authority *config.Authority, client *http.Client, 
 	value.Jar = nil
 	value.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	ctx, cancel := context.WithCancel(ctx)
-	return &Service{ctx: ctx, cancel: cancel, config: authority, http: &value, lookup: lookup, openAI: openAI, inference: inference, active: map[string]context.CancelFunc{}, catalogs: map[string]catalogEntry{}}, nil
+	service := &Service{ctx: ctx, cancel: cancel, config: authority, http: &value, lookup: lookup, openAI: openAI, inference: inference, active: map[string]context.CancelFunc{}, catalogs: map[string]catalogEntry{}}
+	if err := service.importEnvironment(ctx); err != nil {
+		cancel()
+		return nil, err
+	}
+	return service, nil
 }
 
 func (s *Service) check(ctx context.Context) error {
