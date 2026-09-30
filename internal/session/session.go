@@ -72,8 +72,11 @@ type Store struct {
 func (s *Store) AcquireDaemon() bool { return s.daemonOwned.CompareAndSwap(false, true) }
 func (s *Store) ReleaseDaemon()      { s.daemonOwned.Store(false) }
 
-// Open opens (creating if needed) the sessions database at path.
-func Open(path string) (*Store, error) {
+// Open opens (creating if needed) the sessions database at path and borrows workspaces.
+func Open(path string, workspaces *capability.Workspaces) (*Store, error) {
+	if workspaces == nil {
+		return nil, errors.New("session store requires a workspace coordinator")
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -107,7 +110,7 @@ func Open(path string) (*Store, error) {
 	}
 	store := &Store{
 		db: db, content: content,
-		workspaces: capability.NewWorkspaces(),
+		workspaces: workspaces,
 	}
 	failed = false
 	return store, nil

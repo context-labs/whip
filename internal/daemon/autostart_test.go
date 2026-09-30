@@ -187,7 +187,7 @@ func TestEnsureClientRejectsOldProtocolWithoutLaunching(t *testing.T) {
 }
 
 func startTestServer(path string, paths RuntimePaths, buildID string, generation int64, restart func()) (runningServer, error) {
-	store, err := session.Open(path)
+	store, err := session.Open(path, capability.NewWorkspaces())
 	if err != nil {
 		return runningServer{}, err
 	}

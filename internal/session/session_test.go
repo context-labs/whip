@@ -7,11 +7,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
+func TestOpenRequiresWorkspaceCoordinator(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), nil)
+	if store != nil || err == nil || err.Error() != "session store requires a workspace coordinator" {
+		t.Fatalf("Open without workspaces = %v, %v", store, err)
+	}
+}
+
 func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +82,7 @@ func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
 }
 
 func TestStoreRoundTrip(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +164,7 @@ func TestStoreRoundTrip(t *testing.T) {
 }
 
 func TestRecentExcludesUntouchedBlankRoots(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +182,7 @@ func TestRecentExcludesUntouchedBlankRoots(t *testing.T) {
 }
 
 func TestEffortRoundTrip(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +229,7 @@ func TestEffortRoundTrip(t *testing.T) {
 
 func TestSessionsUseOneExecutionContract(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +255,7 @@ func TestSessionsUseOneExecutionContract(t *testing.T) {
 }
 
 func TestUserHistory(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +298,7 @@ func TestUserHistory(t *testing.T) {
 // (steered background-task results, goal-continuation prompts) — only genuinely
 // typed submissions are recalled.
 func TestUserHistorySkipsInjected(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,10 +325,10 @@ func TestUserHistorySkipsInjected(t *testing.T) {
 }
 
 func TestStoreEdgeCases(t *testing.T) {
-	if _, err := Open("/nonexistent-dir/x.db"); err == nil {
+	if _, err := Open("/nonexistent-dir/x.db", capability.NewWorkspaces()); err == nil {
 		t.Fatal("expected open error")
 	}
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +354,7 @@ func TestStoreEdgeCases(t *testing.T) {
 }
 
 func TestGoalPersistence(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +379,7 @@ func TestGoalPersistence(t *testing.T) {
 // no result; Load must synthesize an error result so the resumed conversation
 // satisfies the API's tool_call/tool-result pairing contract.
 func TestLoadSynthesizesDanglingToolResults(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +436,7 @@ func TestLoadSynthesizesDanglingToolResults(t *testing.T) {
 // Compaction is an event, not a rewrite: the raw log survives, Load derives
 // the compacted view, and a bad compaction can be deleted and retried.
 func TestCompactionEvent(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +528,7 @@ func TestCompactionEvent(t *testing.T) {
 }
 
 func TestTodosAndUsagePersistence(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,7 +572,7 @@ func TestTodosAndUsagePersistence(t *testing.T) {
 }
 
 func TestClearMessages(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +598,7 @@ func TestClearMessages(t *testing.T) {
 }
 
 func TestSnapshotRoundTrip(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +649,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 }
 
 func TestRewindHistoryAtomicallyDropsDerivedTail(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -687,7 +695,7 @@ func TestRewindHistoryAtomicallyDropsDerivedTail(t *testing.T) {
 }
 
 func TestScheduleRoundTrip(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

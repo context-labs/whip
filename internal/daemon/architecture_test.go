@@ -133,8 +133,11 @@ func TestArchitectureKeepsProcessConstructionOutOfStorage(t *testing.T) {
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
 			if call, ok := node.(*ast.CallExpr); ok {
-				if constructor, ok := call.Fun.(*ast.SelectorExpr); ok && constructor.Sel.Name == "NewProcessManager" {
-					t.Errorf("storage constructs a live process manager: %s", path)
+				if constructor, ok := call.Fun.(*ast.SelectorExpr); ok {
+					switch constructor.Sel.Name {
+					case "NewProcessManager", "NewWorkspaces":
+						t.Errorf("storage constructs a host resource with %s: %s", constructor.Sel.Name, path)
+					}
 				}
 			}
 			return true

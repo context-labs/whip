@@ -14,7 +14,7 @@ import (
 
 func TestShellStartJobsAreOwnedCappedAndClosedWithServices(t *testing.T) {
 	root := t.TempDir()
-	st, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

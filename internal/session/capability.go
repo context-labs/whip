@@ -31,6 +31,7 @@ type storedCapabilityScopes struct {
 	BrowserDelegationOnly   bool                     `json:"browser_delegation_only,omitempty"`
 }
 
+// Workspaces returns the coordinator borrowed from the store's caller.
 func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
 
 // EnsureAuthority installs the root agent and its initial grants once.

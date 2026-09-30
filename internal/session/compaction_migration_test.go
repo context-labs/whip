@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -86,7 +87,7 @@ func TestCompactionPinSurvivesReopenAndFork(t *testing.T) {
 	for _, pinned := range []bool{false, true} {
 		t.Run(fmt.Sprintf("pinned=%t", pinned), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "sessions.db")
-			store, err := Open(path)
+			store, err := Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +127,7 @@ func TestCompactionPinSurvivesReopenAndFork(t *testing.T) {
 			if err := store.Close(); err != nil {
 				t.Fatal(err)
 			}
-			store, err = Open(path)
+			store, err = Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -145,7 +146,7 @@ func TestCompactionPinSurvivesReopenAndFork(t *testing.T) {
 
 func TestVersionTwentyCompactionsDoNotInferPins(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ UPDATE runtime_schema SET identity='whip-recursive-runtime-v20'; PRAGMA user_ver
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

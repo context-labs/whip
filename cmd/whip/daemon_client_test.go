@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/session"
@@ -20,7 +21,7 @@ func openRuntimeTestStore(t *testing.T, home string) *session.Store {
 	if err := os.MkdirAll(filepath.Dir(runtimeDBPath(home)), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.Open(runtimeDBPath(home))
+	store, err := session.Open(runtimeDBPath(home), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

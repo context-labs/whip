@@ -286,7 +286,7 @@ func TestArtifactDirectoryFailureCannotPublishUnrecoverableWork(t *testing.T) {
 	for _, action := range []string{"store content", "enqueue input", "append event", "admit child", "send message", "finish command", "commit root outcome", "continue goal", "scheduled input"} {
 		t.Run(action, func(t *testing.T) {
 			directory := t.TempDir()
-			store, err := Open(filepath.Join(directory, "sessions.db"))
+			store, err := Open(filepath.Join(directory, "sessions.db"), capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}

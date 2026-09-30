@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -74,7 +75,7 @@ func TestDesktopCompiledUpdate(t *testing.T) {
 	}
 	// Seed a scheduled session whose provider/model is no longer configured.
 	// It must survive both cold startup and replacement without blocking readiness.
-	store, err := session.Open(filepath.Join(paths.Home, "sessions.db"))
+	store, err := session.Open(filepath.Join(paths.Home, "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +169,7 @@ func TestDesktopCompiledUpdate(t *testing.T) {
 	}
 	_ = client.Close()
 	run(canonical, "daemon", "stop")
-	store, err = session.Open(filepath.Join(paths.Home, "sessions.db"))
+	store, err = session.Open(filepath.Join(paths.Home, "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

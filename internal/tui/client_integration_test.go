@@ -43,7 +43,7 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 			if paths.Runtime != paths.Home {
 				t.Cleanup(func() { _ = os.RemoveAll(paths.Runtime) })
 			}
-			store, err := session.Open(filepath.Join(paths.Home, "sessions.db"))
+			store, err := session.Open(filepath.Join(paths.Home, "sessions.db"), capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}

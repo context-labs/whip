@@ -8,11 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func collectionStore(t *testing.T) (*Store, string) {
 	t.Helper()
-	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

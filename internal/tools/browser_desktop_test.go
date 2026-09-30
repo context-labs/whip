@@ -116,7 +116,7 @@ func TestRevokeDesktopAttachmentsHandlesUnavailableProvider(t *testing.T) {
 
 func desktopTestServices(t *testing.T) (*Services, *countingLedger, *testDesktopProvider, capability.Authority) {
 	t.Helper()
-	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

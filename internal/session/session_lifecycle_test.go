@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -228,7 +229,7 @@ func lifecycleRows(t *testing.T, store *Store, rootID string) map[string]int {
 }
 
 func TestLifecycleForkExcludesRuntimeAndDeletePreservesOtherRoots(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +314,7 @@ func TestLifecycleForkAndDeleteRollBack(t *testing.T) {
 		}
 	})
 	t.Run("delete complete tree", func(t *testing.T) {
-		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}

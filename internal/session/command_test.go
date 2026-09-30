@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestCreateSessionCommandPersistsPermissionWithOutcome(t *testing.T) {
 	for _, mode := range []string{"", PermissionModePrompt, PermissionModeAutomatic, "invalid"} {
 		t.Run("mode="+mode, func(t *testing.T) {
-			store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+			store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +68,7 @@ func TestCreateSessionCommandPersistsPermissionWithOutcome(t *testing.T) {
 }
 
 func TestCommandAdmissionIsIdempotentAndBoundToOneInboxSequence(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +132,7 @@ func TestCommandAdmissionIsIdempotentAndBoundToOneInboxSequence(t *testing.T) {
 }
 
 func TestRootTurnCommitsProtocolCommandOutcome(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +191,7 @@ func TestRootTurnCommitsProtocolCommandOutcome(t *testing.T) {
 }
 
 func TestDaemonCommandAdmissionHasIndependentSequence(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +211,7 @@ func TestDaemonCommandAdmissionHasIndependentSequence(t *testing.T) {
 }
 
 func TestCommandAdmissionRejectsInvalidScopesAndMissingRecords(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +290,7 @@ func TestCommandAdmissionRejectsInvalidScopesAndMissingRecords(t *testing.T) {
 }
 
 func TestCommandAPIsReturnClosedStoreErrors(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +316,7 @@ func TestCommandAPIsReturnClosedStoreErrors(t *testing.T) {
 }
 
 func TestCommandExecutionStateIsDurableAndCannotResurrect(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

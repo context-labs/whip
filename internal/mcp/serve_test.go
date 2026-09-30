@@ -23,7 +23,7 @@ import (
 // WHIP_TEST_SELFHOST-gated tests cover the real-subprocess path; this one
 // keeps Serve covered in plain CI.
 func TestServeInProcess(t *testing.T) {
-	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

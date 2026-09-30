@@ -41,7 +41,7 @@ func (l *countingLedger) lastAdmission() capability.Admission {
 
 func TestBoundToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 	root := t.TempDir()
-	st, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestBoundHostCallsHaveDistinctOperationIDs(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(workspace, "file.txt"), []byte("host call result\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+			store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -223,7 +223,7 @@ func TestBoundHostCallsHaveDistinctOperationIDs(t *testing.T) {
 
 func TestAuthorityCloneKeepsHostIntegrationsAndPermissionMode(t *testing.T) {
 	root := t.TempDir()
-	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

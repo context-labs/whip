@@ -16,7 +16,7 @@ import (
 
 func TestRuntimeTransitionFailureRollsBackRowsAndDiagnosesBody(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestRuntimeTransitionFailureRollsBackRowsAndDiagnosesBody(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestActorPersistenceEventFailuresRollBack(t *testing.T) {
 
 func actorFailureFixture(t *testing.T) (*Store, string, string) {
 	t.Helper()
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func assertActorRows(t *testing.T, st *Store, rootID string, inbox, events int) 
 
 func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	exec(t, st, `CREATE TRIGGER reject_recovery BEFORE UPDATE ON operations BEGIN SELECT RAISE(ABORT,'recovery failure'); END`)
 	st.Close()
 
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestOpenRejectsIncompatibleDatabase(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err := Open(p)
+	st, err := Open(p, capability.NewWorkspaces())
 	if err == nil {
 		st.Close()
 		t.Fatal("Open should reject a database whose schema collides with whip's")
@@ -572,7 +572,7 @@ func TestUserHistorySkipsMalformedRows(t *testing.T) {
 // previous compaction's saved summary row — it covers history the new summary
 // does not reach.
 func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +616,7 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 }
 
 func TestApplyCompactionRePinsOpeningMessageOfSplitTurn(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

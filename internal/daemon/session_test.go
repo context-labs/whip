@@ -141,7 +141,7 @@ func newTestProcesses(t *testing.T) *capability.ProcessManager {
 
 func openStore(t *testing.T, path string) *session.Store {
 	t.Helper()
-	store, err := session.Open(path)
+	store, err := session.Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

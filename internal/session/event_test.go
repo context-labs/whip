@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
 func TestEventReplayExpiresOldCursorsAndBoundsRetention(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func TestEventReplayExpiresOldCursorsAndBoundsRetention(t *testing.T) {
 }
 
 func TestRootSnapshotAndActiveRootDiscovery(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestRootSnapshotAndActiveRootDiscovery(t *testing.T) {
 }
 
 func TestRootSnapshotCarriesOnlyTheUncommittedPresentationTail(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestRootSnapshotCarriesOnlyTheUncommittedPresentationTail(t *testing.T) {
 }
 
 func TestReplayAndSnapshotRejectInvalidCoordinates(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestReplayAndSnapshotRejectInvalidCoordinates(t *testing.T) {
 }
 
 func TestReplayResolvesReferencedEventPayloadAndRejectsCorruptSnapshot(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestReplayResolvesReferencedEventPayloadAndRejectsCorruptSnapshot(t *testin
 }
 
 func TestEventAPIsReturnClosedStoreErrors(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

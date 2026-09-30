@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func versionThirteenDatabase(t *testing.T) (string, *sql.DB) {
@@ -56,7 +58,7 @@ func TestVersionThirteenUpgradePreservesAuthorityAndSessionState(t *testing.T) {
 	}
 	var firstCollection int64
 	for attempt := range 2 {
-		store, err := Open(path)
+		store, err := Open(path, capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -182,7 +184,7 @@ func TestVersionThirteenUpgradeOnlyTagsKnownBootstrapGrants(t *testing.T) {
 			if err := db.Close(); err != nil {
 				t.Fatal(err)
 			}
-			store, err := Open(path)
+			store, err := Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -226,7 +228,7 @@ func TestVersionThirteenUpgradeRollsBackAndRetries(t *testing.T) {
 		BEGIN SELECT RAISE(ABORT,'upgrade failed'); END;`, scopes); err != nil {
 		t.Fatal(err)
 	}
-	if store, err := Open(path); err == nil {
+	if store, err := Open(path, capability.NewWorkspaces()); err == nil {
 		_ = store.Close()
 		t.Fatal("upgrade unexpectedly succeeded")
 	}
@@ -247,7 +249,7 @@ func TestVersionThirteenUpgradeRollsBackAndRetries(t *testing.T) {
 	if _, err := db.ExecContext(t.Context(), `DROP TRIGGER reject_file_upgrade`); err != nil {
 		t.Fatal(err)
 	}
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

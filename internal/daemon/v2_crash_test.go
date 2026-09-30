@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/webgateway"
@@ -99,7 +100,7 @@ func TestV2CrashAfterAcceptanceRecoversAcrossTransports(t *testing.T) {
 			if err := json.Unmarshal(data, &accepted); err != nil {
 				t.Fatal(err)
 			}
-			store, err := session.Open(filepath.Join(home, "sessions.db"))
+			store, err := session.Open(filepath.Join(home, "sessions.db"), capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}

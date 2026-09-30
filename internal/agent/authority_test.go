@@ -17,7 +17,7 @@ func bindTestAgent(t *testing.T, ag *Agent, root string) {
 
 func bindTestServices(t *testing.T, services *tools.Services, root string) {
 	t.Helper()
-	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

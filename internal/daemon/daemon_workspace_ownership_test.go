@@ -33,7 +33,11 @@ func TestWorkspaceCoordinatorIsSharedByRootsAndChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	database := filepath.Join(t.TempDir(), "sessions.db")
-	store := openStore(t, database)
+	coordinator := capability.NewWorkspaces()
+	store, err := session.Open(database, coordinator)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ids := make([]string, 3)
 	for i, cwd := range []string{directory, alias, alias} {
 		kind := session.SessionKindAgent
@@ -55,10 +59,16 @@ func TestWorkspaceCoordinatorIsSharedByRootsAndChildren(t *testing.T) {
 	for _, incarnation := range []string{"new child", "restored child"} {
 		t.Run(incarnation, func(t *testing.T) {
 			if incarnation == "restored child" {
-				store = openStore(t, database)
+				coordinator = capability.NewWorkspaces()
+				store, err = session.Open(database, coordinator)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			t.Cleanup(func() { _ = store.Close() })
-			coordinator := store.Workspaces()
+			if store.Workspaces() != coordinator {
+				t.Fatal("store did not borrow the supplied workspace coordinator")
+			}
 			processes := newTestProcesses(t)
 			limits := rlm.DefaultLimits()
 			kernels := rlm.NewManager(limits.MaxWorkers)

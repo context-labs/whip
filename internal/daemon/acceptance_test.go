@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
@@ -137,7 +138,7 @@ func TestRuntimeAcceptanceDetachedRecoveryAndContextIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := session.Open(database)
+	store, err := session.Open(database, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +350,7 @@ func TestRuntimeAcceptanceDaemonHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = owner.Close() }()
-	store, err := session.Open(filepath.Join(home, "sessions.db"))
+	store, err := session.Open(filepath.Join(home, "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

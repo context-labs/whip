@@ -13,7 +13,7 @@ import (
 // bootstrap, delegated by name to children, never widened, and added with no
 // operations to roots that predate it.
 func TestToolsGrantIssuesDelegatesAndNeverWidens(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "tools.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "tools.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

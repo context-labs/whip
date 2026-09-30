@@ -162,7 +162,7 @@ func TestPrepareAuthoredInputAttachesVisionImagesAndEnforcesChildCapability(t *t
 // workspace-scoped file grant is exercised rather than the detached shortcut.
 func storeBackedInputSession(t *testing.T, workspace string) *AgentSession {
 	t.Helper()
-	store, err := sessionstore.Open(filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := sessionstore.Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

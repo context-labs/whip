@@ -651,7 +651,7 @@ prerequisite. The execution ledger below records subsequent repairs and results.
 
 All active review PRs remain unmerged. Rebased dependency heads are recorded below; successful
 checks on an earlier head are not a claim that a current-head rerun has finished.
-The current order is 299 → 300 → 301 → 307 → 302 → 304 → 305 → 306 → 308 → 4a.
+The current order is 299 → 300 → 301 → 307 → 302 → 304 → 305 → 306 → 308 → 309 → 310 → 311 → 6.
 The separate UI-readiness repair now precedes the compatibility gate so that
 PR #302 inherits that repair in its own required CI. The combined tree at the
 new PR #302 head is identical to the previous PR #303 tree; PRs #304–#306 and
@@ -676,7 +676,8 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Provider package extraction (plan PR 3b2) | `4b5c0e5790f698371abed1ed4c8bcf3dd9cd3885`, [PR #308](https://github.com/context-labs/whip/pull/308). | Eleven implementation files move to `internal/provider` with existing service/constructor names. The declaration proof preserves all 1,188 existing production declarations after type qualification; all 758 existing tests remain. Private tests move with the service; transport/runtime/default-pair/catalog-reload assertions remain in daemon. This code tree equals historical tested commit `f45cecb74dfe0c02826c044ace30112e53e0bccf`. Fresh publication-provenance compatibility passed against the new immediate parent. [Current CI](https://github.com/context-labs/whip/actions/runs/36685870687) and [security](https://github.com/context-labs/whip/actions/runs/36685870367) passed.  The current head includes the inherited header-spelling correction; earlier run results refer to the prior head. |
 | Startup factory extraction (plan PR 4a) | `b251786c8d868cba722f103d0a77ce72d07377f5`, [PR #309](https://github.com/context-labs/whip/pull/309). | The existing runtime factory and five helpers move to `cmd/whip/daemon_runtime.go`. Exact body comparison, full CLI race/shuffle (71.763s), module build/vet/whipvet, and fresh fixed/immediate-base compatibility passed. [CI](https://github.com/context-labs/whip/actions/runs/36686776874) and [security](https://github.com/context-labs/whip/actions/runs/36686776543) started; results were pending when this entry was recorded.  The current head includes the inherited header-spelling correction; earlier run results refer to the prior head. |
 | Host directory grouping (plan PR 4b) | `774623f12ef182856862209d186bc70150d17cf1`, [PR #310](https://github.com/context-labs/whip/pull/310). | Four existing directory listing, creation and native-picker functions move to `internal/daemon/host_directory.go`. AST-directed extraction preserves all six original function declarations and comments, leaving host dispatch and attention in `host.go`. Existing host/directory/RPC race/shuffle tests (4.644s), module build/vet/whipvet and exact source comparison passed. Fresh fixed/immediate-base compatibility passed. [CI](https://github.com/context-labs/whip/actions/runs/36687285608) and [security](https://github.com/context-labs/whip/actions/runs/36687285375) were pending at publication.  The current head includes the inherited header-spelling correction; earlier run results refer to the prior head. |
-| Process ownership (plan PR 5) | `057edb919da1a652fb284e2d54d4cf020a7867c6`, based on PR #310 (`774623f12ef182856862209d186bc70150d17cf1`). | Baseline lifecycle characterizations were committed and passed before production edits. Startup now constructs the shared manager explicitly and transfers ownership to the daemon only after successful construction. Validation and the detailed ownership map are recorded below. |
+| Process ownership (plan PR 5) | `42285977df445ac79334ac96e465d44f057f0350`, [PR #311](https://github.com/context-labs/whip/pull/311), based on PR #310. | Baseline lifecycle characterizations were committed and passed before production edits. Startup now constructs the shared manager explicitly and transfers ownership to the daemon only after successful construction. Validation and the detailed ownership map are recorded below. |
+| Workspace ownership (plan PR 6) | `codex/backend-reorg-06-workspace-ownership`, based on PR #311 (`42285977df445ac79334ac96e465d44f057f0350`). | A green, mutation-calibrated composition test precedes the ownership change. Host startup supplies one coordinator to storage; existing root/child/tool borrowers retain the same accessor and implementation. Validation and the deliberate remaining dependency are recorded below. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -963,3 +964,72 @@ an empty candidate diff and passes all calibrated transport/event, lifecycle,
 mutation-rejection, and both-engine fixed/immediate-base rollback checks. This
 recording update changes documentation only; hosted checks run on the published
 PR head. The PR remains unmerged for review.
+
+
+### Workspace ownership (plan PR 6)
+
+Host startup now creates one `capability.Workspaces` immediately before
+`session.Open(path, workspaces)`. Storage borrows the supplied coordinator and
+rejects a nil argument explicitly. `Store.Workspaces()` remains the intentional
+borrowed-reference boundary: authority validation and the existing runtime
+borrowers already need the store, so they use its same coordinator. There are
+no additional daemon/root pointer fields or constructor arguments, per-request
+allocations, fallback construction, new interfaces, or cleanup methods.
+`Workspaces.Open`, canonicalization and lock acquisition remain at their existing
+call sites; the moved constructor only creates the empty coordination map.
+
+The baseline characterization was committed at
+`1dcbacbb72c3ffda13938e21397e75e6e5bb7479` before production edits. It uses real
+root, second-root, spawned-child, restored-child and tool-host services. Writes
+through canonical and symlink aliases succeed before locking, wait until their
+bounded contexts expire while the shared target is held, and succeed after
+release. Target content stays unchanged while blocked, and unrelated-path writes
+succeed concurrently with the held lock. Three race/shuffle runs passed on the
+original implementation (17.193s). In a disposable snapshot, replacing only the
+restored child's coordinator with a fresh instance caused the restored-child
+lock assertion to fail, as required. After injection, the test also asserts
+identity with the externally supplied coordinator and passed three race/shuffle
+runs with the architecture guard (18.391s).
+
+The AST migration accounts for all 177 existing storage-open calls across 57
+files, including aliased imports and integration-tagged CLI/TUI/daemon fixtures.
+Each storage lifetime receives one coordinator; existing fixture assertions and
+cleanup remain unchanged. The source-conservation proof at
+`/private/tmp/whip-workspace-conservation-proof.txt` preserves 578 existing
+function declarations after normalizing only the added argument and the two
+production constructor changes. The only other existing-test differences are
+the new characterization's supplied-pointer checks and the architecture guard's
+additional forbidden storage constructor. Every authority method is byte-identical;
+entire delegation/admission, tools, dispatcher, workspace, runtime binding,
+child cloning and skill-completion files are byte-identical. The frozen
+content-only migration literal is untouched.
+
+Module build, vet and whipvet passed. CI's pinned golangci-lint 2.13.1 reported
+zero issues, and daemon/TUI/CLI integration-tagged fixtures compiled. Full
+race/shuffle suites passed: session (159.052s), capability (29.182s), tools
+(18.324s), MCP (22.606s), daemon (274.455s), agent (10.175s), and CLI (80.987s).
+
+Fresh compatibility evidence is at
+`/private/tmp/whip-workspace-compat-fresh/evidence.json`, using the fixed SDK
+`271c0f8d2a35648d1b45056d57432590b783483c`, immediate parent
+`42285977df445ac79334ac96e465d44f057f0350`, Go 1.27.0 darwin/arm64 and Node
+24.14.1. The recorded candidate is the characterization commit plus its captured
+staged source diff; later documentation updates do not change the tested source.
+Fresh binaries passed Unix/WebSocket responses and ordered events, deliberate
+response/order mutation rejection, cancellation/reconnect lifecycle and
+fixed/immediate-base rollback for both engines with retained root/child state,
+content, schema and trace/export. Candidate integration binary SHA-256:
+`390f550a80c4017e6306710625cb1ad14b617a9637f6808bdfd46c6b2758a4b8`.
+
+Corrected inherited CI provenance is recorded at
+`/private/tmp/whip-corrected-ci-audit.wDmPXD/provenance.json`. For immediate
+parent PR #311, the downloaded Linux compatibility artifact identifies parent
+`774623f12ef182856862209d186bc70150d17cf1` and the synthetic merge candidate for
+published head `42285977df445ac79334ac96e465d44f057f0350`. Its
+[CI run](https://github.com/context-labs/whip/actions/runs/36689454272) has passed
+lint and Linux/macOS compatibility; its
+[security run](https://github.com/context-labs/whip/actions/runs/36689453922)
+passed. Its SDK job subsequently failed and is being classified before this
+step is published; the full workflow is not claimed green. These corrected
+artifacts supersede the earlier parent-provenance runs for this head; they do
+not claim completion of other inherited workflows.

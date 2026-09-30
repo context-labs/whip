@@ -73,7 +73,8 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	store, err := session.Open(filepath.Join(paths.Home, "sessions.db"))
+	workspaces := capability.NewWorkspaces()
+	store, err := session.Open(filepath.Join(paths.Home, "sessions.db"), workspaces)
 	if err != nil {
 		return err
 	}

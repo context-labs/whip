@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func createEngineSession(t *testing.T, store *Store, engine string) string {
@@ -36,7 +38,7 @@ func TestSessionEngineTreeForkAndRestart(t *testing.T) {
 	for _, engine := range []string{"starlark", "quickjs"} {
 		t.Run(engine, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "engine.db")
-			store, err := Open(path)
+			store, err := Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -53,7 +55,7 @@ func TestSessionEngineTreeForkAndRestart(t *testing.T) {
 			if err := store.Close(); err != nil {
 				t.Fatal(err)
 			}
-			store, err = Open(path)
+			store, err = Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,7 +95,7 @@ func TestSessionEngineTreeForkAndRestart(t *testing.T) {
 }
 
 func TestEngineCreationRetriesRetainSelection(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "engine.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "engine.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +128,7 @@ func testCheckpoint(t *testing.T, root, agent, engine string, image []byte) []by
 }
 
 func TestCheckpointIntegrityOwnershipAndPublication(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "engine.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "engine.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +165,7 @@ func TestCheckpointIntegrityOwnershipAndPublication(t *testing.T) {
 }
 
 func TestCheckpointRootQuotaAndDeletion(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "engine.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "engine.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +198,7 @@ func TestCheckpointRootQuotaAndDeletion(t *testing.T) {
 
 func TestExecutionEngineMigrationPreservesLegacyScratch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "engine.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +212,7 @@ func TestExecutionEngineMigrationPreservesLegacyScratch(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

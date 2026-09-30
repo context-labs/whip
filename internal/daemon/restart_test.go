@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -52,7 +53,7 @@ func TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution(t *test
 		t.Fatal("detached in-flight call unexpectedly received a reply")
 	}
 
-	store, err = session.Open(path)
+	store, err = session.Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

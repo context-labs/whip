@@ -66,7 +66,7 @@ func (p *testMCPProvider) CallChecked(ctx context.Context, call capability.MCPCa
 
 func newMCPServices(t *testing.T) (*Services, *countingLedger, *testMCPProvider, capability.Authority) {
 	t.Helper()
-	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
