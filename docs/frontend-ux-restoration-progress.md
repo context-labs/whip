@@ -1,5 +1,11 @@
 # Frontend UX restoration implementation record
 
+> **Later audit correction (2026-09-29):** the increments below were implemented
+> and tested within their recorded scopes, but the overall parity completion
+> claim was too broad. The [desktop/web inventory](frontend-desktop-web-parity-inventory.md)
+> records remaining differences and the user's inventory-first, case-by-case
+> planning direction. Preserve the evidence; do not infer complete UX equivalence.
+
 Status: restoration implementation complete; final local acceptance and explicit
 limits are recorded in the [acceptance index](frontend-ux-restoration-acceptance.md).
 The [approved plan](frontend-ux-restoration-plan.md) defines scope and A1–A12.
@@ -313,3 +319,56 @@ Broader old Remember scopes remain a product decision; missing old reasoning
 cannot be reconstructed. The original development HEAD and all 14 overlay file
 hashes remain unchanged. No installed runtime, merge, deployment, signing or
 notarization was changed.
+
+## Increment 12 — provider onboarding decisions
+
+Implementation commit: `32157959b`.
+
+User review approved automatic host-startup import of supported environment
+providers while retaining explicit provider selection. Existing routes, including
+disabled routes, win; import stores environment variable names and does not choose
+a model default. The obsolete environment-candidate activation contract and its
+SDK/UI paths are removed; saved account candidates remain explicit.
+
+Selecting or completing connection to a canonical known provider applies its
+preset model and effort and opens the composer. Unknown presets/custom endpoints
+open the composer with a persistent provider-only draft; model selection stays
+in the composer and sending waits for a model. The onboarding model-confirmation
+panel and the Draft before connecting bypass/state are removed. Current
+credential status copy and source badges are accepted for now.
+
+Focused checks: 168 provider/onboarding/model/tab tests passed after the selection
+change; the later bypass removal passed all 58 affected welcome/sidebar/skill
+tests. App type checking and production builds passed. Provider/settings checks
+passed 12 groups in each of Chromium and Firefox at renderer
+`8c64f09ddbce2cd987fed41ded4653bc0e2dbcd30d993406bc03271673e4a98e`.
+The bypass removal then passed 14 native slash/composer groups in Chromium at
+renderer `228ea6fd74d294c624affd01a6e6dfa955216e7027f0e415359ce37be0dd71a7`.
+Reports are `/private/tmp/whip-provider-onboarding-browser/report.json` and
+`/private/tmp/whip-remove-draft-bypass-browser/report.json`. An initial browser
+selector failed because its model was beyond the picker's initial visible list;
+using the normal Search models control corrected the fixture. The passing
+provider report is a rerun, not the failed attempt.
+
+These checks cover the approved flows, not all desktop/web parity. No packaged
+desktop gate was rerun for this increment. UX-17 is the next approved change:
+preserve supported reasoning effort when changing the Settings default model,
+resetting to Default only when unsupported.
+
+## Increment 13 — preserve supported effort in Settings
+
+Implementation commit: `fb8e7e716`. The user approved preserving the selected
+reasoning effort when changing the Settings default model/provider, resetting
+only when the new model does not support it. The form reuses the existing
+catalog effort check and still saves model, effort and permissions atomically.
+Explicit Off is preserved when supported; session model editing is unchanged.
+
+The High and Off regression cases failed against the old unconditional reset.
+After the one-handler change, all 25 provider-default and model-selection tests,
+app type checking and the production renderer build/pack passed. Current renderer:
+`02487f5bf1ac3432d708dc2d510196f50816b28abddd4c107430ef4b2c334994`.
+The required `GOCACHE=/private/tmp/whip-env-import-go-cache task check:fast` gate
+passed before committing the unchanged backend, including the runtime suite.
+`npm run check -w @whip/protocol` passed all 18 interop tests, types and generated
+drift. The focused Settings change does not rerun or extend the earlier browser
+and packaged-desktop acceptance claims.

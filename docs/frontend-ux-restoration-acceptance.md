@@ -1,5 +1,33 @@
 # Frontend restoration acceptance — 2026-09-29
 
+> **Subsequent UX audit correction (2026-09-29):** the focused results below
+> remain evidence, but they do not establish complete baseline UX parity.
+> User review and source comparison found remaining ordinary-flow differences.
+> The [desktop/web inventory](frontend-desktop-web-parity-inventory.md) records
+> the completed source audit and subsequent user decisions. The provider/onboarding
+> checkpoint below supersedes those screens' earlier interaction expectations.
+
+## Provider follow-ups — user-approved corrections
+
+Commits `32157959b` and `fb8e7e716` implement environment-provider import at host
+startup, explicit provider selection with known model/effort presets, composer
+selection for unknown presets, removal of the onboarding model-confirmation and
+draft-bypass paths, and preservation of supported Settings reasoning effort.
+
+| Checkpoint | Evidence and limit |
+| --- | --- |
+| Provider selection | 168 focused tests; app types/build; 12 provider/settings groups per Chromium and Firefox. `/private/tmp/whip-provider-onboarding-browser/report.json`, renderer `8c64f09ddbce2cd987fed41ded4653bc0e2dbcd30d993406bc03271673e4a98e` |
+| Draft-bypass removal | 58 affected tests; app types/build; 14 native slash/composer groups in Chromium. `/private/tmp/whip-remove-draft-bypass-browser/report.json`, renderer `228ea6fd74d294c624affd01a6e6dfa955216e7027f0e415359ce37be0dd71a7` |
+| Settings effort | 25 provider-default/model-selection tests; app types; renderer build/pack `02487f5bf1ac3432d708dc2d510196f50816b28abddd4c107430ef4b2c334994`. Supported High/Off fail before the change and pass afterward; unsupported effort resets without an early write |
+| Commit gate | `task check:fast` passed. Protocol types, 18 interop tests and generated drift passed. Subsequent Settings-only edits do not change that backend/contract |
+
+Counts overlap and must not be added. Each browser result applies to its recorded
+renderer. No packaged-desktop acceptance was rerun for these follow-ups; remaining
+desktop/web parity and hosted acceptance stay open. See increments 12–13 in the
+[progress record](frontend-ux-restoration-progress.md) for commands and limits.
+
+## Earlier restoration checkpoint — retained evidence
+
 The restoration is implemented on the existing native backend/SDK. Draft
 [#298](https://github.com/context-labs/whip/pull/298) integrates the tested slices
 [#288](https://github.com/context-labs/whip/pull/288)–

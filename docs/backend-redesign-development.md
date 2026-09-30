@@ -6162,3 +6162,51 @@ its exact checkpoints and limits are in the
 implied by local checks. Broader old Remember authority and missing historical
 reasoning remain explicit limits. The original checkout's HEAD and 14 captured
 file hashes are unchanged; no installed runtime, merge or deployment occurred.
+
+
+## 2026-09-29 — UX parity audit correction and new-session handoff
+
+Human review found that the added Draft before connecting action and normal
+Inference.net default-model confirmation still differ from the approved
+frontend. Read-only comparison then identified further differences in terminal
+opening/reconnect, readiness, large-content reading, REPL subjects, queue/history
+browsing, settings, agent authoring and permission/recovery presentation.
+The earlier overall restoration-complete claim was too broad; exact passing
+checks remain valid only for their recorded scenarios.
+
+The user directs the next session to finish a complete parity inventory and
+plan before code changes, and to decide each proposed protocol-driven UI change
+with them. Their latest explicit Yes authorizes later implementation, validation
+and draft PR updates after that planning/decision step. It supersedes an earlier
+local-only response. No merge, deployment, release or installed-runtime change
+is authorized. The accepted 72 ms result remains outside further optimization.
+
+The [new handoff](backend-redesign-handoff-2026-09-29.md) records exact checkpoints,
+protected directories, the private reference overlay, process lessons, a
+27-finding seed inventory, validation limits, temporary-runtime context and
+next-session deliverables. Draft #298 was freshly verified OPEN/draft at
+e10d77a3e40d2bd788cab5431096f7353d6119c1, with no hosted checks reported. Its
+production source matches packaged f91cdb610. This handoff work changes only
+documentation; no builds, tests, product edits, runtime actions, inference,
+commits, pushes or PR updates were performed.
+
+## 2026-09-29 — approved provider/onboarding and Settings follow-ups
+
+The complete scoped desktop/web source inventory is now recorded in
+`docs/frontend-desktop-web-parity-inventory.md` and its source map. Case-by-case
+user decisions approved the provider/onboarding increment `32157959b`: import
+environment providers at startup without selecting a provider; apply known
+model/effort presets only on explicit selection or connection completion; move
+unknown-preset model selection into the composer; remove the onboarding model
+confirmation and draft-before-connecting bypass. Existing routes/defaults are
+preserved by discovery and obsolete environment-candidate contracts are deleted.
+
+The next separately approved increment `fb8e7e716` retains supported effort when
+changing the Settings default model and resets unsupported effort to Default.
+The preservation regression fails before and passes after; atomic Save remains.
+`task check:fast`, protocol types/18 interop tests/generated drift, focused app
+tests, app types and production builds pass. Exact incremental browser reports,
+renderer identities and remaining acceptance limits are recorded in the
+frontend acceptance index and progress increments 12–13. These increments do not
+establish full UX parity or new packaged-desktop acceptance. The current user
+request authorizes committing the work using the existing draft-PR process.
