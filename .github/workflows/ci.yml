@@ -223,6 +223,7 @@ jobs:
       - run: WHIP_WEB_BROWSERS=chromium,firefox node apps/web/scripts/browser.mjs
       - run: node apps/web/scripts/model-picker.mjs
       - run: node apps/web/scripts/snapshot-refresh.mjs
+      - run: node --test apps/web/scripts/performance-probes.test.mjs
       - run: node apps/web/scripts/performance.mjs
       - run: npm run test:example
       - name: Shared verified renderer for desktop and release consumers

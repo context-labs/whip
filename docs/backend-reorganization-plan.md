@@ -651,7 +651,7 @@ prerequisite. The execution ledger below records subsequent repairs and results.
 
 All active review PRs remain unmerged. Rebased dependency heads are recorded below; successful
 checks on an earlier head are not a claim that a current-head rerun has finished.
-The current order is 299 → 300 → 301 → 307 → 302 → 304 → 305 → 306 → 308 → 309 → 310 → 311 → 6.
+The current order is 299 → 300 → 301 → 307 → 302 → 304 → 305 → 306 → 308 → 309 → 310 → 311 → 312 → 313 → performance-probe repair.
 The separate UI-readiness repair now precedes the compatibility gate so that
 PR #302 inherits that repair in its own required CI. The combined tree at the
 new PR #302 head is identical to the previous PR #303 tree; PRs #304–#306 and
@@ -678,6 +678,8 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Host directory grouping (plan PR 4b) | `774623f12ef182856862209d186bc70150d17cf1`, [PR #310](https://github.com/context-labs/whip/pull/310). | Four existing directory listing, creation and native-picker functions move to `internal/daemon/host_directory.go`. AST-directed extraction preserves all six original function declarations and comments, leaving host dispatch and attention in `host.go`. Existing host/directory/RPC race/shuffle tests (4.644s), module build/vet/whipvet and exact source comparison passed. Fresh fixed/immediate-base compatibility passed. [CI](https://github.com/context-labs/whip/actions/runs/36687285608) and [security](https://github.com/context-labs/whip/actions/runs/36687285375) were pending at publication.  The current head includes the inherited header-spelling correction; earlier run results refer to the prior head. |
 | Process ownership (plan PR 5) | `42285977df445ac79334ac96e465d44f057f0350`, [PR #311](https://github.com/context-labs/whip/pull/311), based on PR #310. | Baseline lifecycle characterizations were committed and passed before production edits. Startup now constructs the shared manager explicitly and transfers ownership to the daemon only after successful construction. Validation and the detailed ownership map are recorded below. |
 | Workspace ownership (plan PR 6) | `codex/backend-reorg-06-workspace-ownership`, based on PR #311 (`42285977df445ac79334ac96e465d44f057f0350`). | A green, mutation-calibrated composition test precedes the ownership change. Host startup supplies one coordinator to storage; existing root/child/tool borrowers retain the same accessor and implementation. Validation and the deliberate remaining dependency are recorded below. |
+| Gateway fixture synchronization | `067fe82cd90b99aed42efa80c24e3917ba96e820`, [PR #313](https://github.com/context-labs/whip/pull/313), following workspace ownership. | Eight test-only lines synchronize the two pipelined browser writes before backend rejection. Existing assertions remain exact; the detailed baseline diagnosis and checks are below. |
+| Browser performance probe repair | `codex/backend-reorg-06b-performance-probe`, based on PR #313. | A separate instrumentation repair measures commit markers received in snapshots as well as notifications, preserving exact event sequences and first receipt. Focused negative-control regressions, full ordinary/controlled browser runs, and source conservation are recorded below. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -1091,3 +1093,64 @@ instrumentation repair is planned; it is not included here. One failed-job rerun
 was authorized and requested on unchanged PR #311 head
 `42285977df445ac79334ac96e465d44f057f0350`; attempt 2 remains pending. Neither
 workflow is claimed fully green before its checks finish.
+
+
+### Separate browser performance instrumentation repair
+
+The original PR #311 SDK failure remains recorded at [run
+36689454272](https://github.com/context-labs/whip/actions/runs/36689454272), job
+109802928468. The unchanged 30-second wait required 40 commit measurements;
+its artifact recorded 39 unique observations, missing only `commit-probe-001`,
+while all 40 markers appeared in the page. No browser errors were reported.
+The controlled handoff reproduced this exact signature on PR #311 and its
+immediate parent `774623f12ef182856862209d186bc70150d17cf1`: the marker arrived
+in a snapshot while the SDK replaced its subscription. The prior probe only
+observed event notifications. This is a preexisting measurement gap, not a
+change to process ownership or SDK delivery. The original CI artifact lacks
+raw frames, so the controlled trace establishes the matching causal mechanism
+rather than claiming to recover that run's exact transport trace.
+
+The repair is based on gateway prerequisite PR #313,
+`067fe82cd90b99aed42efa80c24e3917ba96e820`. The existing self-contained browser
+initializer moves into `apps/web/scripts/performance-probes.mjs`; the performance
+script passes that function directly to Playwright. Root-matching snapshot
+presentation entries retain their actual decimal-string event sequences, not
+the snapshot cursor. Bounded commit deduplication keeps the first WebSocket or
+desktop-frame receipt across either route, and the existing MutationObserver
+still records mounted live-row observation. Ordinary delta latency samples
+remain notification-only. No product, SDK, protocol, dependency, timeout,
+40-marker assertion, clock check, or existing capacity limit changes.
+
+The focused Node test imports the same installer and exercises its serialized
+function with controlled receipt, DOM, and clock inputs. The exact original
+initializer fails the snapshot and deduplication regressions; the repaired
+installer passes all nine cases, including subtests. Coverage includes both
+host bridges, 40 mixed-route markers with sequences beyond JavaScript's safe
+integer range, repeated receipts before and after DOM observation, unrelated
+roots and child presentation, snapshot delta exclusion, and overflow. CI runs
+this regression beside the existing full performance command; every previous
+workflow step remains unchanged.
+
+On this parent, protocol/browser generation and production asset packaging,
+JavaScript syntax checks, workflow lint, and all 36 workflow/publication policy
+tests passed. The complete ordinary browser performance run passed all 40
+marker and keyboard checks with a 0.384ms clock-correlation error bound. The
+controlled handoff also passed all checks with a 0.357ms bound: first marker
+sequence `910` arrived once in a snapshot and zero times in event notifications,
+yet its actual receipt and DOM observation were recorded. Both runs retain the
+original timeout and all performance checks. These local runs used Node
+24.14.1, Go 1.27.0 darwin/arm64, and pinned Playwright 1.63.0; hosted CI remains
+separate evidence.
+
+Exact conservation evidence is
+`/private/tmp/whip-performance-probes-conservation.json`: after excluding only
+the initializer import/extraction, the main script is byte-identical; original
+globals, transport bridge, and DOM observer are exact, and the workflow gains
+only the focused test command. Browser artifacts are under
+`/private/tmp/whip-performance-probes-validation/{ordinary,controlled}/`.
+The original-installer negative control and focused/workflow logs are
+`/private/tmp/whip-performance-probes-{original-negative,focused,workflow-tests}.log`.
+The causal investigation is preserved in
+`/private/tmp/whip-pr311-performance-diagnosis.md`. No additional hosted rerun
+was requested by this repair; the previously authorized PR #311 failed-job
+rerun is independent of these results. This PR remains unmerged for review.
