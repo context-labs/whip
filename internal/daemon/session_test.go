@@ -1382,6 +1382,14 @@ func TestNewRejectsSecondDaemonOwner(t *testing.T) {
 	if _, err := New(store, factory); err == nil || !strings.Contains(err.Error(), "already has a daemon owner") {
 		t.Fatalf("second daemon error=%v", err)
 	}
+	if _, err := store.LoadMeta(createRoot(t, store)); err != nil {
+		t.Fatalf("second-owner rejection closed the database: %v", err)
+	}
+	unregister, err := store.Processes().RegisterStop("after-second-owner-rejection", func() error { return nil })
+	if err != nil {
+		t.Fatalf("second-owner rejection closed the process manager: %v", err)
+	}
+	unregister()
 }
 
 func TestClosePreservesClaimedScheduleWake(t *testing.T) {
