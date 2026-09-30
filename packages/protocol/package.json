@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "json-schema-to-typescript": "15.0.4",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "ajv": "8.20.0"
   },
   "files": [
