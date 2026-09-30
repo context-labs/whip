@@ -656,11 +656,12 @@ checks on an earlier head are not a claim that a current-head rerun has finished
 | --- | --- | --- |
 | Dependency-audit prerequisite | `db3a1cea247eee7cbaa0424fe3ee89eb0d36bf9d`, [PR #299](https://github.com/context-labs/whip/pull/299) | Only 11 `brace-expansion` lockfile entries changed. Local install, unchanged production-audit threshold, protocol freshness, 470 SDK unit tests, example build, and package smoke passed. [Full CI](https://github.com/context-labs/whip/actions/runs/36678816413) and security passed. This is the green maintenance base; the original development SDK remains the fixed oracle. |
 | Stacked-base CI prerequisite | `dba610243623b1a7f6f13f910ddec4d6df9bb711`, [PR #300](https://github.com/context-labs/whip/pull/300) | Only CI/security PR-base filters and their distribution-test expectation changed, plus this plan. All 36 distribution-policy tests and workflow validation passed. GitHub verified both workflows start against stacked bases. [Full current CI](https://github.com/context-labs/whip/actions/runs/36681079742) and current security passed. |
-| Isolated provider test environment | `a57b5261b6225b64451b0d5b06374f721cb83153`, [PR #301](https://github.com/context-labs/whip/pull/301) | Separate test-only repair prevents inherited provider credentials from changing fixtures. [Current CI](https://github.com/context-labs/whip/actions/runs/36681286958) is running; current security passed. |
+| Isolated provider test environment | `a57b5261b6225b64451b0d5b06374f721cb83153`, [PR #301](https://github.com/context-labs/whip/pull/301) | Separate test-only repair prevents inherited provider credentials from changing fixtures. [Full current CI](https://github.com/context-labs/whip/actions/runs/36681286958) and current security passed. |
 | Frozen-contract gate | `a7be9a28a0f37598985733e2fe50e06af1aa06f4`, [PR #302](https://github.com/context-labs/whip/pull/302) | Local fixed-reference and immediate-base comparisons passed, including mutation rejection and both-engine data rollback. [Current full CI](https://github.com/context-labs/whip/actions/runs/36681287828) completed: both Linux/macOS compatibility jobs, Go tests with the 90% coverage floor, lint and runtime checks passed. The aggregate failed the independently reproduced UI scroll-readiness race repaired downstream in PR #303; current security passed. |
-| Dialog assertion readiness | `1882979ad414c256cada7b2fb71e11a02f46bd4e`, [PR #303](https://github.com/context-labs/whip/pull/303) | Separate test-only repair waits for sheet focus before scroll assertions. The combined 36-test workflow-policy suite passed. [Current CI](https://github.com/context-labs/whip/actions/runs/36681287194) passed the complete SDK/UI/browser/product job, both compatibility jobs, Go tests with the 90% coverage floor, lint, runtime, mobile, builds, docs and macOS distribution. Desktop and Linux distribution are still finishing; current security passed. |
-| Host MCP ownership (plan PR 2) | `d8175212d3db3371b14862dc07ad24fc62393108`, [PR #304](https://github.com/context-labs/whip/pull/304). | Three operation bodies move unchanged from `ProviderService` to a private `hostMCPService`, owned by `Server`. The real HTTP cancellation characterization passed against the original implementation before extraction. Focused MCP/icon race tests, full-module build/vet/whipvet, and the full daemon race/shuffle suite (250.722s) passed. Fresh fixed-SDK comparisons passed against the original reference and immediate base `1882979ad414c256cada7b2fb71e11a02f46bd4e`, including both transports, mutation rejection, lifecycle and both-engine data rollback. |
-| Provider operation boundary (plan PR 3a) | This change, based on `d8175212d3db3371b14862dc07ad24fc62393108`. | Catalog operation/reload characterization passed three times under the race detector on unchanged production code before extraction. Typed catalog results, compaction validation, model admission and provider-context borrowing now form the narrow operation surface. Shared effort and permission-default helpers move once to their existing configuration/session owners. Validation results are recorded below. |
+| Dialog assertion readiness | `1882979ad414c256cada7b2fb71e11a02f46bd4e`, [PR #303](https://github.com/context-labs/whip/pull/303) | Separate test-only repair waits for sheet focus before scroll assertions. The combined 36-test workflow-policy suite passed. [Full current CI](https://github.com/context-labs/whip/actions/runs/36681287194) passed, including SDK/UI/browser/product, both compatibility jobs, Go tests with the 90% coverage floor, lint, runtime, mobile, builds, docs, desktop and distribution. Current security also passed; this is the combined green prerequisite baseline. |
+| Host MCP ownership (plan PR 2) | `d8175212d3db3371b14862dc07ad24fc62393108`, [PR #304](https://github.com/context-labs/whip/pull/304). | Three operation bodies move unchanged from `ProviderService` to a private `hostMCPService`, owned by `Server`. The real HTTP cancellation characterization passed against the original implementation before extraction. Focused MCP/icon race tests, full-module build/vet/whipvet, and the full daemon race/shuffle suite (250.722s) passed. Fresh fixed-SDK comparisons passed against the original reference and immediate base `1882979ad414c256cada7b2fb71e11a02f46bd4e`, including both transports, mutation rejection, lifecycle and both-engine data rollback. [Full current CI](https://github.com/context-labs/whip/actions/runs/36682214774) and current security passed. |
+| Provider operation boundary (plan PR 3a) | `a211fb0e7629f9692eb5133aa00244aea17e38a9`, [PR #305](https://github.com/context-labs/whip/pull/305). | Catalog operation/reload characterization passed three times under the race detector on unchanged production code before extraction. Typed catalog results, compaction validation, model admission and provider-context borrowing now form the narrow operation surface. Shared effort and permission-default helpers move once to their existing configuration/session owners. Validation results are recorded below. [Current CI](https://github.com/context-labs/whip/actions/runs/36683418233) is running; current security passed. |
+| Provider integration test boundary (plan PR 3b1) | This change, based on `a211fb0e7629f9692eb5133aa00244aea17e38a9`. | The five existing affected integration tests now use HTTP/auth persistence rather than private provider callbacks. They passed three times under the race detector (23.256s). Full-module build, vet and whipvet and fresh fixed-SDK compatibility passed. The full daemon race/shuffle suite passed (261.125s). |
 
 ### Host MCP ownership and lifetime
 
@@ -707,3 +708,32 @@ including both transports, mutation rejection, lifecycle and both-engine data
 rollback. The compatibility evidence records the tested working diff and binary
 and contract hashes; the submitted PR records the commit and hosted CI results.
 Existing CI and frozen-contract gates remain required.
+
+
+### Provider integration test boundary
+
+The existing onboarding, custom-connection, host RPC, Unix/WebSocket login and
+recursive subscription-runtime tests stay in daemon. Local HTTP fixtures now
+exercise model discovery, device authorization, workspace/project selection,
+key provisioning and credential persistence through their existing public APIs.
+Assertions retain the same token, team and project identities, configuration
+conflicts, cancellation/recovery, unsupported rotation, and secret isolation.
+A persisted per-project machine key also connects the provisioning request to
+its saved identity. Runtime credentials are seeded by a separate public
+`openaiauth.Manager` before the provider service reads them.
+
+The unsigned-account rotation assertion runs before login because successful
+login now actually persists credentials. The failed-rotation assertion remains;
+no production behavior changes. HTTP overrides are installed before daemon
+construction and restored after its workers close. Unexpected external hosts
+fail the test, and all fixture data lives in temporary homes. The service-private
+unit tests remain in place for the separate package-move PR 3b2.
+
+Fresh compatibility evidence at `/private/tmp/whip-backend-compat-pr3b1-fresh/evidence.json`
+records the immutable SDK reference `271c0f8d2a35648d1b45056d57432590b783483c`,
+immediate base `a211fb0e7629f9692eb5133aa00244aea17e38a9`, and the complete staged
+test diff, including the new fixture. Node v24.14.1 and Go 1.27.0 on darwin/arm64
+built all three selected integration binaries freshly. SDK and generated
+contract artifacts matched; both transport comparisons, deliberate mutation
+rejection, lifecycle checks, and both-engine fixed/base → candidate → base data
+rollback passed. Production source, SDK, schema and CI requirements are unchanged.

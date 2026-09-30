@@ -123,36 +123,12 @@ func TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts(t *tes
 func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *testing.T) {
 	for _, mode := range []string{"client", "root"} {
 		t.Run(mode, func(t *testing.T) {
-			server, client, root, rootID := providerBehaviorFixture(t)
+			providerOnboardingHTTPFixture(t)
+			_, client, root, rootID := providerBehaviorFixture(t)
 			var api providerBehaviorClient = client
 			if mode == "root" {
 				api = root
 			}
-			service := server.providers
-			service.validate = func(_ context.Context, _, key string) ([]llm.ModelInfo, error) {
-				if key != "private-api-key" {
-					return nil, errors.New("bad key")
-				}
-				return []llm.ModelInfo{
-					{ID: "fixture-model", SupportsTools: new(true), OutputModalities: []string{"text"}},
-					{ID: "compact-model"},
-				}, nil
-			}
-			service.login = func(_ context.Context, code func(string, string)) (providerLoginIdentity, error) {
-				code("https://example.test/verify", "display-code")
-				return providerLoginIdentity{token: "private-session-token", email: "person@example.test", teams: []inferencenet.Team{{ID: "team", Name: "Team"}, {ID: "other", Name: "Other"}}}, nil
-			}
-			service.projects = func(context.Context, string, inferencenet.Team) ([]inferencenet.Project, error) {
-				return []inferencenet.Project{{ID: "existing", Name: "Existing"}, {ID: "other", Name: "Other"}}, nil
-			}
-			service.create = func(_ context.Context, token string, team inferencenet.Team, name string) (inferencenet.Project, error) {
-				if token != "private-session-token" || team.ID != "team" || name != "Created" {
-					return inferencenet.Project{}, errors.New("invalid creation identity")
-				}
-				return inferencenet.Project{ID: "created", Name: name}, nil
-			}
-			finished := make(chan inferencenet.Auth, 2)
-			service.finish = func(_ context.Context, auth inferencenet.Auth) error { finished <- auth; return nil }
 			before, err := api.ReadConfiguration(t.Context())
 			if err != nil {
 				t.Fatal(err)
@@ -184,16 +160,20 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 			if err != nil || cfg.Providers["openrouter"].APIKey != "private-api-key" {
 				t.Fatalf("host key not persisted: %v", err)
 			}
+			// Real login persists credentials, so check unsigned rotation before signing in.
+			if _, err := api.RotateProviderKey(t.Context(), config.InferenceNetProvider); err == nil {
+				t.Fatal("unsigned account rotated a key")
+			}
 			for _, project := range []string{"existing", "created"} {
 				flow, err := api.BeginLogin(t.Context())
 				if err != nil {
 					t.Fatal(err)
 				}
-				waitProviderState(t, service, flow.FlowID, "choose_team")
+				waitProviderClientState(t, api, flow.FlowID, "choose_team")
 				if _, err := api.SelectLoginTeam(t.Context(), flow.FlowID, "team"); err != nil {
 					t.Fatal(err)
 				}
-				waitProviderState(t, service, flow.FlowID, "choose_project")
+				waitProviderClientState(t, api, flow.FlowID, "choose_project")
 				if project == "existing" {
 					_, err = api.SelectLoginProject(t.Context(), flow.FlowID, project)
 				} else {
@@ -202,18 +182,14 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 				if err != nil {
 					t.Fatal(err)
 				}
-				waitProviderState(t, service, flow.FlowID, "succeeded")
+				waitProviderClientState(t, api, flow.FlowID, "succeeded")
 				result, err := api.LoginStatus(t.Context(), flow.FlowID)
 				if err != nil || result.State != "succeeded" || result.ProjectID != project {
 					t.Fatalf("login=%+v %v", result, err)
 				}
-				select {
-				case auth := <-finished:
-					if auth.ProjectID != project || auth.SessionToken != "private-session-token" {
-						t.Fatalf("wrong provisioning identity: %+v", auth)
-					}
-				case <-time.After(time.Second):
-					t.Fatal("provisioning did not complete")
+				auth, err := inferencenet.LoadAuth()
+				if err != nil || auth.ProjectID != project || auth.SessionToken != "private-session-token" || auth.TeamID != "team" || auth.MachineKey != "private-machine-"+project {
+					t.Fatalf("wrong persisted provisioning identity: project=%q team=%q error=%v", auth.ProjectID, auth.TeamID, err)
 				}
 			}
 			flow, err := api.BeginLogin(t.Context())
@@ -227,9 +203,6 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 			logins, err := api.ListLogins(t.Context())
 			if err != nil || len(logins.Flows) != 3 {
 				t.Fatalf("lost login states: %+v %v", logins, err)
-			}
-			if _, err := api.RotateProviderKey(t.Context(), config.InferenceNetProvider); err == nil {
-				t.Fatal("unsigned account rotated a key")
 			}
 			if _, err := api.LogoutProvider(t.Context(), config.InferenceNetProvider); err != nil {
 				t.Fatal(err)
@@ -247,7 +220,7 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 				t.Fatal(err)
 			}
 			encoded, _ := json.Marshal([]any{after, status, logins, replay})
-			if strings.Contains(string(encoded), "private-api-key") || strings.Contains(string(encoded), "private-session-token") {
+			if strings.Contains(string(encoded), "private-api-key") || strings.Contains(string(encoded), "private-session-token") || strings.Contains(string(encoded), "private-machine-") {
 				t.Fatal("credentials escaped host storage")
 			}
 		})

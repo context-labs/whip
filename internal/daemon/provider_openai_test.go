@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -265,26 +267,53 @@ func TestOpenAIRejectsConflictingProfileBeforeLogin(t *testing.T) {
 
 func TestOpenAILoginAcrossUnixAndWebSocketWithoutJournalingSecrets(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	fixture := newV2Fixture(t, &fakeRunner{})
-	service := fixture.server.providers
-	service.refreshModels = func(context.Context, string, config.Provider) error { return nil }
 	ready, release := make(chan struct{}), make(chan struct{})
-	service.openAILogin = func(ctx context.Context, onCode func(string, string)) (openaiauth.Credentials, error) {
-		onCode("https://auth.openai.com/codex/device", "private-device-code")
-		close(ready)
-		select {
-		case <-ctx.Done():
-			return openaiauth.Credentials{}, ctx.Err()
-		case <-release:
-			return openAITestCredentials(), nil
+	providerHTTPFixture(t, []string{"auth.openai.com", "chatgpt.com"}, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method + " " + r.URL.Path {
+		case "POST /api/accounts/deviceauth/usercode":
+			_, _ = w.Write([]byte(`{"device_auth_id":"private-device-id","user_code":"private-device-code","interval":1}`))
+		case "POST /api/accounts/deviceauth/token":
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["device_auth_id"] != "private-device-id" || body["user_code"] != "private-device-code" {
+				t.Error("device polling lost its authorization identity")
+			}
+			close(ready)
+			select {
+			case <-r.Context().Done():
+				return
+			case <-release:
+			}
+			_, _ = w.Write([]byte(`{"authorization_code":"private-authorization-code","code_verifier":"private-code-verifier"}`))
+		case "POST /oauth/token":
+			if err := r.ParseForm(); err != nil || r.Form.Get("code") != "private-authorization-code" || r.Form.Get("code_verifier") != "private-code-verifier" || r.Form.Get("grant_type") != "authorization_code" {
+				t.Error("token exchange lost its authorization identity")
+			}
+			idToken := "fixture." + base64.RawURLEncoding.EncodeToString([]byte(`{"chatgpt_account_id":"account-id","email":"account@example.com"}`)) + ".fixture"
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "private-access-token", "refresh_token": "private-refresh-token", "id_token": idToken, "expires_in": 3600,
+			})
+		case "GET /backend-api/codex/models":
+			if r.Header.Get("Authorization") != "Bearer private-access-token" || r.Header.Get("Chatgpt-Account-Id") != "account-id" {
+				t.Error("subscription discovery lost its account identity")
+			}
+			_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5.5","visibility":"list","context_window":400000}]}`))
+		default:
+			t.Errorf("unexpected OpenAI fixture route: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusNotFound)
 		}
-	}
+	})
+	fixture := newV2Fixture(t, &fakeRunner{})
 	local := fixture.dial("unix", "local-login")
 	flow, err := local.BeginProviderLogin(t.Context(), openaiauth.Provider)
 	if err != nil {
 		t.Fatal(err)
 	}
-	<-ready
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("device authorization did not reach polling")
+	}
 	_ = local.Close()
 	remote := fixture.dial("websocket", "remote-login")
 	recovered, err := remote.BeginProviderLogin(t.Context(), openaiauth.Provider)
@@ -292,7 +321,7 @@ func TestOpenAILoginAcrossUnixAndWebSocketWithoutJournalingSecrets(t *testing.T)
 		t.Fatalf("cross-transport login recovery: %v", err)
 	}
 	close(release)
-	waitProviderState(t, service, flow.FlowID, "succeeded")
+	waitProviderClientState(t, remote, flow.FlowID, "succeeded")
 	status, err := remote.ProviderStatus(t.Context(), openaiauth.Provider)
 	if err != nil || status.AuthState != "connected" {
 		t.Fatalf("remote account status: %+v %v", status, err)

@@ -460,12 +460,10 @@ func TestProviderConfigurationLastProviderRemovalPreservesRecoveryGuard(t *testi
 
 func TestProviderConfigurationHostRPCAndSecretContracts(t *testing.T) {
 	s := customProviderService(t)
-	s.validate = func(context.Context, string, string) ([]llm.ModelInfo, error) {
-		return []llm.ModelInfo{{ID: "fixture"}}, nil
-	}
 	server := &Server{providers: s}
 	connection := &serverConn{ctx: t.Context()}
 	p := customProviderParams(t, s)
+	p.Definition.BaseURL = providerModelEndpoint(t, p.Credential.Key, []llm.ModelInfo{{ID: "fixture"}})
 	body, _ := json.Marshal(p)
 	result, rpcErr, handled := server.handleProvider(connection, rpcMessage{Method: "provider.create", Params: body})
 	if rpcErr != nil || !handled {

@@ -28,11 +28,18 @@ func (f subscriptionRuntimeTransport) RoundTrip(request *http.Request) (*http.Re
 
 func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	providers := NewProviderService(t.Context(), "subscription-runtime")
-	t.Cleanup(providers.Close)
-	if err := providers.openAI.Install(t.Context(), providers.openAI.Generation(), openAITestCredentials()); err != nil {
+	directory, err := config.Dir()
+	if err != nil {
 		t.Fatal(err)
 	}
+	credentials := openaiauth.New(t.Context(), directory)
+	if err := credentials.Install(t.Context(), credentials.Generation(), openAITestCredentials()); err != nil {
+		credentials.Close()
+		t.Fatal(err)
+	}
+	credentials.Close()
+	providers := NewProviderService(t.Context(), "subscription-runtime")
+	t.Cleanup(providers.Close)
 	if _, _, err := config.UpdateVersioned("", func(cfg *config.Config) error { return cfg.UpsertOpenAICodex() }); err != nil {
 		t.Fatal(err)
 	}

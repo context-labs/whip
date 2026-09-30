@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -30,24 +29,19 @@ type providerConfigurationClient interface {
 func TestProviderClientsCustomConnectionLifecycle(t *testing.T) {
 	for _, mode := range []string{"client", "root"} {
 		t.Run(mode, func(t *testing.T) {
-			server, client, root, rootID := providerBehaviorFixture(t)
+			_, client, root, rootID := providerBehaviorFixture(t)
 			var api providerConfigurationClient = client
 			if mode == "root" {
 				api = root
 			}
-			server.providers.validate = func(_ context.Context, endpoint, key string) ([]llm.ModelInfo, error) {
-				if endpoint != "https://example.test/v1" || key != "private-fixture-key" {
-					return nil, errors.New("incorrect discovery credentials")
-				}
-				return []llm.ModelInfo{{ID: "fixture-chat", SupportsTools: new(true), OutputModalities: []string{"text"}}}, nil
-			}
+			endpoint := providerModelEndpoint(t, "private-fixture-key", []llm.ModelInfo{{ID: "fixture-chat", SupportsTools: new(true), OutputModalities: []string{"text"}}})
 			before, err := api.ReadConfiguration(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}
 			created, err := api.CreateProvider(t.Context(), protocol.ProviderCreateParams{
 				Revision: before.Revision, Provider: "custom-fixture",
-				Definition: protocol.ProviderDefinition{Name: "Fixture", BaseURL: "https://example.test/v1", API: "openai-completions"},
+				Definition: protocol.ProviderDefinition{Name: "Fixture", BaseURL: endpoint, API: "openai-completions"},
 				Credential: protocol.ProviderCredential{Mode: "api_key", Key: "private-fixture-key"},
 			})
 			if err != nil || !created.Custom || created.Discovery == nil || created.Discovery.Status != "loaded" || created.Discovery.ModelCount != 1 {
