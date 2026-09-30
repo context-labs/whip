@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -51,8 +52,10 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 			t.Cleanup(func() { _ = store.Close() })
 			processes := capability.NewProcessManager()
 			t.Cleanup(func() { _ = processes.Close() })
+			titleRelease := make(chan struct{})
+			runner := &startupRunner{titleRelease: titleRelease}
 			owner, err := daemon.New(store, processes, func(context.Context, session.Meta, []llm.Message) (daemon.Components, error) {
-				return daemon.Components{Runner: &startupRunner{}}, nil
+				return daemon.Components{Runner: runner}, nil
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -136,11 +139,13 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 			if _, ok := m.requestHostSkills()().(clientSkillsMsg); !ok {
 				t.Fatal("startup skill discovery failed")
 			}
-			_, command := m.submitClientAction("submit", protocol.SubmitPayload{Text: "Investigate workers"}, "")
+			const prompt = "Investigate workers and their queue"
+			_, command := m.submitClientAction("submit", protocol.SubmitPayload{Text: prompt}, "")
 			message := clientCommandFrom(t, command)
 			if message.err != nil || message.result.Status != "succeeded" {
 				t.Fatalf("first prompt: %+v", message)
 			}
+			sawProvisional := false
 			for {
 				select {
 				case update := <-client.Updates():
@@ -149,6 +154,27 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 					}
 					if update.Event == nil || update.Event.Kind != "session.title.updated" {
 						continue
+					}
+					var title protocol.SessionUpdateEvent
+					if err := json.Unmarshal(update.Event.Payload, &title); err != nil {
+						t.Fatal(err)
+					}
+					if title.Title == prompt {
+						if sawProvisional {
+							t.Fatal("provisional title delivered twice")
+						}
+						sawProvisional = true
+						close(titleRelease)
+						continue
+					}
+					if !sawProvisional || title.Title != "Worker Investigation" {
+						t.Fatalf("unexpected title event: %+v (provisional seen: %v)", title, sawProvisional)
+					}
+					runner.mu.Lock()
+					titlePrompt := runner.titlePrompt
+					runner.mu.Unlock()
+					if titlePrompt != prompt {
+						t.Fatalf("title generation prompt = %q, want %q", titlePrompt, prompt)
 					}
 					snapshot, err := client.Snapshot(ctx)
 					if err != nil {
@@ -167,8 +193,10 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 }
 
 type startupRunner struct {
-	mu      sync.Mutex
-	history []llm.Message
+	mu           sync.Mutex
+	history      []llm.Message
+	titlePrompt  string
+	titleRelease <-chan struct{}
 }
 
 func (r *startupRunner) Turn(_ context.Context, input string, authored bool, started func(), _ func(string)) (string, error) {
@@ -189,6 +217,15 @@ func (r *startupRunner) History() []llm.Message {
 
 func (*startupRunner) Close() {}
 
-func (*startupRunner) GenerateTitle(context.Context) (string, llm.Usage, error) {
-	return "Worker Investigation", llm.Usage{}, nil
+func (r *startupRunner) GenerateTitle(ctx context.Context, prompt string) (string, llm.Usage, error) {
+	r.mu.Lock()
+	r.titlePrompt = prompt
+	r.mu.Unlock()
+	// Hold generation until the client has observed the committed provisional title.
+	select {
+	case <-r.titleRelease:
+		return "Worker Investigation", llm.Usage{}, nil
+	case <-ctx.Done():
+		return "", llm.Usage{}, ctx.Err()
+	}
 }

@@ -179,6 +179,8 @@ jobs:
         run: go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState)$'
       - name: Shared native connection and command presentation
         run: go test -race ./internal/daemonconn ./internal/commandpresentation
+      - name: TUI startup and automatic title over both transports
+        run: go test -race -tags=integration ./internal/tui -run '^TestInteractiveSessionOverTrustedProtocol$'
       - name: Compact agent receipts and grant retrieval
         run: go test -race -tags=integration ./internal/daemon -run '^TestRecursiveAgent(ReceiptsWithLargeMCPGrants|GrantInspectionAccess)$'
       - name: RLM worker containment

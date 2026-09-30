@@ -680,6 +680,8 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Workspace ownership (plan PR 6) | `codex/backend-reorg-06-workspace-ownership`, based on PR #311 (`42285977df445ac79334ac96e465d44f057f0350`). | A green, mutation-calibrated composition test precedes the ownership change. Host startup supplies one coordinator to storage; existing root/child/tool borrowers retain the same accessor and implementation. Validation and the deliberate remaining dependency are recorded below. |
 | Gateway fixture synchronization | `067fe82cd90b99aed42efa80c24e3917ba96e820`, [PR #313](https://github.com/context-labs/whip/pull/313), following workspace ownership. | Eight test-only lines synchronize the two pipelined browser writes before backend rejection. Existing assertions remain exact; the detailed baseline diagnosis and checks are below. |
 | Browser performance probe repair | `codex/backend-reorg-06b-performance-probe`, based on PR #313. | A separate instrumentation repair measures commit markers received in snapshots as well as notifications, preserving exact event sequences and first receipt. Focused negative-control regressions, full ordinary/controlled browser runs, and source conservation are recorded below. |
+| Shared native plumbing (plan PR 7) | `3127d8ef67c3d59cd70f55ad697102e275c2a6fc`, [PR #315](https://github.com/context-labs/whip/pull/315), based on PR #314. | Shared connection primitives and command presentation move without changing client/server policy. The declaration, characterization, full affected-suite and fresh fixed/immediate-base evidence is recorded below. The PR remains unmerged. |
+| Tagged TUI title fixture repair | `codex/backend-reorg-07a-tui-title-fixture`, based on PR #315 (`3127d8ef67c3d59cd70f55ad697102e275c2a6fc`). | Separate test-only prerequisite fixes a title-generation fixture that already failed on the starting revision's policy. Both transports retain the original final assertions; the existing tagged acceptance test is added to Linux/macOS runtime CI. Diagnosis and evidence are recorded below. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -1234,3 +1236,55 @@ This pre-commit local run records the characterization SHA plus its complete
 staged extraction diff. Only the reviewed decoder comment and this ledger were
 updated afterward; no executable behavior changed. Hosted checks will record
 the final commit and actual PR parent separately.
+
+### Tagged TUI title fixture repair before native client extraction
+
+The existing `TestInteractiveSessionOverTrustedProtocol` failed on both Unix
+and WebSocket on clean PR #315, with correct model/provider and two transcript
+messages but the prompt-derived title instead of `Worker Investigation`.
+The same fixture and policy were present at the fixed development revision
+`271c0f8d2a35648d1b45056d57432590b783483c`: the fake's obsolete
+`GenerateTitle(context.Context)` signature did not implement the current
+prompt-taking optional interface, its 19-character input was below the existing
+20-rune generation threshold, and it treated the first, provisional title event
+as a generated title. This is baseline fixture drift, not a client extraction
+regression. Evidence: `/private/tmp/whip-tui-title-fixture-diagnosis.md` and
+`/private/tmp/whip-pr8-parent-native-title.log`.
+
+The test now supplies an explicit longer prompt and a matching fake that records
+the exact generation input. A cancellable test-only channel holds generation
+until the client receives the provisional title; the test then requires the
+generated title event and the original final model/provider/title/two-message
+snapshot assertion. The original 10-second context remains. There are no
+sleeps, timeout increases, production changes or altered title-policy defaults.
+The existing tagged test command is added to the Linux/macOS runtime matrix;
+Taskfile acceptance already runs it, and every prior selector remains.
+
+Both transports passed all three race repetitions without a PTY (3.634s),
+matching the hosted command's environment. The full TUI race/shuffle suite,
+including integration-tag tests, passed in a real PTY (10.164s). Existing
+`TestTitleLifecycle*`, `TestGenerateTitle*` and `TestProvisionalTitle*` policy
+checks passed three race repetitions (daemon 13.417s, session 5.268s).
+Four throwaway Go overlays independently restored the old signature or short
+prompt, changed the captured input, or returned the wrong generated title;
+each failed its intended assertion. The repository was never mutated for
+these negative controls. Results are
+`/private/tmp/whip-title-fixture-negative-results.json`.
+
+Module build, vet, whipvet, all-package integration-tag compilation, full
+CI-equivalent default-tag golangci-lint 2.13.1, and all 36 workflow-policy tests
+passed. Evidence logs use
+`/private/tmp/whip-title-fixture-{focused,tui-full,policy,build-vet,lint}.log`.
+An additional integration-tag-only TUI lint run found the inherited `noctx`
+finding on this fixture's unchanged `net.Listen("unix", paths.Socket)` call.
+It did not pass. That call remains unchanged to keep this repair focused;
+there is no suppression. Exact output and parent-source comparison are
+`/private/tmp/whip-title-fixture-tagged-lint.log` and
+`/private/tmp/whip-title-fixture-listener-proof.txt`. This supplemental result
+is distinct from the passing required lint gate and tagged compile/tests.
+Local runners used disposable homes and removed ambient provider credentials;
+no installed daemon or live provider was used. Product code, SDK/protocol,
+schema/migrations and dependency files are unchanged from PR #315. Hosted
+compatibility and workflow results will record this separate prerequisite's
+published head and immediate parent; local checks do not stand in for those
+future results.
