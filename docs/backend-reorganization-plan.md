@@ -682,7 +682,8 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Browser performance probe repair | `codex/backend-reorg-06b-performance-probe`, based on PR #313. | A separate instrumentation repair measures commit markers received in snapshots as well as notifications, preserving exact event sequences and first receipt. Focused negative-control regressions, full ordinary/controlled browser runs, and source conservation are recorded below. |
 | Shared native plumbing (plan PR 7) | `3127d8ef67c3d59cd70f55ad697102e275c2a6fc`, [PR #315](https://github.com/context-labs/whip/pull/315), based on PR #314. | Shared connection primitives and command presentation move without changing client/server policy. The declaration, characterization, full affected-suite and fresh fixed/immediate-base evidence is recorded below. The PR remains unmerged. |
 | Tagged TUI title fixture repair | `e289b4ea3344b6fdd45a8782d17c5c66084e90e4`, [PR #316](https://github.com/context-labs/whip/pull/316), based on PR #315. | Separate test-only prerequisite fixes a title-generation fixture that already failed on the starting revision's policy. Both transports retain the original final assertions; the existing tagged acceptance test is added to Linux/macOS runtime CI. Diagnosis and evidence are recorded below. |
-| Native client extraction (plan PR 8) | `codex/backend-reorg-08-native-client`, based on PR #316 (`e289b4ea3344b6fdd45a8782d17c5c66084e90e4`). | Exact implementation/private-test moves and canonical Go imports preserve all client APIs, bodies and assertions. Full affected race/PTY suites, named native acceptance and static checks passed. After the separate inherited title-fixture repair, the tagged TUI gate and refreshed fixed/immediate-parent guard passed at clean code commit `ecf96616acf48233658620c81286a08fd9bada80`; final documentation records the complete evidence below. |
+| Native client extraction (plan PR 8) | `d36711aeaf48257025107dd4552f777854010f50`, [PR #317](https://github.com/context-labs/whip/pull/317), based on PR #316. | Exact implementation/private-test moves and canonical Go imports preserve all client APIs, bodies and assertions. Full affected race/PTY suites, named native acceptance and static checks passed. After the separate inherited title-fixture repair, the tagged TUI gate and refreshed fixed/immediate-parent guard passed at clean code commit `ecf96616acf48233658620c81286a08fd9bada80`; final documentation records the complete evidence below. |
+| Store lifecycle grouping (plan PR 9) | `codex/backend-reorg-09-store-lifecycle`, based on PR #317 (`d36711aeaf48257025107dd4552f777854010f50`). | Five unchanged declarations and their comments move into `internal/session/store.go`; all 58 remaining declarations are preserved. Connection setup, borrowed references, the daemon guard and database closure now have one small source home. Detailed conservation and validation evidence is recorded below. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -1409,3 +1410,60 @@ rollback passed. The fixed SDK/backend pin, toolchains and candidate daemon test
 binary hash are unchanged from the initial evidence above. The final follow-up
 commit changes only documentation; hosted checks will record its own SHA and PR
 base. The extraction and its prerequisite remain separate, unmerged review PRs.
+
+### Store lifecycle grouping and structural stopping point
+
+The final structural step moves exactly `Store`, `AcquireDaemon`,
+`ReleaseDaemon`, `Open` and `Close`, with attached comments, from
+`internal/session/session.go` to `internal/session/store.go`. This puts connection
+setup, its failure cleanup, borrowed resource references, the in-process daemon
+guard and database closure together in one 73-line file. The package, API and
+callers are unchanged. `SessionKind`, `Meta`, timestamp helpers and domain
+operations remain in session.go; workspace access, permission checks, migrations
+and every existing transaction stay in their previous files.
+
+The external AST-directed extraction proves all five moved declarations and all
+58 retained declarations/comments byte-identical. The package documentation stays
+in session.go. The package's import dependency set is unchanged; the production
+SQLite blank import appears exactly once, now in store.go. No package variable
+or init function moves, so neither dependency initialization nor package state
+ordering changes. Conserving the production import explicitly matters because
+an existing migration test also imports SQLite and could otherwise mask missing
+registration. The proof is `/private/tmp/whip-pr9-conservation.log`; the temporary
+extraction tool is `/private/tmp/whip-pr9-store-move.go`. Architecture scans are
+directory-wide and acceptance selectors use packages/test names, so no guard or
+test selector needs alteration. No new test duplicates the exact file move.
+
+This is the selected persistence follow-up and the final structural change.
+Actor and tracing extraction is deferred: their state is still governed by
+existing scheduling, mutexes, causal contexts and commit boundaries, without an
+equally clear low-risk seam. Root/child scheduling adapters and engine-specific
+REPL containment/checkpoint behavior remain as implemented. Final documentation
+and integrated review-tip acceptance follow; all review PRs remain unmerged.
+
+The existing full session race/shuffle suite passed (156.994s). Module build,
+vet, whipvet, all-package integration-tag compilation, existing architecture
+checks (2.659s) and pinned CI-equivalent golangci-lint 2.13.1 passed with zero
+lint issues. Logs are `/private/tmp/whip-pr9-session-race.log` and
+`/private/tmp/whip-pr9-build-vet.log`. No unrelated full race suites were repeated
+for the byte-identical same-package move.
+
+Fresh fixed-SDK and exact immediate-parent compatibility passed at
+`/private/tmp/whip-pr9-compat-fresh/evidence.json`. The fixed reference remains
+`271c0f8d2a35648d1b45056d57432590b783483c`; the immediate parent is PR #317
+`d36711aeaf48257025107dd4552f777854010f50`. All three Go integration binaries,
+the fixed SDK and generated artifacts were rebuilt using Go 1.27.0 darwin/arm64
+and Node 24.14.1. Both transports' calibrated responses/errors/ordered events,
+actual response/order mutation rejection, lifecycle scenarios and both-engine
+fixed-base/immediate-base → candidate → base retained-root/child/content/schema/
+trace rollback passed. Candidate binary SHA-256:
+`02666aa9f94a6623d24bbb33407a937274975b2977a1cbaa39e94f5f4713f5af`.
+
+This local run records the PR #317 HEAD plus the complete staged candidate diff,
+including the newly added store.go. Only this ledger was updated after that
+capture; all candidate Go source remains identical to the tested source. A
+separate dependency setup had completed before the guard began its candidate
+installation; recorded timestamps confirm no concurrent installation or build
+in that directory (`/private/tmp/whip-pr9-installer-timing.json`). Hosted checks
+will record the submitted commit and actual PR base separately. This PR remains
+unmerged pending human review.
