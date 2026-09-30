@@ -1029,7 +1029,65 @@ published head `42285977df445ac79334ac96e465d44f057f0350`. Its
 [CI run](https://github.com/context-labs/whip/actions/runs/36689454272) has passed
 lint and Linux/macOS compatibility; its
 [security run](https://github.com/context-labs/whip/actions/runs/36689453922)
-passed. Its SDK job subsequently failed and is being classified before this
-step is published; the full workflow is not claimed green. These corrected
+passed. At this pre-publication snapshot, its SDK job had subsequently failed
+and classification was pending; the full workflow was not claimed green. The
+following entry records publication and the later diagnosis. These corrected
 artifacts supersede the earlier parent-provenance runs for this head; they do
 not claim completion of other inherited workflows.
+
+### Separate gateway fixture synchronization repair
+
+Workspace ownership was published as [PR #312](https://github.com/context-labs/whip/pull/312)
+at `26a6fec9b505fd6c00cd10d64c753c779509a2a4`, based on PR #311. Its
+[CI](https://github.com/context-labs/whip/actions/runs/36692034286) and
+[security](https://github.com/context-labs/whip/actions/runs/36692033890) workflows
+started; full hosted acceptance remains pending. This separate test-only repair
+starts from that exact head and changes no product or client implementation.
+
+PR #308's original [CI run, attempt 1](https://github.com/context-labs/whip/actions/runs/36689144507/attempts/1)
+failed in `TestHandshakeFailClosedBeforePipelinedTraffic/different-runtime`:
+the second browser write returned `broken pipe` before the assertions ran.
+The gateway and its tests were unchanged from frozen development. The fake
+backend replied immediately to initialization while the browser sent its two
+frames separately, so correct handshake rejection could close the connection
+before the second write. A diagnostic probe against unchanged PR #311 observed
+the expected error response, upstream closure without forwarding, and browser
+EOF before the second write in all three rejection modes. The Linux write error
+was not reproduced locally on macOS, where that first post-close write was
+accepted by the kernel. Diagnosis and external probes are preserved under
+`/private/tmp/whip-corrected-ci-audit.wDmPXD/`.
+
+The fixture now holds the incompatible initialization response until both
+browser writes have succeeded. Its per-subtest channel also observes test-context
+cancellation so failed setup cannot strand the backend worker. Every existing
+network-marker, protocol-error, and no-forwarded-request assertion remains
+byte-identical, as does the rest of the test file after removing the eight added
+lines. No sleeps, retries, ignored write errors, or product changes were added.
+The preservation proof is `/private/tmp/whip-reorg-gateway-fixture-preservation.txt`.
+
+Local full gateway race/shuffle passed (1.499s), and the affected test passed
+100 race/shuffle repetitions with the original CI shuffle seed (1.755s). Module
+build, vet, whipvet, and full CI-pinned golangci-lint 2.13.1 passed with zero lint
+issues. The separate pre-change diagnostic barrier probe
+also passed 100 repetitions with an added scheduling delay; that delay exists
+only in the external probe, not in this repair.
+
+One failed-job rerun of PR #308 was authorized after source attribution and
+diagnosis. Its open head was verified unchanged at
+`4b5c0e5790f698371abed1ed4c8bcf3dd9cd3885` immediately before the request;
+attempt 2 is pending. The original failure remains recorded above. Corrected
+PRs #306, #309, and #310 now have fully successful CI; all five corrected
+#306/#308/#309/#310/#311 security workflows and both compatibility matrix jobs
+passed, with the expected Linux parent/tree provenance verified.
+
+PR #311's original SDK job passed all 470 SDK and 1,380 app tests, then timed out
+in the browser performance probe while recording committed markers. Its artifact
+contained all 40 markers in the DOM but only 39 measurements, with no page errors.
+A controlled snapshot/subscription handoff reproduced the same measurement gap
+on both PR #311 and its unchanged immediate parent: the probe observed event
+notifications but omitted a marker delivered in a snapshot. The source-level
+diagnosis is `/private/tmp/whip-pr311-performance-diagnosis.md`. A separate
+instrumentation repair is planned; it is not included here. One failed-job rerun
+was authorized and requested on unchanged PR #311 head
+`42285977df445ac79334ac96e465d44f057f0350`; attempt 2 remains pending. Neither
+workflow is claimed fully green before its checks finish.
