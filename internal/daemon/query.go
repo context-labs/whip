@@ -8,6 +8,7 @@ import (
 
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/protocol"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -115,7 +116,7 @@ func (c *Client) Query(ctx context.Context, params protocol.QueryParams) (protoc
 	return result, err
 }
 
-func queryProviderCatalogs(ctx context.Context, providers *ProviderService, payload json.RawMessage) (string, error) {
+func queryProviderCatalogs(ctx context.Context, providers *providersvc.ProviderService, payload json.RawMessage) (string, error) {
 	var params protocol.ProviderCatalogParams
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, &params); err != nil {

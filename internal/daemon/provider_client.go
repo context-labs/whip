@@ -8,6 +8,25 @@ import (
 	"github.com/context-labs/whip/internal/protocol"
 )
 
+// RuntimeConfiguration contains settings safe to send to clients. Credentials
+// and integration definitions stay on the execution host.
+type RuntimeConfiguration = protocol.RuntimeConfiguration
+
+type ConfigurationUpdate = protocol.ConfigurationUpdate
+
+// ProviderKeySetup is ephemeral: never write it to a command journal or log.
+type ProviderKeySetup = protocol.ProviderKeySetup
+
+type ProviderChoice = protocol.ProviderChoice
+
+type ProviderLoginStatus = protocol.ProviderLoginStatus
+
+type (
+	ProviderLoginList  = protocol.ProviderLoginList
+	ProviderNameParams = protocol.ProviderNameParams
+	ProviderStatus     = protocol.ProviderStatus
+)
+
 // providerCall waits for a connection but never retries an issued mutation.
 // Callers can query login status after reconnect; credentials are never replayed.
 func (c *RootClient) providerCall(ctx context.Context, method string, params, result any) error {

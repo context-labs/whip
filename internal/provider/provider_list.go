@@ -1,4 +1,4 @@
-package daemon
+package provider
 
 import (
 	"cmp"
@@ -113,18 +113,18 @@ func (s *ProviderService) ListProvidersFor(model, provider string) (protocol.Pro
 	return result, nil
 }
 
-func unavailableProvider(id, warning string) ProviderStatus {
-	return ProviderStatus{
+func unavailableProvider(id, warning string) protocol.ProviderStatus {
+	return protocol.ProviderStatus{
 		Provider: id, KeySource: "none", Available: new(false),
 		AuthState: "configuration_error", Warnings: []string{warning},
 	}
 }
 
-func (s *ProviderService) providerStatus(cfg *config.Config, name string) (ProviderStatus, error) {
+func (s *ProviderService) providerStatus(cfg *config.Config, name string) (protocol.ProviderStatus, error) {
 	return s.providerStatusWithCredentials(cfg, name, nil)
 }
 
-func (s *ProviderService) providerStatusWithCredentials(cfg *config.Config, name string, credentials *config.CredentialSnapshot) (ProviderStatus, error) {
+func (s *ProviderService) providerStatusWithCredentials(cfg *config.Config, name string, credentials *config.CredentialSnapshot) (protocol.ProviderStatus, error) {
 	if name == openaiauth.Provider {
 		if s == nil || s.openAI == nil {
 			return unavailableProvider(name, "Subscription credentials are unavailable on this host."), nil
@@ -134,11 +134,11 @@ func (s *ProviderService) providerStatusWithCredentials(cfg *config.Config, name
 	return providerKeyStatusWithCredentials(cfg, name, credentials)
 }
 
-func providerKeyStatus(cfg *config.Config, name string) (ProviderStatus, error) {
+func providerKeyStatus(cfg *config.Config, name string) (protocol.ProviderStatus, error) {
 	return providerKeyStatusWithCredentials(cfg, name, nil)
 }
 
-func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentials *config.CredentialSnapshot) (ProviderStatus, error) {
+func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentials *config.CredentialSnapshot) (protocol.ProviderStatus, error) {
 	if credentials == nil {
 		credentials = config.DiscoverCredentials(cfg)
 	}
@@ -152,12 +152,12 @@ func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentia
 			}
 		}
 		if !found {
-			return ProviderStatus{}, errors.New("unknown provider")
+			return protocol.ProviderStatus{}, errors.New("unknown provider")
 		}
 	}
 	key := credentials.KeyStatus(entry)
 	disabled := slices.Contains(cfg.DisabledProviders, name)
-	result := ProviderStatus{
+	result := protocol.ProviderStatus{
 		Provider: name, Configured: configured, KeySource: key.Source, Disabled: disabled,
 		Available: new(key.Available && !disabled), EnvironmentVariable: key.Environment,
 		CredentialPath: key.Path,
@@ -185,7 +185,7 @@ func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentia
 	if name == config.InferenceNetProvider && key.Source == "machine" {
 		auth, err := inferencenet.LoadAuth()
 		if err != nil {
-			return ProviderStatus{}, errors.New("could not read provider account on execution host")
+			return protocol.ProviderStatus{}, errors.New("could not read provider account on execution host")
 		}
 		result.Email, result.TeamName, result.ProjectID = auth.UserEmail, auth.TeamName, auth.ProjectID
 		result.ProjectName, result.MachineKeyName = auth.ProjectName, auth.MachineKeyName

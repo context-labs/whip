@@ -1,4 +1,4 @@
-package daemon
+package provider
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 func TestConfigurationDefaultPermissionMode(t *testing.T) {
@@ -36,14 +37,14 @@ func TestConfigurationDefaultPermissionMode(t *testing.T) {
 		t.Fatalf("resolved default omitted: %s", encoded)
 	}
 	for _, mode := range []string{"automatic", "prompt"} {
-		after, err := service.UpdateConfiguration(ConfigurationUpdate{Revision: before.Revision, DefaultPermissionMode: &mode})
+		after, err := service.UpdateConfiguration(protocol.ConfigurationUpdate{Revision: before.Revision, DefaultPermissionMode: &mode})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if after.DefaultPermissionMode != mode || after.Revision == before.Revision {
 			t.Fatalf("update = %+v", after)
 		}
-		if _, err := service.UpdateConfiguration(ConfigurationUpdate{Revision: before.Revision, DefaultPermissionMode: &mode}); !errors.Is(err, config.ErrRevisionConflict) {
+		if _, err := service.UpdateConfiguration(protocol.ConfigurationUpdate{Revision: before.Revision, DefaultPermissionMode: &mode}); !errors.Is(err, config.ErrRevisionConflict) {
 			t.Fatalf("stale update = %v", err)
 		}
 		persisted, _, err := config.ReadVersioned()
@@ -67,7 +68,7 @@ func TestConfigurationDefaultPermissionMode(t *testing.T) {
 				t.Fatal(err)
 			}
 			brandIcons := !before.BrandIcons
-			_, err = service.UpdateConfiguration(ConfigurationUpdate{
+			_, err = service.UpdateConfiguration(protocol.ConfigurationUpdate{
 				Revision: before.Revision, DefaultPermissionMode: &mode, BrandIcons: &brandIcons,
 			})
 			if err == nil {

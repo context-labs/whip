@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
+	providersvc "github.com/context-labs/whip/internal/provider"
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
@@ -94,7 +95,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		return err
 	}
 	limits := rlmLimits(cfg.RLM)
-	providers := daemon.NewProviderService(ctx, strconv.FormatInt(generation, 10))
+	providers := providersvc.NewProviderService(ctx, strconv.FormatInt(generation, 10))
 	defer providers.Close()
 	if discovered, discoveryErr := providers.DiscoverProviders(ctx, "", ""); discoveryErr != nil {
 		config.LogEvent("provider.discovery", discoveryErr.Error())
@@ -265,7 +266,7 @@ func configureRuntimeCompaction(
 	ag *agent.Agent,
 	cfg *config.Config,
 	defaults agentdef.CompactionDefaults,
-	providers *daemon.ProviderService,
+	providers *providersvc.ProviderService,
 ) {
 	ag.CompactThreshold = defaults.Threshold
 	if ag.CompactThreshold == 0 {
@@ -300,7 +301,7 @@ func configureRuntimeCompaction(
 // resolveRuntimeModel snapshots the actual endpoint and its catalog rates together.
 // All model purposes use this resolver so a default provider cannot accidentally
 // supply another endpoint's price or output limits.
-func resolveRuntimeModel(cfg *config.Config, modelName, providerName string, services ...*daemon.ProviderService) (agent.ModelRoute, config.Model, error) {
+func resolveRuntimeModel(cfg *config.Config, modelName, providerName string, services ...*providersvc.ProviderService) (agent.ModelRoute, config.Model, error) {
 	providerName, provider, model, apiID, err := cfg.ResolveRoute(modelName, providerName)
 	if err != nil {
 		return agent.ModelRoute{}, config.Model{}, err
@@ -308,7 +309,7 @@ func resolveRuntimeModel(cfg *config.Config, modelName, providerName string, ser
 	if modelName == "" {
 		modelName = cfg.DefaultModel
 	}
-	var providers *daemon.ProviderService
+	var providers *providersvc.ProviderService
 	if len(services) > 0 {
 		providers = services[0]
 	}

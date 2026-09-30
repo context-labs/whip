@@ -1,4 +1,4 @@
-package daemon
+package provider
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/openaiauth"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 func (s *ProviderService) loginOpenAI(flow *providerLoginFlow) {
@@ -103,23 +104,23 @@ func (s *ProviderService) failOpenAILogin(flow *providerLoginFlow, err error) {
 	flow.status.UserCode = ""
 }
 
-func (s *ProviderService) openAIStatus() (ProviderStatus, error) {
+func (s *ProviderService) openAIStatus() (protocol.ProviderStatus, error) {
 	if s.openAIErr != nil {
-		return ProviderStatus{}, s.openAIErr
+		return protocol.ProviderStatus{}, s.openAIErr
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		return ProviderStatus{}, err
+		return protocol.ProviderStatus{}, err
 	}
 	return s.openAIStatusFromConfig(cfg)
 }
 
-func (s *ProviderService) openAIStatusFromConfig(cfg *config.Config) (ProviderStatus, error) {
+func (s *ProviderService) openAIStatusFromConfig(cfg *config.Config) (protocol.ProviderStatus, error) {
 	if s.openAIErr != nil {
-		return ProviderStatus{}, s.openAIErr
+		return protocol.ProviderStatus{}, s.openAIErr
 	}
 	entry, configured := cfg.Providers[openaiauth.Provider]
-	status := ProviderStatus{
+	status := protocol.ProviderStatus{
 		Provider: openaiauth.Provider, Configured: configured, KeySource: "subscription",
 		AuthMethod: "chatgpt", AuthState: "signed_out", Warnings: []string{},
 	}
@@ -145,9 +146,9 @@ func (s *ProviderService) openAIStatusFromConfig(cfg *config.Config) (ProviderSt
 	return status, nil
 }
 
-func (s *ProviderService) logoutOpenAI(ctx context.Context) (ProviderStatus, error) {
+func (s *ProviderService) logoutOpenAI(ctx context.Context) (protocol.ProviderStatus, error) {
 	if s.openAIErr != nil {
-		return ProviderStatus{}, s.openAIErr
+		return protocol.ProviderStatus{}, s.openAIErr
 	}
 	s.mu.Lock()
 	for _, flow := range s.flows {
@@ -162,15 +163,15 @@ func (s *ProviderService) logoutOpenAI(ctx context.Context) (ProviderStatus, err
 	return s.logoutOpenAILocked(ctx)
 }
 
-func (s *ProviderService) logoutOpenAILocked(ctx context.Context) (ProviderStatus, error) {
+func (s *ProviderService) logoutOpenAILocked(ctx context.Context) (protocol.ProviderStatus, error) {
 	if err := ctx.Err(); err != nil {
-		return ProviderStatus{}, err
+		return protocol.ProviderStatus{}, err
 	}
 	if err := s.openAI.Logout(); err != nil {
-		return ProviderStatus{}, err
+		return protocol.ProviderStatus{}, err
 	}
 	if err := config.DeleteCatalog(openaiauth.Provider); err != nil {
-		return ProviderStatus{}, errors.New("signed out of OpenAI, but the cached model catalog could not be removed")
+		return protocol.ProviderStatus{}, errors.New("signed out of OpenAI, but the cached model catalog could not be removed")
 	}
 	return s.openAIStatus()
 }

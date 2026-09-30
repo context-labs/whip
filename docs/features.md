@@ -354,7 +354,7 @@ rotation. OpenCode credential/config/database import and desktop probes are remo
 
 Code: `cmd/modelgen`, `internal/config/modelsdev`,
 `internal/config/{modelsdev,provider_credentials,provider_models,revision}.go`,
-`internal/daemon/provider_{discovery,list,configuration,model,service}.go`,
+`internal/provider/provider_{discovery,list,configuration,model,service}.go`,
 `internal/tui/setup.go`, `packages/app/src/provider-setup.tsx`,
 `apps/desktop/src/provider-environment.ts`.
 Tests: importer/presence/pricing tests in `cmd/modelgen` and
@@ -382,11 +382,12 @@ appear in their own Settings group. Disconnect also clears the disabled flag. Mo
 rejects stale route/account responses. Desktop recovers only the supported local
 shell keys, bounded and without forwarding them to remote hosts.
 
-Code: `internal/config/providers.go`, `internal/daemon/provider_{list,disconnect,model}.go`,
+Code: `internal/config/providers.go`, `internal/provider/provider_{list,disconnect,model}.go`,
 `internal/daemon/budget.go`, `packages/app/src/settings/provider-connections.tsx`,
 `packages/app/src/settings/provider-login.tsx`, and `apps/desktop/src/runtime.ts`.
 Tests: `internal/config/providers_test.go`,
-`internal/daemon/provider_connections_test.go`, `packages/sdk/test/services.test.ts`,
+`internal/provider/provider_connections_test.go`, `internal/daemon/provider_connections_test.go`,
+`packages/sdk/test/services.test.ts`,
 `packages/app/test/provider-connections.test.tsx`, `packages/app/test/model-selection.test.tsx`,
 `apps/desktop/tests/provider-environment.test.ts`, and the production
 `apps/web/scripts/provider-connections.mjs` workflow. See the
@@ -440,12 +441,13 @@ cleared by an earlier acceptance. Native **Set up this Mac** composes verified
 backend installation and the existing connection owner in one action. Existing
 installations, advanced diagnostics and remote hosts retain their policies.
 
-Code: `internal/daemon/provider_selection.go`, `internal/daemon/provider_service.go`,
+Code: `internal/provider/provider_selection.go`, `internal/provider/provider_service.go`,
 `internal/tui/{setup,startup}.go`, `internal/daemon/root_client.go`,
 `internal/session/command.go`,
 `packages/app/src/{provider-setup,welcome,welcome-submission,runtime}.ts*`,
 `packages/app/src/host-dialog.tsx`, and `apps/desktop/src/runtime.ts`.
-Tests: `internal/daemon/{provider_selection,root_client}_test.go`,
+Tests: `internal/provider/provider_selection_test.go`,
+`internal/daemon/{provider_selection,root_client}_test.go`,
 `internal/tui/{setup,startup,client,cursor}_test.go`,
 `internal/session/command_test.go`, `cmd/whip/daemon_test.go`,
 `packages/app/test/{provider-connections,welcome-submission,sidebar-creation,runtime,local-runtime}.test.ts*`,
@@ -497,10 +499,10 @@ acceptance is implied.
 
 Code: `internal/tui/setup_picker.go`, `internal/tui/ui/list.go`,
 `internal/config/{providers,provider_credentials,provider_models}.go`,
-`internal/daemon/provider_{list,model,service}.go`,
+`internal/provider/provider_{list,model,service}.go`,
 `internal/llm/provider_compatibility.go`, `apps/desktop/src/runtime.ts`.
 Tests: `internal/tui/setup_picker_test.go`, credential/preset model tests under
-`internal/config`, preset discovery/key tests under `internal/daemon`,
+`internal/config`, preset discovery/key tests under `internal/provider`,
 `internal/llm/provider_compatibility_test.go`, and desktop provider environment tests.
 See [picker implementation and evidence](../.ai-docs/plans/tui-provider-configuration/PICKER-REDESIGN.md).
 One-step defaults: `internal/tui/setup_default{,_test}.go`,
@@ -526,11 +528,11 @@ history. Web/desktop inventory sees the same connections. No provider database o
 web custom-provider form is introduced.
 
 Code: `internal/tui/setup_provider.go`, `internal/tui/setup_host.go`,
-`internal/daemon/provider_configuration.go`, `internal/config/providers.go`,
+`internal/provider/provider_configuration.go`, `internal/config/providers.go`,
 `internal/llm/openai.go`, `internal/protocol/provider_types.go`, and
 `packages/sdk/src/services.ts`.
 Tests: `internal/tui/setup_provider_test.go`,
-`internal/daemon/provider_configuration_test.go`,
+`internal/provider/provider_configuration_test.go`, `internal/daemon/provider_configuration_test.go`,
 `internal/config/provider_auth_test.go`, `internal/llm/openai_noauth_test.go`,
 `cmd/whip/acp_test.go`, and `packages/sdk/test/services.test.ts`.
 See [configuration instructions](models-providers.md#supported-provider-types-and-custom-endpoints)
@@ -551,11 +553,12 @@ setup and limits; live acceptance is tracked in the
 [implementation plan](../.ai-docs/plans/openai-subscriptions/README.md).
 
 Code: `internal/openaiauth`, `internal/llm/{subscription,responses}.go`,
-`internal/daemon/provider_{openai,model}.go`, `cmd/whip/auth_openai.go`,
+`internal/provider/provider_{openai,model}.go`, `cmd/whip/auth_openai.go`,
 `internal/tui/auth_cmd.go`, `packages/app/src/settings/providers.tsx`, and
 `packages/app/src/model-options.ts`.
 Tests: `internal/openaiauth/auth_test.go`, `internal/llm/{subscription,responses}_test.go`,
-`internal/daemon/provider_openai_test.go`, `internal/session/continuation_test.go`,
+`internal/provider/provider_openai_test.go`, `internal/daemon/provider_openai_test.go`,
+`internal/session/continuation_test.go`,
 and `packages/app/test/{providers,model-selection}.test.tsx` cover rotation races,
 cross-transport login recovery, secret isolation, stream completion, budgeting,
 model/provider selection and client state. Live Pro-account acceptance also
@@ -616,7 +619,7 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   the daemon host. TUI themes/keybindings remain local. Secret credentials and
   ephemeral terminal input are excluded from command journals.
 - Implementation: `internal/protocol`, `internal/daemon/{server,subscription,
-  transport,provider_service,completion}.go`, `internal/webgateway`, `internal/session`, and
+  transport,completion}.go`, `internal/provider/provider_service.go`, `internal/webgateway`, `internal/session`, and
   `packages/protocol`. Coverage: `v2_acceptance_test.go`, `runtime_parity_test.go`,
   `transport_test.go`, `client_admission_test.go`, provider/config tests and the
   generated contract/browser interoperability checks. See [protocol-v2.md](protocol-v2.md).
@@ -1326,7 +1329,7 @@ Other custom origins, wildcards, suffixes, ports and paths remain rejected.
 validation, explicit opt-in and CORS response headers; the daemon no longer
 hosts HTTP handlers.
 
-Code: `internal/config/remote_hosts.go`, `internal/daemon/provider_service.go`,
+Code: `internal/config/remote_hosts.go`, `internal/provider/provider_service.go`,
 `packages/app/src/{hosts,runtime,session-tabs,workspace-views}.ts`,
 `{host-dialog,welcome,settings,session-search-dialog,attention}.tsx`.
 Tests: `internal/config/remote_hosts_test.go`, the remote-host configuration test

@@ -21,6 +21,7 @@ import (
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/schedule"
 	sessionstore "github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
@@ -1786,11 +1787,11 @@ func marshalClientOutput(value any, err error) (string, error) {
 	return string(raw), err
 }
 
-func clientProviderCatalogs(ctx context.Context, providers *ProviderService, refresh bool) (string, error) {
+func clientProviderCatalogs(ctx context.Context, providers *providersvc.ProviderService, refresh bool) (string, error) {
 	return clientProviderCatalogsFor(ctx, providers, refresh, "")
 }
 
-func clientProviderCatalogsFor(ctx context.Context, providers *ProviderService, refresh bool, selected string) (string, error) {
+func clientProviderCatalogsFor(ctx context.Context, providers *providersvc.ProviderService, refresh bool, selected string) (string, error) {
 	result, err := providers.ListCatalogs(ctx, refresh, selected)
 	return marshalClientOutput(result, err)
 }

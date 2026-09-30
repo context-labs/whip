@@ -1,7 +1,6 @@
-package daemon
+package provider
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,14 +11,13 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
-	providersvc "github.com/context-labs/whip/internal/provider"
 )
 
 // Model requests and discovery in tests must not depend on, or expose, the
 // developer's credentials, standing instructions or installed skills. Tests may
 // override these fixtures.
 func TestMain(m *testing.M) {
-	home, err := os.MkdirTemp("", "whip-daemon-test-home-")
+	home, err := os.MkdirTemp("", "whip-provider-test-home-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -55,10 +53,10 @@ func providerTestEnvironment() []string {
 	return names
 }
 
-func TestDaemonTestEnvironment(t *testing.T) {
+func TestProviderTestEnvironment(t *testing.T) {
 	const child = "WHIP_TEST_PROVIDER_ENV_CHILD"
 	if os.Getenv(child) == "" {
-		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestDaemonTestEnvironment$")
+		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestProviderTestEnvironment$")
 		command.Env = append(os.Environ(), child+"=1")
 		for _, name := range providerTestEnvironment() {
 			command.Env = append(command.Env, name+"=inherited-provider-fixture")
@@ -90,9 +88,9 @@ func TestDaemonTestEnvironment(t *testing.T) {
 	if got := cfg.EffectiveProviders(); len(got) != 0 {
 		t.Errorf("empty fixture discovered %d inherited providers", len(got))
 	}
-	service := providersvc.NewProviderService(t.Context(), "isolated-test-environment")
+	service := NewProviderService(t.Context(), "isolated-test-environment")
 	t.Cleanup(service.Close)
-	if _, err := queryProviderCatalogs(t.Context(), service, json.RawMessage(`{}`)); err != nil {
+	if _, err := service.ListCatalogs(t.Context(), false, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := requests.Load(); got != 0 {

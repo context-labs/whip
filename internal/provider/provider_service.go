@@ -1,4 +1,4 @@
-package daemon
+package provider
 
 import (
 	"context"
@@ -19,21 +19,8 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-// RuntimeConfiguration contains settings safe to send to clients. Credentials
-// and integration definitions stay on the execution host.
-type RuntimeConfiguration = protocol.RuntimeConfiguration
-
-type ConfigurationUpdate = protocol.ConfigurationUpdate
-
-// ProviderKeySetup is ephemeral: never write it to a command journal or log.
-type ProviderKeySetup = protocol.ProviderKeySetup
-
-type ProviderChoice = protocol.ProviderChoice
-
-type ProviderLoginStatus = protocol.ProviderLoginStatus
-
 type providerLoginFlow struct {
-	status   ProviderLoginStatus
+	status   protocol.ProviderLoginStatus
 	ctx      context.Context
 	cancel   context.CancelFunc
 	token    string
@@ -151,7 +138,7 @@ func (s *ProviderService) Close() {
 	}
 }
 
-func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguration {
+func runtimeConfiguration(c *config.Config, revision string) protocol.RuntimeConfiguration {
 	hosts := append([]config.RemoteHost{}, c.RemoteHosts...)
 	claude, codex := true, true
 	if c.MCPImport != nil {
@@ -163,7 +150,7 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 		}
 	}
 	disabled := append([]string{}, c.DisabledProviders...)
-	return RuntimeConfiguration{
+	return protocol.RuntimeConfiguration{
 		DisabledProviders:      &disabled,
 		DefaultExecutionEngine: c.RLM.Engine(),
 		DefaultPermissionMode:  session.DefaultPermissionMode(c.DefaultPermissionMode),
@@ -177,17 +164,17 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 	}
 }
 
-func (s *ProviderService) ReadConfiguration() (RuntimeConfiguration, error) {
+func (s *ProviderService) ReadConfiguration() (protocol.RuntimeConfiguration, error) {
 	c, revision, err := config.ReadVersioned()
 	if err != nil {
-		return RuntimeConfiguration{}, err
+		return protocol.RuntimeConfiguration{}, err
 	}
 	return runtimeConfiguration(c, revision), nil
 }
 
-func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeConfiguration, error) {
+func (s *ProviderService) UpdateConfiguration(p protocol.ConfigurationUpdate) (protocol.RuntimeConfiguration, error) {
 	if p.Revision == "" {
-		return RuntimeConfiguration{}, errors.New("configuration revision is required")
+		return protocol.RuntimeConfiguration{}, errors.New("configuration revision is required")
 	}
 	if p.DisabledProviders != nil {
 		s.provisionMu.Lock()
@@ -312,7 +299,7 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 		return nil
 	})
 	if err != nil {
-		return RuntimeConfiguration{}, err
+		return protocol.RuntimeConfiguration{}, err
 	}
 	if p.DisabledProviders != nil {
 		for _, name := range c.DisabledProviders {
@@ -341,18 +328,18 @@ func (s *ProviderService) ConfigureCompaction(c *config.Config, model, provider 
 	return nil
 }
 
-func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup) (RuntimeConfiguration, error) {
+func (s *ProviderService) SetProviderKey(ctx context.Context, p protocol.ProviderKeySetup) (protocol.RuntimeConfiguration, error) {
 	if p.Revision == "" {
-		return RuntimeConfiguration{}, errors.New("configuration revision is required")
+		return protocol.RuntimeConfiguration{}, errors.New("configuration revision is required")
 	}
 	s.provisionMu.Lock()
 	defer s.provisionMu.Unlock()
 	c, revision, err := config.ReadVersioned()
 	if err != nil {
-		return RuntimeConfiguration{}, err
+		return protocol.RuntimeConfiguration{}, err
 	}
 	if revision != p.Revision {
-		return RuntimeConfiguration{}, config.ErrRevisionConflict
+		return protocol.RuntimeConfiguration{}, config.ErrRevisionConflict
 	}
 	provider, ok := c.Providers[p.Provider]
 	for _, preset := range config.ProviderPresets() {
@@ -367,7 +354,7 @@ func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup
 		}
 	}
 	if !ok || (provider.API != "" && !config.KnownAPI(provider.API)) {
-		return RuntimeConfiguration{}, errors.New("provider does not support API key setup")
+		return protocol.RuntimeConfiguration{}, errors.New("provider does not support API key setup")
 	}
 	credential := protocol.ProviderCredential{Mode: "api_key", Key: p.Key}
 	if p.Environment {
@@ -375,29 +362,29 @@ func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup
 	}
 	provider, err = applyProviderCredential(provider, credential, false)
 	if err != nil {
-		return RuntimeConfiguration{}, err
+		return protocol.RuntimeConfiguration{}, err
 	}
 	if provider.Name == "" {
 		provider.Name = p.Provider
 	}
 	if err := validateProviderDefinition(provider); err != nil {
-		return RuntimeConfiguration{}, err
+		return protocol.RuntimeConfiguration{}, err
 	}
 	key, err := provider.ResolveKey(c)
 	if err != nil || key == "" {
-		return RuntimeConfiguration{}, errors.New("provider key is unavailable on the execution host")
+		return protocol.RuntimeConfiguration{}, errors.New("provider key is unavailable on the execution host")
 	}
 	validationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	models, discovery, err := s.discoverProviderModels(validationCtx, p.Provider, provider, key)
 	if err != nil {
 		if ctx.Err() != nil {
-			return RuntimeConfiguration{}, ctx.Err()
+			return protocol.RuntimeConfiguration{}, ctx.Err()
 		}
-		return RuntimeConfiguration{}, providerValidationError(err)
+		return protocol.RuntimeConfiguration{}, providerValidationError(err)
 	}
 	if err := ctx.Err(); err != nil {
-		return RuntimeConfiguration{}, err
+		return protocol.RuntimeConfiguration{}, err
 	}
 	c, revision, err = config.UpdateVersioned(p.Revision, func(c *config.Config) error {
 		if err := ctx.Err(); err != nil {
@@ -406,7 +393,7 @@ func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup
 		return patchProviderConfiguration(c, p.Provider, provider, nil, false, true)
 	})
 	if err != nil {
-		return RuntimeConfiguration{}, err
+		return protocol.RuntimeConfiguration{}, err
 	}
 	s.interruptProviderLogins(p.Provider)
 	// Named files can rotate without changing the configuration revision.
@@ -431,49 +418,49 @@ func loginActive(state string) bool {
 	return state == "authorizing" || state == "choose_team" || state == "loading_projects" || state == "choose_project" || state == "provisioning"
 }
 
-func loginSnapshot(flow *providerLoginFlow) ProviderLoginStatus {
+func loginSnapshot(flow *providerLoginFlow) protocol.ProviderLoginStatus {
 	status := flow.status
-	status.Teams = append([]ProviderChoice{}, status.Teams...)
-	status.Projects = append([]ProviderChoice{}, status.Projects...)
+	status.Teams = append([]protocol.ProviderChoice{}, status.Teams...)
+	status.Projects = append([]protocol.ProviderChoice{}, status.Projects...)
 	return status
 }
 
-func (s *ProviderService) BeginLogin() (ProviderLoginStatus, error) {
+func (s *ProviderService) BeginLogin() (protocol.ProviderLoginStatus, error) {
 	return s.BeginProviderLogin(config.InferenceNetProvider)
 }
 
-func (s *ProviderService) BeginProviderLogin(provider string) (ProviderLoginStatus, error) {
+func (s *ProviderService) BeginProviderLogin(provider string) (protocol.ProviderLoginStatus, error) {
 	if provider == "" {
 		provider = config.InferenceNetProvider
 	}
 	if provider != config.InferenceNetProvider && provider != openaiauth.Provider {
-		return ProviderLoginStatus{}, errors.New("provider does not support account login")
+		return protocol.ProviderLoginStatus{}, errors.New("provider does not support account login")
 	}
 	if provider == config.InferenceNetProvider {
 		cfg, err := config.Load()
 		if err != nil {
-			return ProviderLoginStatus{}, err
+			return protocol.ProviderLoginStatus{}, err
 		}
 		if err := inferenceNetLoginRoute(cfg); err != nil {
-			return ProviderLoginStatus{}, err
+			return protocol.ProviderLoginStatus{}, err
 		}
 	}
 	if provider == openaiauth.Provider {
 		if s.openAIErr != nil {
-			return ProviderLoginStatus{}, s.openAIErr
+			return protocol.ProviderLoginStatus{}, s.openAIErr
 		}
 		cfg, err := config.Load()
 		if err != nil {
-			return ProviderLoginStatus{}, err
+			return protocol.ProviderLoginStatus{}, err
 		}
 		if err := cfg.UpsertOpenAICodex(); err != nil {
-			return ProviderLoginStatus{}, err
+			return protocol.ProviderLoginStatus{}, err
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ctx.Err(); err != nil {
-		return ProviderLoginStatus{}, err
+		return protocol.ProviderLoginStatus{}, err
 	}
 	active := 0
 	for id, flow := range s.flows {
@@ -487,11 +474,11 @@ func (s *ProviderService) BeginProviderLogin(provider string) (ProviderLoginStat
 		}
 	}
 	if active >= 16 || len(s.flows) >= 64 {
-		return ProviderLoginStatus{}, errors.New("provider login limit reached")
+		return protocol.ProviderLoginStatus{}, errors.New("provider login limit reached")
 	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
-		return ProviderLoginStatus{}, err
+		return protocol.ProviderLoginStatus{}, err
 	}
 	id := s.generation + ":" + hex.EncodeToString(random[:])
 	lifetime := s.lifetime
@@ -499,8 +486,8 @@ func (s *ProviderService) BeginProviderLogin(provider string) (ProviderLoginStat
 		lifetime = openaiauth.DeviceLifetime
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, lifetime)
-	flow := &providerLoginFlow{ctx: ctx, cancel: cancel, status: ProviderLoginStatus{
-		FlowID: id, Provider: provider, State: "authorizing", Teams: []ProviderChoice{}, Projects: []ProviderChoice{},
+	flow := &providerLoginFlow{ctx: ctx, cancel: cancel, status: protocol.ProviderLoginStatus{
+		FlowID: id, Provider: provider, State: "authorizing", Teams: []protocol.ProviderChoice{}, Projects: []protocol.ProviderChoice{},
 		ExpiresAt: time.Now().Add(lifetime),
 	}}
 	s.flows[id] = flow
@@ -543,7 +530,7 @@ func (s *ProviderService) BeginProviderLogin(provider string) (ProviderLoginStat
 		}
 		flow.token, flow.teams, flow.status.Email = identity.token, identity.teams, identity.email
 		for _, team := range identity.teams {
-			flow.status.Teams = append(flow.status.Teams, ProviderChoice{ID: team.ID, Name: team.Name})
+			flow.status.Teams = append(flow.status.Teams, protocol.ProviderChoice{ID: team.ID, Name: team.Name})
 		}
 		flow.status.State = "choose_team"
 		if len(flow.teams) == 1 && flow.teams[0].ID != "" {
@@ -553,25 +540,25 @@ func (s *ProviderService) BeginProviderLogin(provider string) (ProviderLoginStat
 	return loginSnapshot(flow), nil
 }
 
-func (s *ProviderService) LoginStatus(id string) (ProviderLoginStatus, error) {
+func (s *ProviderService) LoginStatus(id string) (protocol.ProviderLoginStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	flow := s.flows[id]
 	if flow == nil {
 		if id != "" && !strings.HasPrefix(id, s.generation+":") {
-			return ProviderLoginStatus{FlowID: id, State: "interrupted", Teams: []ProviderChoice{}, Projects: []ProviderChoice{}}, nil
+			return protocol.ProviderLoginStatus{FlowID: id, State: "interrupted", Teams: []protocol.ProviderChoice{}, Projects: []protocol.ProviderChoice{}}, nil
 		}
-		return ProviderLoginStatus{}, errors.New("provider login is unavailable; start a new login")
+		return protocol.ProviderLoginStatus{}, errors.New("provider login is unavailable; start a new login")
 	}
 	return loginSnapshot(flow), nil
 }
 
-func (s *ProviderService) CancelLogin(id string) (ProviderLoginStatus, error) {
+func (s *ProviderService) CancelLogin(id string) (protocol.ProviderLoginStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	flow := s.flows[id]
 	if flow == nil {
-		return ProviderLoginStatus{}, errors.New("unknown provider login")
+		return protocol.ProviderLoginStatus{}, errors.New("unknown provider login")
 	}
 	if loginActive(flow.status.State) {
 		if flow.status.State == "provisioning" {
@@ -590,16 +577,16 @@ func (s *ProviderService) failLogin(flow *providerLoginFlow) {
 	flow.cancel()
 }
 
-func (s *ProviderService) SelectLoginTeam(id, teamID string) (ProviderLoginStatus, error) {
+func (s *ProviderService) SelectLoginTeam(id, teamID string) (protocol.ProviderLoginStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	flow := s.flows[id]
 	if flow == nil || (flow.status.State != "choose_team" && flow.status.State != "choose_project") || flow.ctx.Err() != nil {
-		return ProviderLoginStatus{}, errors.New("login is not waiting for a team")
+		return protocol.ProviderLoginStatus{}, errors.New("login is not waiting for a team")
 	}
 	index := slices.IndexFunc(flow.teams, func(team inferencenet.Team) bool { return team.ID == teamID })
 	if index < 0 {
-		return ProviderLoginStatus{}, errors.New("unknown login team")
+		return protocol.ProviderLoginStatus{}, errors.New("unknown login team")
 	}
 	s.selectLoginTeam(flow, flow.teams[index])
 	return loginSnapshot(flow), nil
@@ -608,7 +595,7 @@ func (s *ProviderService) SelectLoginTeam(id, teamID string) (ProviderLoginStatu
 // selectLoginTeam starts discovery while the caller holds s.mu.
 func (s *ProviderService) selectLoginTeam(flow *providerLoginFlow, selected inferencenet.Team) {
 	flow.team, flow.status.TeamID, flow.status.State = selected, selected.ID, "loading_projects"
-	flow.projects, flow.status.Projects = nil, []ProviderChoice{}
+	flow.projects, flow.status.Projects = nil, []protocol.ProviderChoice{}
 	flow.status.ProjectID = ""
 	token, team := flow.token, flow.team
 	s.wg.Go(func() {
@@ -624,7 +611,7 @@ func (s *ProviderService) selectLoginTeam(flow *providerLoginFlow, selected infe
 		}
 		flow.projects = projects
 		for _, project := range projects {
-			flow.status.Projects = append(flow.status.Projects, ProviderChoice{ID: project.ID, Name: project.Name})
+			flow.status.Projects = append(flow.status.Projects, protocol.ProviderChoice{ID: project.ID, Name: project.Name})
 		}
 		flow.status.State = "choose_project"
 		if len(projects) == 1 && projects[0].ID != "" {
@@ -633,30 +620,30 @@ func (s *ProviderService) selectLoginTeam(flow *providerLoginFlow, selected infe
 	})
 }
 
-func (s *ProviderService) SelectLoginProject(id, projectID string) (ProviderLoginStatus, error) {
+func (s *ProviderService) SelectLoginProject(id, projectID string) (protocol.ProviderLoginStatus, error) {
 	return s.completeLogin(id, projectID, "")
 }
 
-func (s *ProviderService) CreateLoginProject(id, name string) (ProviderLoginStatus, error) {
+func (s *ProviderService) CreateLoginProject(id, name string) (protocol.ProviderLoginStatus, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 256 {
-		return ProviderLoginStatus{}, errors.New("project name must contain 1 to 256 bytes")
+		return protocol.ProviderLoginStatus{}, errors.New("project name must contain 1 to 256 bytes")
 	}
 	return s.completeLogin(id, "", name)
 }
 
-func (s *ProviderService) completeLogin(id, projectID, name string) (ProviderLoginStatus, error) {
+func (s *ProviderService) completeLogin(id, projectID, name string) (protocol.ProviderLoginStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	flow := s.flows[id]
 	if flow == nil || flow.status.State != "choose_project" || flow.ctx.Err() != nil {
-		return ProviderLoginStatus{}, errors.New("login is not waiting for a project")
+		return protocol.ProviderLoginStatus{}, errors.New("login is not waiting for a project")
 	}
 	var project inferencenet.Project
 	if name == "" {
 		index := slices.IndexFunc(flow.projects, func(project inferencenet.Project) bool { return project.ID == projectID })
 		if index < 0 {
-			return ProviderLoginStatus{}, errors.New("unknown login project")
+			return protocol.ProviderLoginStatus{}, errors.New("unknown login project")
 		}
 		project = flow.projects[index]
 	}

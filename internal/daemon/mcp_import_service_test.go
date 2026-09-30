@@ -20,6 +20,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -28,7 +29,7 @@ import (
 // empty OpenCode slot, and returns both host services plus a project directory. The
 // state rules themselves are pinned in internal/mcp; these tests cover what
 // the service adds on top.
-func mcpImportFixture(t *testing.T) (*hostMCPService, *ProviderService, string) {
+func mcpImportFixture(t *testing.T) (*hostMCPService, *providersvc.ProviderService, string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
@@ -55,9 +56,9 @@ func mcpImportFixture(t *testing.T) (*hostMCPService, *ProviderService, string) 
 	mcp.ClaudeGlobalPath = func() string { return filepath.Join(project, "absent-claude.json") }
 	mcp.OpenCodePaths = func() []string { return []string{filepath.Join(project, "opencode.jsonc")} }
 	t.Cleanup(func() { mcp.CodexPath, mcp.ClaudeGlobalPath, mcp.OpenCodePaths = origC, origG, origOC })
-	service := NewProviderService(t.Context(), "mcp-import")
+	service := providersvc.NewProviderService(t.Context(), "mcp-import")
 	t.Cleanup(service.Close)
-	return &hostMCPService{ctx: service.ctx}, service, project
+	return &hostMCPService{ctx: service.Context()}, service, project
 }
 
 func TestMCPImportCandidatesReportOfferPathAndUnreadableSources(t *testing.T) {

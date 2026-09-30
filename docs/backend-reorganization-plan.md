@@ -661,7 +661,8 @@ checks on an earlier head are not a claim that a current-head rerun has finished
 | Dialog assertion readiness | `1882979ad414c256cada7b2fb71e11a02f46bd4e`, [PR #303](https://github.com/context-labs/whip/pull/303) | Separate test-only repair waits for sheet focus before scroll assertions. The combined 36-test workflow-policy suite passed. [Full current CI](https://github.com/context-labs/whip/actions/runs/36681287194) passed, including SDK/UI/browser/product, both compatibility jobs, Go tests with the 90% coverage floor, lint, runtime, mobile, builds, docs, desktop and distribution. Current security also passed; this is the combined green prerequisite baseline. |
 | Host MCP ownership (plan PR 2) | `d8175212d3db3371b14862dc07ad24fc62393108`, [PR #304](https://github.com/context-labs/whip/pull/304). | Three operation bodies move unchanged from `ProviderService` to a private `hostMCPService`, owned by `Server`. The real HTTP cancellation characterization passed against the original implementation before extraction. Focused MCP/icon race tests, full-module build/vet/whipvet, and the full daemon race/shuffle suite (250.722s) passed. Fresh fixed-SDK comparisons passed against the original reference and immediate base `1882979ad414c256cada7b2fb71e11a02f46bd4e`, including both transports, mutation rejection, lifecycle and both-engine data rollback. [Full current CI](https://github.com/context-labs/whip/actions/runs/36682214774) and current security passed. |
 | Provider operation boundary (plan PR 3a) | `a211fb0e7629f9692eb5133aa00244aea17e38a9`, [PR #305](https://github.com/context-labs/whip/pull/305). | Catalog operation/reload characterization passed three times under the race detector on unchanged production code before extraction. Typed catalog results, compaction validation, model admission and provider-context borrowing now form the narrow operation surface. Shared effort and permission-default helpers move once to their existing configuration/session owners. Validation results are recorded below. [Current CI](https://github.com/context-labs/whip/actions/runs/36683418233) is running; current security passed. |
-| Provider integration test boundary (plan PR 3b1) | This change, based on `a211fb0e7629f9692eb5133aa00244aea17e38a9`. | The five existing affected integration tests now use HTTP/auth persistence rather than private provider callbacks. They passed three times under the race detector (23.256s). Full-module build, vet and whipvet and fresh fixed-SDK compatibility passed. The full daemon race/shuffle suite passed (261.125s). |
+| Provider integration test boundary (plan PR 3b1) | `d81f814b139d3a2320db6942e02c22a3e54d9b80`, [PR #306](https://github.com/context-labs/whip/pull/306). | The five existing affected integration tests now use HTTP/auth persistence rather than private provider callbacks. They passed three times under the race detector (23.256s). Full-module build, vet and whipvet and fresh fixed-SDK compatibility passed. The full daemon race/shuffle suite passed (261.125s). [Current CI](https://github.com/context-labs/whip/actions/runs/36684285340) is running; current security passed. |
+| Provider package extraction (plan PR 3b2) | This change, based on `d81f814b139d3a2320db6942e02c22a3e54d9b80`. | Eleven implementation files move to `internal/provider` with their existing service and constructor names. The declaration proof preserves all 1,188 existing production declarations after type qualification; all 758 existing test functions remain. Provider-private tests move with the service; transport/runtime/default-pair/catalog-reload assertions remain in daemon. Validation results are recorded below. |
 
 ### Host MCP ownership and lifetime
 
@@ -737,3 +738,47 @@ built all three selected integration binaries freshly. SDK and generated
 contract artifacts matched; both transport comparisons, deliberate mutation
 rejection, lifecycle checks, and both-engine fixed/base → candidate → base data
 rollback passed. Production source, SDK, schema and CI requirements are unchanged.
+
+### Provider package ownership
+
+`internal/provider` owns the existing `ProviderService` implementation and its
+private configuration, discovery, catalog and account helpers. The service still
+uses the same configuration, authentication, model-client and permission-default
+dependencies. Daemon constructs or receives it at the same call sites and closes
+it at the same lifetime boundaries. Host MCP borrows the exact provider context
+through `Context`; no resource or shutdown order changes.
+
+Daemon retains RPC decoding, native client methods, protocol type aliases, query
+deadlines and serialization. The provider package uses existing protocol values
+directly and has no daemon import or forwarding service implementation. A narrow
+architecture test enforces that import direction. Model-call checks cover both
+packages and exempt only `internal/daemon/agent_session.go`.
+
+Private service tests move with their implementation. Both packages retain
+equivalent temporary-home and provider-environment isolation, including a
+child-process regression. All existing test bodies are preserved after type
+qualification except the expanded architecture scan and the approved Cerebras
+catalog read helper, which now reads the typed service result with unchanged
+membership, request-count, error, restart and cache assertions. Daemon client
+tests and the frozen guard retain serialization coverage. The named model
+acceptance command adds the provider package so the moved snapshot test remains
+selected; its original packages, regex and all CI requirements are unchanged.
+
+Local build, vet, whipvet and integration-fixture compilation passed. The full
+provider and daemon race/shuffle suites passed (3.078s and 252.881s), as did the
+relevant CLI startup/routing/compaction/authentication tests (5.804s). Focused
+architecture checks passed after adding the import guard (1.717s); JSON test
+events confirm the moved model-snapshot acceptance test ran and passed. The
+declaration comparison accounts for 80 declarations in the new package and
+preserves every existing production declaration. The test-name comparison
+preserves all 758 existing tests and adds only provider-environment isolation
+and the provider-to-daemon import guard.
+
+Fresh compatibility evidence at `/private/tmp/whip-reorg-03b2-compat-evidence/evidence.json`
+passed against the fixed SDK revision `271c0f8d2a35648d1b45056d57432590b783483c`
+and immediate base `d81f814b139d3a2320db6942e02c22a3e54d9b80`. Freshly built
+fixed/base/candidate binaries passed both transport comparisons, actual response
+and ordering mutation rejection, lifecycle checks, and both-engine retained
+root/child/content/schema/trace rollback. All new files were staged before the
+run captured its candidate diff. Later ledger additions record these results;
+production and test source match the captured candidate.

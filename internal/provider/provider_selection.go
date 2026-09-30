@@ -1,4 +1,4 @@
-package daemon
+package provider
 
 import (
 	"cmp"
@@ -11,7 +11,7 @@ import (
 	"github.com/context-labs/whip/internal/protocol"
 )
 
-func providerCanAttempt(status ProviderStatus) bool {
+func providerCanAttempt(status protocol.ProviderStatus) bool {
 	return !status.Disabled && ((status.Available != nil && *status.Available) || status.AuthState == "unchecked")
 }
 

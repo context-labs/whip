@@ -1,4 +1,4 @@
-package daemon
+package provider
 
 import (
 	"context"
@@ -13,31 +13,31 @@ import (
 
 // DisconnectProvider clears WHIP-owned credentials and restores normal provider
 // setup. Credentials managed outside WHIP remain in their original sources.
-func (s *ProviderService) DisconnectProvider(ctx context.Context, p protocol.ProviderDisconnectParams) (ProviderStatus, error) {
+func (s *ProviderService) DisconnectProvider(ctx context.Context, p protocol.ProviderDisconnectParams) (protocol.ProviderStatus, error) {
 	if p.Revision == "" {
-		return ProviderStatus{}, errors.New("configuration revision is required")
+		return protocol.ProviderStatus{}, errors.New("configuration revision is required")
 	}
 	s.provisionMu.Lock()
 	defer s.provisionMu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return ProviderStatus{}, err
+		return protocol.ProviderStatus{}, err
 	}
 	cfg, revision, err := config.ReadVersioned()
 	if err != nil {
-		return ProviderStatus{}, err
+		return protocol.ProviderStatus{}, err
 	}
 	if revision != p.Revision {
-		return ProviderStatus{}, config.ErrRevisionConflict
+		return protocol.ProviderStatus{}, config.ErrRevisionConflict
 	}
 	status, err := s.providerStatus(cfg, p.Provider)
 	if err != nil {
-		return ProviderStatus{}, err
+		return protocol.ProviderStatus{}, err
 	}
 	switch status.KeySource {
 	case "literal", "machine", "subscription":
 	default:
 		if !status.Disabled {
-			return ProviderStatus{}, errors.New("credentials are managed outside Whip; remove them at their source to disconnect")
+			return protocol.ProviderStatus{}, errors.New("credentials are managed outside Whip; remove them at their source to disconnect")
 		}
 	}
 	inferenceAccount := p.Provider == config.InferenceNetProvider && status.KeySource == "machine"
@@ -61,7 +61,7 @@ func (s *ProviderService) DisconnectProvider(ctx context.Context, p protocol.Pro
 		return nil
 	})
 	if err != nil {
-		return ProviderStatus{}, err
+		return protocol.ProviderStatus{}, err
 	}
 	// Cancel only after the revision is accepted, so stale UI cannot interrupt login.
 	s.interruptProviderLogins(p.Provider)
@@ -69,7 +69,7 @@ func (s *ProviderService) DisconnectProvider(ctx context.Context, p protocol.Pro
 		return s.logoutOpenAILocked(ctx)
 	}
 	if err := config.DeleteCatalog(p.Provider); err != nil {
-		return ProviderStatus{}, errors.New("saved credentials removed, but the provider model cache could not be removed")
+		return protocol.ProviderStatus{}, errors.New("saved credentials removed, but the provider model cache could not be removed")
 	}
 	if inferenceAccount {
 		return s.logoutInferenceNetLocked(ctx)

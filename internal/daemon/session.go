@@ -19,6 +19,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
@@ -283,7 +284,7 @@ func (s *supervisor) wait() {
 
 type Session struct {
 	titleChanged func(string)
-	providers    *ProviderService
+	providers    *providersvc.ProviderService
 	store        *sessionstore.Store
 	// Identity is fixed for the root's lifetime. Saved facts (title, goal,
 	// archive state, directory) are read from the store when a decision needs

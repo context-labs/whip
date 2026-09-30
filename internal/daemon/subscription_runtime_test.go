@@ -15,6 +15,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
@@ -38,7 +39,7 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 		t.Fatal(err)
 	}
 	credentials.Close()
-	providers := NewProviderService(t.Context(), "subscription-runtime")
+	providers := providersvc.NewProviderService(t.Context(), "subscription-runtime")
 	t.Cleanup(providers.Close)
 	if _, _, err := config.UpdateVersioned("", func(cfg *config.Config) error { return cfg.UpsertOpenAICodex() }); err != nil {
 		t.Fatal(err)

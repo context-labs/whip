@@ -9,6 +9,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/terminal"
 )
@@ -25,7 +26,7 @@ type rootEntry struct {
 
 // Daemon owns the durable store and exactly one live actor per opened root.
 type Daemon struct {
-	providers        *ProviderService
+	providers        *providersvc.ProviderService
 	store            *session.Store
 	factory          Factory
 	control          *Control
@@ -47,7 +48,7 @@ type Daemon struct {
 }
 
 // New applies daemon-startup recovery before any root can be opened.
-func New(store *session.Store, factory Factory, providers ...*ProviderService) (*Daemon, error) {
+func New(store *session.Store, factory Factory, providers ...*providersvc.ProviderService) (*Daemon, error) {
 	if store == nil || factory == nil {
 		return nil, errors.New("daemon requires a store and root factory")
 	}
