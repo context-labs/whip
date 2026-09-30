@@ -59,7 +59,7 @@ function ProviderDefaultsForm({ client, enabled, current }: { client: Client; en
       <SettingRow id="default_model" label="Default model" description="Choose the model and provider for new work.">
         <CatalogModelPicker label="Default model" settings model={selection?.name ?? ''} provider={selection?.provider ?? ''} catalog={catalog.data}
           loading={catalog.isPending} error={enabled ? catalog.error?.message : undefined} disabled={!enabled || busy} xstyle={settingsSection.control}
-          onChange={(name, provider) => setSelection({ ...selection, name, provider, effort: '' })} />
+          onChange={(name, provider) => setSelection({ name, provider, effort: modelEfforts(catalogModels(catalog.data, provider), name).includes(effort) ? selection?.effort ?? '' : '' })} />
       </SettingRow>
       <SettingRow id="default_effort" label="Reasoning effort" description="Available levels depend on the selected model and provider.">
         <Select label="Reasoning effort" value={effort} disabled={!enabled || busy || !selection} xstyle={settingsSection.control}

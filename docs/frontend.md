@@ -399,8 +399,10 @@ current, successful empty catalog is not filled from the offline bundle.
 Model catalogs retain at most 4,096 choices and report truncation. Session model
 edits use the selected root's exact configuration revision; child model controls
 remain read-only. Missing activity disables edits rather than implying idle.
-Model changes clear old effort, and **Default** is distinct from provider-defined
-**Off**. Providers settings saves model, effort and permission in one host CAS.
+Session model changes clear old effort. Providers settings retains the selected
+effort when the new model/provider supports it, otherwise resets to **Default**;
+provider-defined **Off** remains distinct. Providers settings saves model, effort
+and permission in one host CAS.
 Execution settings saves engine, compaction, limits and MCP source preferences in
 one host CAS. Conversation Model leaves compaction selection unset. Zero attempts
 means the host default; the raw goal preference distinguishes null/default from
@@ -422,8 +424,8 @@ external credentials are preserved with an explanation, and shared credentials
 are kept while the selected route is disabled. Local and remote cleanup failures
 remain explicit and retryable. Advanced **Remove configured route** is a separate
 CAS operation that preserves credentials and rejects dangling defaults.
-Connecting an account leaves model defaults unchanged, and choosing a default
-never submits an existing chat draft.
+Connecting an account in Settings leaves model defaults unchanged, and choosing
+a default never submits an existing chat draft.
 
 ### Dedicated Settings workspace
 
