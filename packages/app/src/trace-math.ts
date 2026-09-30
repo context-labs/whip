@@ -1,23 +1,8 @@
-// Layout math follows HALO's trace viewer (timelineMath, spanTree, rollups), ported to Whip spans.
+import type { TraceSpan } from '@whip/sdk/state';
 
-export type TraceSpanKind = 'agent' | 'llm' | 'tool' | 'host' | 'wait';
-export type TraceSpanStatus = 'running' | 'ok' | 'error' | 'cancelled' | 'interrupted';
-export interface TraceSpan {
-  readonly id: string;
-  readonly traceId: string;
-  readonly parentId: string;   // '' for a trace root
-  readonly rootId: string;
-  readonly agentId: string;
-  readonly turnId: string;
-  readonly kind: TraceSpanKind;
-  readonly name: string;
-  readonly status: TraceSpanStatus;
-  readonly startMs: number;    // wall clock, ms since epoch, fractional allowed
-  readonly endMs: number;      // 0 while the span is still open
-  readonly attrs: Readonly<Record<string, unknown>>;  // whip-native keys, see below
-  readonly links: readonly { readonly traceId: string; readonly spanId: string }[];
-  readonly updatedSeq: string;
-}
+export type { TraceSpan, TraceSpanKind, TraceSpanStatus } from '@whip/sdk/state';
+
+// Layout math follows HALO's trace viewer (timelineMath, spanTree, rollups), ported to Whip spans.
 
 export interface TraceNode { readonly span: TraceSpan; readonly children: readonly TraceNode[]; readonly depth: number }
 /** Visible time window, in ms relative to the domain start. */
