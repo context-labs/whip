@@ -16,6 +16,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -36,7 +37,7 @@ func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 			if err := cfg.Save(); err != nil {
 				t.Fatal(err)
 			}
-			paths, err := daemon.Paths(home)
+			paths, err := daemonconn.Paths(home)
 			if err != nil {
 				t.Fatal(err)
 			}

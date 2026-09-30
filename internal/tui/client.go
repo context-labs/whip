@@ -15,9 +15,10 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
+	"github.com/context-labs/whip/internal/daemonconn"
+
 	bubbletea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
-
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
@@ -79,7 +80,7 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 	if err != nil {
 		return "", err
 	}
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		return "", err
 	}
@@ -90,7 +91,7 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 			ProtocolMajor: daemon.ProtocolMajor, BuildID: Version, ClientKind: "tui",
 			ClientID: clientID, Capabilities: []string{"commands", "events", "snapshots", "permissions"},
 			Cursors: cursors,
-		}, func() error { return daemon.LaunchSelfDaemon(paths) })
+		}, func() error { return daemonconn.LaunchSelfDaemon(paths) })
 		if err != nil || resumeID == "" || (engine == "" && definition == "") || resumeChecked {
 			return connection, err
 		}

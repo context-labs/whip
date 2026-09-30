@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/update"
 )
 
@@ -82,7 +82,7 @@ var restartDaemonAfterUpdate = func() error {
 	if err != nil {
 		return err
 	}
-	paths, err := daemon.Paths(dir)
+	paths, err := daemonconn.Paths(dir)
 	if err != nil {
 		return err
 	}

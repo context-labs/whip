@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/webgateway"
@@ -150,7 +151,7 @@ func appendCrashEffect(home string) error {
 
 func serveCrashFixture(t *testing.T, home string, store *session.Store, rootID string, runner Runner) v2Fixture {
 	t.Helper()
-	paths, err := Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -102,6 +102,7 @@ tasks:
   acceptance:
     desc: "Run the deterministic daemon, recursive-agent, client, and RLM release acceptance suite"
     cmds:
+      - go test -race ./internal/daemonconn ./internal/commandpresentation
       - go test -race -tags=integration ./internal/tui -run '^TestInteractiveSessionOverTrustedProtocol$'
       - go test -race -tags=integration ./internal/daemon -run '^TestRecursiveAgent(ReceiptsWithLargeMCPGrants|GrantInspectionAccess)$'
       - go test -race ./internal/daemon ./internal/session ./internal/protocol -run '^(TestV2|TestV3|TestTrustedClient|TestRuntimeRegistry|TestCommandAcceptance|TestClientAcceptance|TestDeleteAcceptance|TestQuestionSnapshot|TestRootCollection|TestSessionCatalog|TestIncompatible|TestVersionFive|TestVersionSix|TestBounded|TestTranscriptPage)'

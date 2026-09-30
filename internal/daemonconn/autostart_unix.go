@@ -1,6 +1,6 @@
 //go:build unix
 
-package daemon
+package daemonconn
 
 import (
 	"context"

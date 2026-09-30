@@ -80,6 +80,27 @@ func TestArchitectureKeepsProviderIndependentOfDaemon(t *testing.T) {
 	}
 }
 
+func TestArchitectureKeepsConnectionPlumbingIndependentOfDaemon(t *testing.T) {
+	root := repositoryRoot(t)
+	for _, directory := range []string{"daemonconn", "commandpresentation"} {
+		for path, body := range productionGoFiles(t, filepath.Join(root, "internal", directory)) {
+			file, err := parser.ParseFile(token.NewFileSet(), path, body, parser.ImportsOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, imported := range file.Imports {
+				name, err := strconv.Unquote(imported.Path.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if name == "github.com/context-labs/whip/internal/daemon" {
+					t.Errorf("connection plumbing imports daemon: %s", path)
+				}
+			}
+		}
+	}
+}
+
 func TestArchitectureKeepsTUIAsDaemonClient(t *testing.T) {
 	root := repositoryRoot(t)
 	for path, body := range productionGoFiles(t, filepath.Join(root, "internal", "tui")) {

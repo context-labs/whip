@@ -4,17 +4,19 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/context-labs/whip/internal/daemonconn"
 )
 
 type LaunchDaemon func() error
 
 // EnsureClient attaches to a responsive daemon, starting one when the socket
 // is missing or stale. Losing launch races simply attach to the winner.
-func EnsureClient(ctx context.Context, paths RuntimePaths, initialize InitializeParams, launch LaunchDaemon) (*Client, error) {
+func EnsureClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize InitializeParams, launch LaunchDaemon) (*Client, error) {
 	return awaitClient(ctx, paths, initialize, launch)
 }
 
-func awaitClient(ctx context.Context, paths RuntimePaths, initialize InitializeParams, launch LaunchDaemon) (*Client, error) {
+func awaitClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize InitializeParams, launch LaunchDaemon) (*Client, error) {
 	client, err := DialClient(ctx, paths, initialize)
 	if err == nil {
 		return client, nil
@@ -22,7 +24,7 @@ func awaitClient(ctx context.Context, paths RuntimePaths, initialize InitializeP
 	if _, rejected := errors.AsType[*RPCError](err); rejected || launch == nil {
 		return nil, err
 	}
-	if launchErr := launch(); launchErr != nil && !errors.Is(launchErr, ErrDaemonOwned) {
+	if launchErr := launch(); launchErr != nil && !errors.Is(launchErr, daemonconn.ErrDaemonOwned) {
 		return nil, launchErr
 	}
 	delay := 10 * time.Millisecond

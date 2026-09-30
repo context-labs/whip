@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/protocoltransport"
 )
@@ -67,7 +68,7 @@ func TestWebCLIExplicitURLNeverStartsRuntime(t *testing.T) {
 		}
 		return true
 	}
-	launchManagedDaemon = func(daemon.RuntimePaths) error {
+	launchManagedDaemon = func(daemonconn.RuntimePaths) error {
 		t.Fatal("web command must never launch or replace runtime")
 		return nil
 	}
@@ -121,7 +122,7 @@ func TestWebStoppedDaemonIsNotStarted(t *testing.T) {
 func TestGatewayDialRequiresCapabilityAcknowledgement(t *testing.T) {
 	for _, ack := range []bool{false, true} {
 		t.Run(fmt.Sprintf("ack=%t", ack), func(t *testing.T) {
-			paths, err := daemon.Paths(t.TempDir())
+			paths, err := daemonconn.Paths(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -196,11 +197,11 @@ func TestGatewayDialRequiresCapabilityAcknowledgement(t *testing.T) {
 	}
 }
 
-func startWebTestDaemon(t *testing.T) daemon.RuntimePaths {
+func startWebTestDaemon(t *testing.T) daemonconn.RuntimePaths {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}

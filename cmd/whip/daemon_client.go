@@ -10,6 +10,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 )
 
 var connectDaemon = func(ctx context.Context, clientKind, clientID string, cursors map[string]int64) (daemon.RootConnection, error) {
@@ -17,7 +18,7 @@ var connectDaemon = func(ctx context.Context, clientKind, clientID string, curso
 	if err != nil {
 		return nil, err
 	}
-	paths, err := daemon.Paths(dir)
+	paths, err := daemonconn.Paths(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +29,7 @@ var connectDaemon = func(ctx context.Context, clientKind, clientID string, curso
 		ClientID:      clientID,
 		Capabilities:  []string{"commands", "events", "snapshots", "execution_engines"},
 		Cursors:       cursors,
-	}, func() error { return daemon.LaunchSelfDaemon(paths) })
+	}, func() error { return daemonconn.LaunchSelfDaemon(paths) })
 }
 
 func daemonConnector(clientKind, clientID string) daemon.RootConnector {

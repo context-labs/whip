@@ -5,11 +5,12 @@ import (
 	"crypto/rand"
 	"testing"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/webgateway"
 )
 
-func startTestGateway(t *testing.T, paths RuntimePaths, options webgateway.Options) *webgateway.Server {
+func startTestGateway(t *testing.T, paths daemonconn.RuntimePaths, options webgateway.Options) *webgateway.Server {
 	t.Helper()
 	if options.Address == "" {
 		options.Address = "127.0.0.1:0"

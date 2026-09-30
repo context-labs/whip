@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -157,7 +158,7 @@ func TestClientConnectionAndReadLoopFailures(t *testing.T) {
 
 	frames := map[string]rpcMessage{
 		"invalid event":  {Method: "event", Params: json.RawMessage(`true`)},
-		"event overflow": {Method: "event", Params: mustJSON(t, eventNotification{Event: ProtocolEvent{RootID: "root", Seq: 2}})},
+		"event overflow": {Method: "event", Params: mustJSON(t, daemonconn.EventNotification{Event: ProtocolEvent{RootID: "root", Seq: 2}})},
 		"orphan reply":   {ID: json.RawMessage("99"), Result: true},
 	}
 	for name, message := range frames {

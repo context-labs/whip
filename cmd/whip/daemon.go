@@ -14,18 +14,19 @@ import (
 
 	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/capability"
-	providersvc "github.com/context-labs/whip/internal/provider"
+	"github.com/context-labs/whip/internal/daemonconn"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/protocol"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/webgateway"
 )
 
 var (
-	restartDaemonBinary = daemon.RestartSelfDaemon
+	restartDaemonBinary = daemonconn.RestartSelfDaemon
 	daemonKernelCommand []string
 )
 
@@ -52,7 +53,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	paths, err := daemon.Paths(dir)
+	paths, err := daemonconn.Paths(dir)
 	if err != nil {
 		return err
 	}

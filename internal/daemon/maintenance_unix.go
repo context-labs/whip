@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"golang.org/x/sys/unix"
 )
 
 var ErrMaintenance = errors.New("whipcode is applying a backend update; retry after it finishes")
 
-func maintenanceFile(paths RuntimePaths) (*os.File, error) {
+func maintenanceFile(paths daemonconn.RuntimePaths) (*os.File, error) {
 	name := filepath.Join(paths.Runtime, "maintenance.lock")
 	fd, err := unix.Open(name, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
@@ -36,7 +37,7 @@ func maintenanceFile(paths RuntimePaths) (*os.File, error) {
 
 // AcquireMaintenance excludes daemon starts and other updaters until Close.
 // Never unlink this file: every participant must lock the same inode.
-func AcquireMaintenance(paths RuntimePaths) (*os.File, error) {
+func AcquireMaintenance(paths daemonconn.RuntimePaths) (*os.File, error) {
 	file, err := maintenanceFile(paths)
 	if err != nil {
 		return nil, err
@@ -51,7 +52,7 @@ func AcquireMaintenance(paths RuntimePaths) (*os.File, error) {
 // AcquireStartup fences owner acquisition. Ordinary starts fail rather than
 // waiting with an old executable mapped. An updater may pass its held lock to
 // the replacement child; Close must not explicitly unlock that shared descriptor.
-func AcquireStartup(paths RuntimePaths, inheritedFD int) (*os.File, error) {
+func AcquireStartup(paths daemonconn.RuntimePaths, inheritedFD int) (*os.File, error) {
 	file, err := maintenanceFile(paths)
 	if err != nil {
 		return nil, err

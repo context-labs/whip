@@ -22,6 +22,7 @@ import (
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
@@ -61,7 +62,7 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, nil) }()
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +220,7 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, nil) }()
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +493,7 @@ func TestConfigureRuntimeCompactionClampsLegacyThresholds(t *testing.T) {
 func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +501,7 @@ func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runDaemon(context.Background(), nil); !errors.Is(err, daemon.ErrDaemonOwned) {
+	if err := runDaemon(context.Background(), nil); !errors.Is(err, daemonconn.ErrDaemonOwned) {
 		t.Fatalf("second daemon owner = %v", err)
 	}
 	_ = owner.Close()
@@ -515,7 +516,7 @@ func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +562,7 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}

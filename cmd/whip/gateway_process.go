@@ -18,6 +18,7 @@ import (
 
 	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/webgateway"
 )
@@ -182,7 +183,7 @@ func (child *managedGateway) stop(grace time.Duration) {
 	}
 }
 
-func manageGateway(ctx context.Context, paths daemon.RuntimePaths, generation int64, setStatus func(protocol.GatewayStatus)) {
+func manageGateway(ctx context.Context, paths daemonconn.RuntimePaths, generation int64, setStatus func(protocol.GatewayStatus)) {
 	fail := func(err error) {
 		if ctx.Err() != nil {
 			setStatus(protocol.GatewayStatus{State: "stopped"})

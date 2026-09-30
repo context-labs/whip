@@ -1154,3 +1154,83 @@ The causal investigation is preserved in
 `/private/tmp/whip-pr311-performance-diagnosis.md`. No additional hosted rerun
 was requested by this repair; the previously authorized PR #311 failed-job
 rerun is independent of these results. This PR remains unmerged for review.
+
+### PR 7 — Shared native connection plumbing
+
+This step starts from browser instrumentation prerequisite [PR #314](https://github.com/context-labs/whip/pull/314),
+`0081b66e5445b90d10e4d5ada7786335943a6edc`. Its
+[CI](https://github.com/context-labs/whip/actions/runs/36693408346) and
+[security](https://github.com/context-labs/whip/actions/runs/36693408075) runs
+started; this local evidence does not claim that those full hosted runs passed.
+All active PRs remain unmerged.
+
+`internal/daemonconn` now owns the existing runtime path calculation, validated
+local dialing, native launch/exec primitives, shared limits and event envelope.
+Daemon still owns runtime/startup/maintenance locks, inherited descriptor
+validation, readiness retry policy and lifecycle decisions. The single mutable
+`ErrDaemonOwned` binding is used directly at all eight call sites. Launch and
+restart still share one executable lookup seam; CLI callbacks keep their
+existing owners. `Paths` retains its filesystem effects, `ResolvePaths` remains
+read-only, and the dial/initialize deadline asymmetry is preserved.
+
+The exact native `CreateSession` value moves to session with a daemon type alias,
+including `DefinitionRevision`, field order and JSON tags. The existing command
+presentation decoder moves once to `internal/commandpresentation`; native client
+implementation, outcome encoding and `fillCommandPresentation` remain in daemon
+for now. These shared homes allow the following client package move without
+making clients depend on server implementation or adding translation/forwarding
+functions. Existing exported daemon chunk/buffer constants are immutable aliases
+of the shared constants. Protocol, framing, provider policy, SQL and schema
+sources are unchanged.
+
+Characterization commit `1ed6409596e002b4043c9bb06b0eef42a27608b0` preceded every
+production edit. Its named table covers all 21 recognized operations, exact
+failure/status/JSON quirks, unknown-operation raw bytes, empty model `@`, and
+explicit failure precedence. Those tests plus existing launch/path/maintenance
+checks passed three race repetitions on unchanged production (8.452s). A
+throwaway Go overlay removing `@` failed the exact empty-model assertion; the
+mutation never touched repository source. After extraction the same three-run
+checks passed: daemonconn 1.481s, commandpresentation 1.795s, daemon 8.314s.
+
+Four existing primitive tests move with their implementation. Mixed ownership
+and socket integration tests remain in daemon, including the fixed 100-byte
+boundary assertion. Existing Taskfile/CI selectors and assertions remain; one
+focused daemonconn/commandpresentation command is added to acceptance and the
+existing Linux/macOS runtime matrix. The frozen SDK bridge remains in daemon
+with its original integration/Unix tags. A narrow architecture check prohibits
+the shared helper packages from importing daemon. The current architecture map
+and desktop fixture's source-location comment follow the new ownership.
+
+The type-aware extraction records 156 resolved identifier edits and verifies
+original bytes before replacing them. The resulting proof covers 684 declarations
+across 48 files: 459 function bodies, including 105 named tests, match the exact
+expected reference/extraction changes. A separate comparison preserves all 29
+selected moved/retained declaration bodies, including owner locks, autostart
+policy and encoders. Imports and comments are outside token comparisons. The
+only descriptive correction changes the decoder's misleading inherited
+plain-text prohibition to an accurate stored-outcome description; its raw-byte
+fallback remains unchanged. Evidence is
+`/private/tmp/whip-pr7-{transform-journal.json,caller-conservation.log,declaration-conservation.log}`.
+
+Local module build, vet, whipvet, integration-tag compilation and pinned
+CI-equivalent golangci-lint 2.13.1 passed with zero lint findings. The complete
+TUI race/shuffle suite passed in a real PTY (18.844s), and all 36 workflow policy
+tests passed. Full affected-package race/shuffle passed: daemonconn 1.773s,
+commandpresentation 1.419s, daemon 271.359s, session 156.806s, ACP 2.033s and
+CLI 80.477s. Logs are `/private/tmp/whip-pr7-full-race.log`,
+`/private/tmp/whip-pr7-tui.log`, and the matching build/vet/whipvet/lint/tagged
+compile/workflow logs under `/private/tmp/whip-pr7-*`.
+
+Fresh fixed-SDK and immediate-parent compatibility passed, including immutable
+sources and freshly generated artifacts, both transports' calibrated response/
+error/ordered-event comparisons, deliberate response/order mutation rejection,
+lifecycle behavior and both-engine fixed-base/immediate-base → candidate → base
+rollback with root/child state, content, schema and trace/export checks.
+Evidence: `/private/tmp/whip-pr7-compat-fresh/evidence.json`, with Go 1.27.0
+(darwin/arm64), Node 24.14.1 and the original fixed SDK revision
+`271c0f8d2a35648d1b45056d57432590b783483c`. The candidate binary SHA-256 is
+`3ba071e27e6e0e082871d5c0e0a828549bf02889d0f98fa779f4449962b6bf19`.
+This pre-commit local run records the characterization SHA plus its complete
+staged extraction diff. Only the reviewed decoder comment and this ledger were
+updated afterward; no executable behavior changed. Hosted checks will record
+the final commit and actual PR parent separately.

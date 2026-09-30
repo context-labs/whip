@@ -15,11 +15,14 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/commandpresentation"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+
 	providersvc "github.com/context-labs/whip/internal/provider"
+
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
@@ -459,10 +462,10 @@ func (s *Session) admitCommand(ctx context.Context, admission sessionstore.Comma
 			if resolveErr != nil {
 				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Err: resolveErr})
 			} else if result.Command.Status == "succeeded" {
-				text, _ := decodeCommandPresentation(result.Command.Operation, output, result.Command.Status)
+				text, _ := commandpresentation.Decode(result.Command.Operation, output, result.Command.Status)
 				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Output: text})
 			} else {
-				_, message := decodeCommandPresentation(result.Command.Operation, output, result.Command.Status)
+				_, message := commandpresentation.Decode(result.Command.Operation, output, result.Command.Status)
 				if message == "" {
 					message = "command is " + result.Command.Status
 				}

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
@@ -75,7 +76,7 @@ func stopAcceptanceProcess(t *testing.T, process *acceptanceProcess) {
 	}
 }
 
-func acceptanceClient(t *testing.T, paths RuntimePaths, clientID string, cursors map[string]int64) *Client {
+func acceptanceClient(t *testing.T, paths daemonconn.RuntimePaths, clientID string, cursors map[string]int64) *Client {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -149,7 +150,7 @@ func TestRuntimeAcceptanceDetachedRecoveryAndContextIsolation(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +342,7 @@ func TestRuntimeAcceptanceDaemonHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths, err := Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}

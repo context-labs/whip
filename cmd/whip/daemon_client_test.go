@@ -11,6 +11,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -43,7 +44,7 @@ func useTestDaemon(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		paths, err := daemon.Paths(dir)
+		paths, err := daemonconn.Paths(dir)
 		if err != nil {
 			return nil, err
 		}

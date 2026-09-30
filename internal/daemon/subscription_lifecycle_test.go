@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -14,7 +15,7 @@ func TestClientIgnoresFailureFromReplacedSubscription(t *testing.T) {
 	serverSide, clientSide := net.Pipe()
 	defer func() { _ = serverSide.Close(); _ = clientSide.Close() }()
 	stale, _ := marshalFrame(rpcMessage{Method: "subscription.failed", Params: mustJSON(t, protocol.SubscriptionFailure{RootID: "root", SubscriptionID: "old", Error: rpcFailure(-32010, "expired old stream")})})
-	current, _ := marshalFrame(rpcMessage{Method: "event", Params: mustJSON(t, eventNotification{Event: ProtocolEvent{RootID: "root", SubscriptionID: "new", Seq: 4, Kind: "turn.started", Payload: []byte(`{}`)}})})
+	current, _ := marshalFrame(rpcMessage{Method: "event", Params: mustJSON(t, daemonconn.EventNotification{Event: ProtocolEvent{RootID: "root", SubscriptionID: "new", Seq: 4, Kind: "turn.started", Payload: []byte(`{}`)}})})
 	transport := newUnixMessageTransport(clientSide)
 	written := make(chan struct{})
 	go func() {

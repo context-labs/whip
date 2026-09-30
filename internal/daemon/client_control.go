@@ -15,14 +15,17 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/commandpresentation"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+
 	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/schedule"
+
 	sessionstore "github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
@@ -391,7 +394,7 @@ func (s *Session) clientCommand(ctx context.Context, admission sessionstore.Comm
 				return finish(resolveErr)
 			}
 			result.Result = body
-			result.Output, result.Error = decodeCommandPresentation(operation, body, admitted.Command.Status)
+			result.Output, result.Error = commandpresentation.Decode(operation, body, admitted.Command.Status)
 			return finish(nil)
 		}
 		completionReply := make(chan clientCommandReply, 1)
@@ -773,7 +776,7 @@ func (s *Session) finishClientCommandInline(ctx context.Context, admission sessi
 		return errors.Join(actionErr, finishErr)
 	}
 	result.Status, result.Operation, result.Result = status, operation, body
-	result.Output, result.Error = decodeCommandPresentation(operation, body, status)
+	result.Output, result.Error = commandpresentation.Decode(operation, body, status)
 
 	return nil
 }

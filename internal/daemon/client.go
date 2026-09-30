@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -43,15 +44,15 @@ type Client struct {
 	once           sync.Once
 }
 
-func DialClient(ctx context.Context, paths RuntimePaths, initialize InitializeParams) (*Client, error) {
-	timeout := initializationTimeout
+func DialClient(ctx context.Context, paths daemonconn.RuntimePaths, initialize InitializeParams) (*Client, error) {
+	timeout := daemonconn.InitializationTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout = time.Until(deadline)
 		if timeout <= 0 {
 			return nil, ctx.Err()
 		}
 	}
-	conn, err := dialLocal(paths, timeout)
+	conn, err := daemonconn.DialLocal(paths, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +87,7 @@ func newTransportClient(ctx context.Context, conn messageTransport, initialize I
 	if err != nil {
 		return nil, err
 	}
-	deadline := time.Now().Add(initializationTimeout)
+	deadline := time.Now().Add(daemonconn.InitializationTimeout)
 	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
 		deadline = contextDeadline
 	}
@@ -384,7 +385,7 @@ func (c *Client) readLoop() {
 				return
 			}
 			if message.Method == "event" {
-				var notification eventNotification
+				var notification daemonconn.EventNotification
 				if err := json.Unmarshal(message.Params, &notification); err != nil {
 					c.close(err)
 					return

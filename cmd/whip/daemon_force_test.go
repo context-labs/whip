@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 )
 
 func TestManagedOwnerProcess(t *testing.T) {
@@ -37,7 +38,7 @@ func TestManagedOwnerProcess(t *testing.T) {
 func TestForcedDaemonStopOnlySignalsItsRecordedOwner(t *testing.T) {
 	for _, ignoreTERM := range []bool{false, true} {
 		t.Run(map[bool]string{false: "graceful", true: "kill fallback"}[ignoreTERM], func(t *testing.T) {
-			paths, err := daemon.Paths(t.TempDir())
+			paths, err := daemonconn.Paths(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,7 +73,7 @@ func TestForcedDaemonStopOnlySignalsItsRecordedOwner(t *testing.T) {
 }
 
 func TestForcedDaemonStopRefusesAmbiguousOwnership(t *testing.T) {
-	paths, err := daemon.Paths(t.TempDir())
+	paths, err := daemonconn.Paths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestDaemonCommandsSurfaceUnavailableHomeAndLaunchErrors(t *testing.T) {
 	previous := launchManagedDaemon
 	t.Cleanup(func() { launchManagedDaemon = previous })
 	launchErr := errors.New("fixture launch refused")
-	launchManagedDaemon = func(daemon.RuntimePaths) error { return launchErr }
+	launchManagedDaemon = func(daemonconn.RuntimePaths) error { return launchErr }
 	for _, command := range []string{"start", "restart"} {
 		if err := daemonManageCLI([]string{command}); !errors.Is(err, launchErr) {
 			t.Fatalf("%s lost launch error: %v", command, err)

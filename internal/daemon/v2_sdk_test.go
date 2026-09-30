@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
@@ -49,7 +50,7 @@ func TestV2SDKBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths, err := Paths(filepath.Join(directory, "home"))
+	paths, err := daemonconn.Paths(filepath.Join(directory, "home"))
 	if err != nil {
 		t.Fatal(err)
 	}

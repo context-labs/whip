@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
-
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -101,7 +101,7 @@ func (s *Server) pumpSubscription(ctx context.Context, c *serverConn, sub *subsc
 				return
 			}
 			event.SubscriptionID = sub.id
-			if !c.notify("event", eventNotification{Event: event}) {
+			if !c.notify("event", daemonconn.EventNotification{Event: event}) {
 				return
 			}
 			cursor = event.Seq

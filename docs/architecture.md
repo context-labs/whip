@@ -141,8 +141,10 @@ budgets, and private transcript.
 | --- | --- |
 | `internal/protocol`, `packages/protocol` | typed operation/event contract, generated Draft-07 schemas, TypeScript and Ajv |
 | `internal/daemon` | shared handlers, Unix/WebSocket/HTTP adapters, root actors, recursive runtime, lifecycle |
+| `internal/daemonconn` | shared runtime paths, validated local dialing, native launch primitives, initialization limits and event envelope; daemon retains ownership locks and lifecycle policy |
+| `internal/commandpresentation` | shared formatting of stored command results for existing native text presenters |
 | `internal/provider` | host provider configuration, discovery, catalogs and account login lifetimes; borrows existing config/auth storage and exposes operations to daemon without importing it |
-| `internal/session` | durable commands, transcripts, agents, messages, budgets, recovery |
+| `internal/session` | durable commands, transcripts, agents, messages, budgets, recovery and the native session creation value |
 | `internal/agentdef` | agent definitions and their registry: instructions and discovery toggles, selected modules and capabilities, model and compaction defaults, named children, and the capability-to-operation mapping; `Coding()` and `JuniorDeveloper()` are the first-party definitions |
 | `internal/rlm` | kernel process, Starlark modules, runtime guide fragments, focused-context composer |
 | `internal/capability` | identities, grants, path policy, operation admission |

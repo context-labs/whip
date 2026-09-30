@@ -18,15 +18,17 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/commandpresentation"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
+
 	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/session"
 )
 
 const (
-	initializationTimeout = 5 * time.Second
-	clientIdleTimeout     = 90 * time.Second
+	clientIdleTimeout = 90 * time.Second
 )
 
 type ServerOptions struct {
@@ -108,7 +110,7 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 		options.MaxOutboundBytes = MaxOutboundBytes
 	}
 	if options.InitializationTimeout <= 0 {
-		options.InitializationTimeout = initializationTimeout
+		options.InitializationTimeout = daemonconn.InitializationTimeout
 	}
 	if options.ClientIdleTimeout <= 0 {
 		options.ClientIdleTimeout = clientIdleTimeout
@@ -140,7 +142,7 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 	return server, nil
 }
 
-func (s *Server) ListenAndServe(paths RuntimePaths) error {
+func (s *Server) ListenAndServe(paths daemonconn.RuntimePaths) error {
 	listener, err := listenLocal(paths)
 	if err != nil {
 		return err
@@ -770,7 +772,7 @@ func (s *Server) commandRecordResult(ctx context.Context, record session.Command
 	} else if len(output) > 0 {
 		result.Result = json.RawMessage(output)
 	}
-	result.Output, result.Error = decodeCommandPresentation(record.Operation, output, record.Status)
+	result.Output, result.Error = commandpresentation.Decode(record.Operation, output, record.Status)
 
 	return result, errors.Join(actionErr, resolveErr)
 }

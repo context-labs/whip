@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -26,7 +27,7 @@ type v2Fixture struct {
 
 func newV2Fixture(t *testing.T, runner Runner, origins ...string) v2Fixture {
 	t.Helper()
-	paths, err := Paths(t.TempDir())
+	paths, err := daemonconn.Paths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
