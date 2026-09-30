@@ -15,6 +15,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
@@ -28,11 +29,18 @@ func (f subscriptionRuntimeTransport) RoundTrip(request *http.Request) (*http.Re
 
 func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	providers := NewProviderService(t.Context(), "subscription-runtime")
-	t.Cleanup(providers.Close)
-	if err := providers.openAI.Install(t.Context(), providers.openAI.Generation(), openAITestCredentials()); err != nil {
+	directory, err := config.Dir()
+	if err != nil {
 		t.Fatal(err)
 	}
+	credentials := openaiauth.New(t.Context(), directory)
+	if err := credentials.Install(t.Context(), credentials.Generation(), openAITestCredentials()); err != nil {
+		credentials.Close()
+		t.Fatal(err)
+	}
+	credentials.Close()
+	providers := providersvc.NewProviderService(t.Context(), "subscription-runtime")
+	t.Cleanup(providers.Close)
 	if _, _, err := config.UpdateVersioned("", func(cfg *config.Config) error { return cfg.UpsertOpenAICodex() }); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +97,8 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	var runtime *RecursiveRuntime
-	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(client, "gpt-5.5", llm.SubscriptionOutputLimit("gpt-5.5"), "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = "gpt-5.5", openaiauth.Provider, meta.CWD
 		value.ContextLimit = 400000

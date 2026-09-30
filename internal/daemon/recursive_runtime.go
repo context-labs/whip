@@ -438,7 +438,7 @@ func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			services, err := parent.agent.Services.CloneForAuthority(runtime.root.store, runtime.root.store.Workspaces(), runtime.root.store.Processes(), authority)
+			services, err := parent.agent.Services.CloneForAuthority(runtime.root.store, runtime.root.store.Workspaces(), runtime.root.processes, authority)
 			if err != nil {
 				return err
 			}
@@ -1249,7 +1249,7 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 			Operations: []string{"mcp.call"}, MCP: mcpTools,
 		})
 	}
-	services, err := parent.agent.Services.CloneForAuthority(parent.root.store, parent.root.store.Workspaces(), parent.root.store.Processes(), authority)
+	services, err := parent.agent.Services.CloneForAuthority(parent.root.store, parent.root.store.Workspaces(), parent.root.processes, authority)
 	if err != nil {
 		return nil, err
 	}

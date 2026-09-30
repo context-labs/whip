@@ -16,6 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
@@ -74,12 +77,12 @@ func stopAcceptanceProcess(t *testing.T, process *acceptanceProcess) {
 	}
 }
 
-func acceptanceClient(t *testing.T, paths RuntimePaths, clientID string, cursors map[string]int64) *Client {
+func acceptanceClient(t *testing.T, paths daemonconn.RuntimePaths, clientID string, cursors map[string]int64) *daemonclient.Client {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	for {
-		client, err := DialClient(ctx, paths, InitializeParams{
+		client, err := daemonclient.DialClient(ctx, paths, InitializeParams{
 			ProtocolMajor: ProtocolMajor, BuildID: "acceptance", ClientID: clientID, ClientKind: "acceptance", Cursors: cursors,
 		})
 		if err == nil {
@@ -137,7 +140,7 @@ func TestRuntimeAcceptanceDetachedRecoveryAndContextIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := session.Open(database)
+	store, err := session.Open(database, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +151,7 @@ func TestRuntimeAcceptanceDetachedRecoveryAndContextIsolation(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +343,7 @@ func TestRuntimeAcceptanceDaemonHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths, err := Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +352,7 @@ func TestRuntimeAcceptanceDaemonHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = owner.Close() }()
-	store, err := session.Open(filepath.Join(home, "sessions.db"))
+	store, err := session.Open(filepath.Join(home, "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +365,8 @@ func TestRuntimeAcceptanceDaemonHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := rlm.NewManager(1)
-	value, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		kernel, kernelErr := rlm.NewKernel(rlm.KernelOptions{
 			Command: []string{executable, "-test.run=^TestRuntimeAcceptanceKernelWorker$", "--", "-acceptance-start", filepath.Join(home, "kernel-starts.log")},
 			Manager: manager, Host: acceptanceHost{corpus: string(corpus)},

@@ -45,7 +45,7 @@ func TestVersionFifteenUpgradeDefaultsDefinitionToCoding(t *testing.T) {
 		t.Fatal(err)
 	}
 	for attempt := range 2 {
-		store, err := Open(path)
+		store, err := Open(path, capability.NewWorkspaces())
 		if err != nil {
 			t.Fatalf("open %d: %v", attempt, err)
 		}
@@ -90,7 +90,7 @@ func createDefinitionSession(t *testing.T, store *Store, definition string) (str
 
 func TestSessionDefinitionPersistsThroughForkAndReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "definitions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestSessionDefinitionPersistsThroughForkAndReopen(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestSessionDefinitionPersistsThroughForkAndReopen(t *testing.T) {
 // Root grants come from the definition's capabilities at first bootstrap and
 // are never widened afterwards.
 func TestRootGrantsFollowDefinitionAtBootstrap(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "grants.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "grants.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestRootGrantsFollowDefinitionAtBootstrap(t *testing.T) {
 
 func TestRegisteredDefinitionsAreIdempotentAndPinned(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "registry.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

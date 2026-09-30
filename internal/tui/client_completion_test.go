@@ -3,7 +3,6 @@ package tui
 import (
 	"testing"
 
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -13,7 +12,7 @@ func TestHostCompletionRejectsStaleInputAndRoot(t *testing.T) {
 	old := &clientCompletion{value: "@ma", rootID: m.sessionID}
 	current := &clientCompletion{value: "@main", rootID: m.sessionID}
 	m.hostCompletion = current
-	result := daemon.CompletionResult{Candidates: []protocol.CompletionCandidate{{Text: "@main.go"}}}
+	result := protocol.CompletionResult{Candidates: []protocol.CompletionCandidate{{Text: "@main.go"}}}
 	m.applyHostCompletion(clientCompletionMsg{request: old, result: result})
 	if m.menu != nil {
 		t.Fatal("stale request installed menu")

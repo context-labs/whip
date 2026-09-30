@@ -9,11 +9,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"golang.org/x/sys/unix"
 )
 
 func TestMaintenanceExcludesStartsAndOtherUpdaters(t *testing.T) {
-	paths, err := Paths(t.TempDir())
+	paths, err := daemonconn.Paths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestMaintenanceExcludesStartsAndOtherUpdaters(t *testing.T) {
 
 func TestMaintenanceInheritedDescriptor(t *testing.T) {
 	if home := os.Getenv("WHIP_MAINTENANCE_CHILD"); home != "" {
-		paths, err := ResolvePaths(home)
+		paths, err := daemonconn.ResolvePaths(home)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +74,7 @@ func TestMaintenanceInheritedDescriptor(t *testing.T) {
 		return
 	}
 	home := t.TempDir()
-	paths, err := Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestMaintenanceInheritedDescriptor(t *testing.T) {
 
 func TestMaintenanceRefusesMissingInheritedDescriptor(t *testing.T) {
 	if home := os.Getenv("WHIP_MAINTENANCE_MISSING_CHILD"); home != "" {
-		paths, err := ResolvePaths(home)
+		paths, err := daemonconn.ResolvePaths(home)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +121,7 @@ func TestMaintenanceRefusesMissingInheritedDescriptor(t *testing.T) {
 		return
 	}
 	home := t.TempDir()
-	if _, err := Paths(home); err != nil {
+	if _, err := daemonconn.Paths(home); err != nil {
 		t.Fatal(err)
 	}
 	sentinel, err := os.CreateTemp(t.TempDir(), "sentinel")
@@ -137,7 +138,7 @@ func TestMaintenanceRefusesMissingInheritedDescriptor(t *testing.T) {
 }
 
 func TestMaintenanceRefusesSymlinkAndForeignDescriptor(t *testing.T) {
-	paths, err := Paths(t.TempDir())
+	paths, err := daemonconn.Paths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +162,7 @@ func TestMaintenanceRefusesSymlinkAndForeignDescriptor(t *testing.T) {
 func TestMaintenanceRefusesUnsafeExistingLock(t *testing.T) {
 	for _, kind := range []string{"shared", "directory", "missing-parent"} {
 		t.Run(kind, func(t *testing.T) {
-			paths, err := Paths(t.TempDir())
+			paths, err := daemonconn.Paths(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -191,7 +192,7 @@ func TestMaintenanceRefusesUnsafeExistingLock(t *testing.T) {
 }
 
 func TestMaintenanceLaunchFailuresReleaseResources(t *testing.T) {
-	paths, err := Paths(t.TempDir())
+	paths, err := daemonconn.Paths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,11 +201,11 @@ func TestMaintenanceLaunchFailuresReleaseResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer maintenance.Close()
-	if err := LaunchInstalledDaemon(paths, filepath.Join(paths.Home, "missing-executable"), maintenance); err == nil {
+	if err := daemonconn.LaunchInstalledDaemon(paths, filepath.Join(paths.Home, "missing-executable"), maintenance); err == nil {
 		t.Fatal("missing executable started")
 	}
 	paths.Home = filepath.Join(paths.Home, "missing-parent")
-	if err := LaunchInstalledDaemon(paths, "/bin/false", maintenance); err == nil {
+	if err := daemonconn.LaunchInstalledDaemon(paths, "/bin/false", maintenance); err == nil {
 		t.Fatal("missing log directory accepted")
 	}
 }
@@ -212,7 +213,7 @@ func TestMaintenanceLaunchFailuresReleaseResources(t *testing.T) {
 func TestMaintenanceValidatesInheritedOpenFileDescription(t *testing.T) {
 	for _, kind := range []string{"shared-description", "wrong-file", "closed", "unlocked", "independent-description"} {
 		t.Run(kind, func(t *testing.T) {
-			paths, err := Paths(t.TempDir())
+			paths, err := daemonconn.Paths(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}

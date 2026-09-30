@@ -35,7 +35,8 @@ func TestResumeActiveIsolatesFailuresAndAllowsRetry(t *testing.T) {
 	failure := &config.UnknownModelError{Model: "model"}
 	repaired := false
 	var attempts []string
-	value, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		attempts = append(attempts, meta.ID)
 		if meta.ID == ids[1] && !repaired {
 			return Components{}, failure
@@ -86,7 +87,8 @@ func TestResumeActiveCancellation(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			attempts := 0
-			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 				attempts++
 				cancel()
 				return Components{}, errors.New("session initialization failed")

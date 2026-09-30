@@ -240,7 +240,8 @@ func TestHostReadsDoNotOpenRootsAndQuestionsDisappear(t *testing.T) {
 	t.Setenv("INFERENCE_API_KEY", "")
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	opens := 0
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		opens++
 		return Components{Runner: &fakeRunner{}}, nil
 	})

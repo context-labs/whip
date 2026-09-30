@@ -7,6 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -43,7 +44,7 @@ func TestProvisionalTitlePersistsAcrossWritePaths(t *testing.T) {
 	want := strings.Repeat("界", provisionalTitleRunes-1) + "…"
 
 	t.Run("Save", func(t *testing.T) {
-		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +63,7 @@ func TestProvisionalTitlePersistsAcrossWritePaths(t *testing.T) {
 	})
 
 	t.Run("CommitRootTurn", func(t *testing.T) {
-		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}

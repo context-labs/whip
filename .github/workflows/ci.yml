@@ -12,7 +12,7 @@ name: ci
 on:
   workflow_call:
   pull_request:
-    branches: [main, development]
+    branches: [main, development, 'codex/backend-reorg-*']
   push:
     branches: [main, development]
 
@@ -177,6 +177,10 @@ jobs:
           cache: true
       - name: Daemon lifecycle and socket ownership
         run: go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState)$'
+      - name: Shared native connection and command presentation
+        run: go test -race ./internal/daemonconn ./internal/commandpresentation ./internal/client
+      - name: TUI startup and automatic title over both transports
+        run: go test -race -tags=integration ./internal/tui -run '^TestInteractiveSessionOverTrustedProtocol$'
       - name: Compact agent receipts and grant retrieval
         run: go test -race -tags=integration ./internal/daemon -run '^TestRecursiveAgent(ReceiptsWithLargeMCPGrants|GrantInspectionAccess)$'
       - name: RLM worker containment
@@ -223,6 +227,7 @@ jobs:
       - run: WHIP_WEB_BROWSERS=chromium,firefox node apps/web/scripts/browser.mjs
       - run: node apps/web/scripts/model-picker.mjs
       - run: node apps/web/scripts/snapshot-refresh.mjs
+      - run: node --test apps/web/scripts/performance-probes.test.mjs
       - run: node apps/web/scripts/performance.mjs
       - run: npm run test:example
       - name: Shared verified renderer for desktop and release consumers
@@ -288,9 +293,51 @@ jobs:
   mobile:
     uses: ./.github/workflows/mobile.yml
 
+  # Fixed SDK from the accepted development revision against explicit binaries.
+  # This complements every existing gate; it does not replace product acceptance.
+  compatibility:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Contract freeze, differential SDK and data rollback
+        env:
+          COMPATIBILITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+        run: |
+          # PRs use their immediate parent branch; initial push/reusable runs
+          # without a previous commit use the current commit for attribution.
+          if [ "$COMPATIBILITY_BASE" = 0000000000000000000000000000000000000000 ]; then COMPATIBILITY_BASE="$GITHUB_SHA"; fi
+          node scripts/backend-compat/run.mjs --candidate "$GITHUB_WORKSPACE" --base "$COMPATIBILITY_BASE" --output "$RUNNER_TEMP/backend-compat"
+      - name: Compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: backend-compat-${{ runner.os }}
+          path: |
+            ${{ runner.temp }}/backend-compat/evidence.json
+            ${{ runner.temp }}/backend-compat/command-*.log
+            ${{ runner.temp }}/backend-compat/runs-*/**/*.json
+            ${{ runner.temp }}/backend-compat/runs-*/**/*.log
+          retention-days: 14
+
   # Required aggregate: failed or skipped dependencies must fail, never go green.
   go:
-    needs: [lint, test, build, runtime, driver, sdk, docs, distribution, desktop, mobile]
+    needs: [lint, test, build, runtime, driver, sdk, docs, distribution, desktop, mobile, compatibility]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -302,6 +349,7 @@ jobs:
           echo "runtime=${{ needs.runtime.result }}"
           echo "driver=${{ needs.driver.result }}"
           echo "sdk=${{ needs.sdk.result }}"
+          echo "compatibility=${{ needs.compatibility.result }}"
           echo "docs=${{ needs.docs.result }}"
           echo "distribution=${{ needs.distribution.result }}"
           echo "desktop=${{ needs.desktop.result }}"
@@ -312,6 +360,7 @@ jobs:
           [ "${{ needs.runtime.result }}" = success ] || exit 1
           [ "${{ needs.driver.result }}" = success ] || exit 1
           [ "${{ needs.sdk.result }}" = success ] || exit 1
+          [ "${{ needs.compatibility.result }}" = success ] || exit 1
           [ "${{ needs.docs.result }}" = success ] || exit 1
           [ "${{ needs.distribution.result }}" = success ] || exit 1
           [ "${{ needs.desktop.result }}" = success ] || exit 1

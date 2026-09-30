@@ -6,8 +6,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -120,7 +121,7 @@ func (m *model) requestOlderHistory() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		revision := request.revision
-		page, err := client.HistoryPage(ctx, daemon.HistoryPageParams{
+		page, err := client.HistoryPage(ctx, protocol.HistoryPageParams{
 			RootID: request.rootID, AgentID: request.agentID,
 			BeforeSeq: request.before, ThroughSeq: request.through, Revision: &revision, Limit: 64, MaxBytes: 256 << 10, Recent: true,
 		})

@@ -148,7 +148,7 @@ func TestTracePageBoundsWireBytesAndKeepsConnection(t *testing.T) {
 func TestTracePageAfterReopenDoesNotOpenRuntime(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	store := openStore(t, path)
-	defer store.Close()
+	t.Cleanup(func() { _ = store.Close() })
 	root := createRoot(t, store)
 	emptyRoot := createRoot(t, store)
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano()
@@ -174,11 +174,13 @@ func TestTracePageAfterReopenDoesNotOpenRuntime(t *testing.T) {
 	}
 	store = openStore(t, path)
 	opens := 0
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		opens++
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
+		_ = processes.Close()
 		_ = store.Close()
 		t.Fatal(err)
 	}

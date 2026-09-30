@@ -20,7 +20,7 @@ func TestSessionFilesystemModeSurvivesRestartAndNavigation(t *testing.T) {
 		}
 	}
 	db := filepath.Join(base, "sessions.db")
-	store, err := Open(db)
+	store, err := Open(db, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestSessionFilesystemModeSurvivesRestartAndNavigation(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(db)
+	store, err = Open(db, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

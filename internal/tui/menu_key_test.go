@@ -3,9 +3,9 @@ package tui
 import (
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/protocol"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func pressKey(m *model, kt rune) *model { return pressMsg(m, keyMsg(kt)) }
@@ -22,7 +22,7 @@ func TestTabCompletesSkillName(t *testing.T) {
 	m = typeStr(t, m, "$go-sty")
 	request := &clientCompletion{value: m.input.Value(), rootID: m.sessionID, agentID: m.agentOpen}
 	m.hostCompletion = request
-	m.applyHostCompletion(clientCompletionMsg{request: request, result: daemon.CompletionResult{Candidates: []protocol.CompletionCandidate{{Text: "$go-style", Description: "d"}}}})
+	m.applyHostCompletion(clientCompletionMsg{request: request, result: protocol.CompletionResult{Candidates: []protocol.CompletionCandidate{{Text: "$go-style", Description: "d"}}}})
 	if m.menu == nil || len(m.menu.cands) != 1 || m.menu.cands[0].Text != "$go-style" {
 		t.Fatalf("menu should hold exactly $go-style: %+v", m.menu)
 	}

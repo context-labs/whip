@@ -28,7 +28,7 @@ func (l *pausedMCPDecisionLedger) Decide(ctx context.Context, admission capabili
 }
 
 func TestMCPLatePermissionDecisionsCannotOutliveInvocation(t *testing.T) {
-	_, ledger, provider, authority := newMCPServices(t)
+	boundServices, ledger, provider, authority := newMCPServices(t)
 	paused := &pausedMCPDecisionLedger{
 		countingLedger: ledger,
 		before:         make(chan struct{}), commit: make(chan struct{}),
@@ -40,9 +40,10 @@ func TestMCPLatePermissionDecisionsCannotOutliveInvocation(t *testing.T) {
 	defer commit()
 	defer finish()
 	services := NewServices()
+	t.Cleanup(services.Close)
 	services.SetExternalPermissions(true)
 	services.SetMCPProvider(func() MCPProvider { return provider })
-	if err := services.BindDispatcher(paused, ledger.Workspaces(), ledger.Processes(), authority); err != nil {
+	if err := services.BindDispatcher(paused, ledger.Workspaces(), boundServices.ProcessOptions().Processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())

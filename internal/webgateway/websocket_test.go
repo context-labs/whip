@@ -182,6 +182,7 @@ func TestHandshakeFailClosedBeforePipelinedTraffic(t *testing.T) {
 				result.Generation++
 			}
 			closed := make(chan error, 1)
+			pipelined := make(chan struct{})
 			socket := rawBackend(t, func(upstream protocoltransport.Transport) {
 				first, err := upstream.ReadMessage()
 				if err != nil {
@@ -203,6 +204,12 @@ func TestHandshakeFailClosedBeforePipelinedTraffic(t *testing.T) {
 					closed <- errors.New("missing network marker")
 					return
 				}
+				// Queue both browser frames before rejection can close the connection.
+				select {
+				case <-pipelined:
+				case <-t.Context().Done():
+					return
+				}
 				reply, _ := protocoltransport.MarshalFrame(protocoltransport.Message{ID: req.ID, Result: result})
 				if err := upstream.WriteMessage(reply); err != nil {
 					closed <- err
@@ -218,6 +225,7 @@ func TestHandshakeFailClosedBeforePipelinedTraffic(t *testing.T) {
 			browser := dialBrowser(t, s.Endpoint())
 			sendFrame(t, browser, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol_major":3}}`)
 			sendFrame(t, browser, `{"jsonrpc":"2.0","id":2,"method":"daemon.ping"}`)
+			close(pipelined)
 			reply := readMessage(t, browser)
 			if reply.Error == nil {
 				t.Fatal("incompatible daemon accepted")

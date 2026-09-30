@@ -37,7 +37,8 @@ func newIdleActorSession(t *testing.T, runner Runner) *Session {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := newSession(store, meta, authority, Components{Runner: runner})
+	processes := newTestProcesses(t)
+	root := newSession(store, processes, meta, authority, Components{Runner: runner})
 	t.Cleanup(root.supervisor.stop)
 	return root
 }

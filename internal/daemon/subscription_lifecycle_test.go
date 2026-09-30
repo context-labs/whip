@@ -2,41 +2,9 @@ package daemon
 
 import (
 	"context"
-	"errors"
-	"net"
 	"path/filepath"
 	"testing"
-
-	"github.com/context-labs/whip/internal/protocol"
 )
-
-func TestClientIgnoresFailureFromReplacedSubscription(t *testing.T) {
-	serverSide, clientSide := net.Pipe()
-	defer func() { _ = serverSide.Close(); _ = clientSide.Close() }()
-	stale, _ := marshalFrame(rpcMessage{Method: "subscription.failed", Params: mustJSON(t, protocol.SubscriptionFailure{RootID: "root", SubscriptionID: "old", Error: rpcFailure(-32010, "expired old stream")})})
-	current, _ := marshalFrame(rpcMessage{Method: "event", Params: mustJSON(t, eventNotification{Event: ProtocolEvent{RootID: "root", SubscriptionID: "new", Seq: 4, Kind: "turn.started", Payload: []byte(`{}`)}})})
-	transport := newUnixMessageTransport(clientSide)
-	written := make(chan struct{})
-	go func() {
-		defer close(written)
-		defer serverSide.Close()
-		_, _ = serverSide.Write(append(stale, current...))
-	}()
-	client := &Client{conn: transport, pending: make(map[string]chan callResponse), subscriptions: map[string]string{"root": "new"}, events: make(chan ProtocolEvent, 2), commandChanged: make(chan struct{}), done: make(chan struct{})}
-	client.readLoop()
-	<-written
-	if _, ok := errors.AsType[*RPCError](client.Err()); ok {
-		t.Fatalf("stale failure closed current stream: %v", client.Err())
-	}
-	select {
-	case event := <-client.Events():
-		if event.Seq != 4 {
-			t.Fatalf("event=%+v", event)
-		}
-	default:
-		t.Fatal("current subscription event lost")
-	}
-}
 
 func TestSubscriptionRetirementCannotDeleteReplacement(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "runtime.db"))

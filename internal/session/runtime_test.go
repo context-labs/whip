@@ -19,7 +19,7 @@ import (
 
 func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 }
 
 func TestRuntimeValueInlineBoundary(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestRuntimeValueInlineBoundary(t *testing.T) {
 }
 
 func TestContentReferencesEnforceRootAgentAndSubtreeGrants(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestContentReferencesEnforceRootAgentAndSubtreeGrants(t *testing.T) {
 
 func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +393,7 @@ func TestRootTurnLifecycleIdentifiesExactTurn(t *testing.T) {
 }
 
 func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *t
 }
 
 func TestInternalTurnInboxDoesNotPersistACommandOutcome(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestInternalTurnInboxDoesNotPersistACommandOutcome(t *testing.T) {
 }
 
 func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +537,7 @@ func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 }
 
 func TestRootTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +586,7 @@ func TestRootTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 }
 
 func TestRootTurnCommitRollsBackAsOneTransition(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +638,7 @@ func TestRootTurnCommitRollsBackAsOneTransition(t *testing.T) {
 
 func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +708,7 @@ func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -723,7 +723,7 @@ func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 }
 
 func TestFailRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -865,7 +865,7 @@ func TestFailRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 
 func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -887,7 +887,7 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -939,7 +939,7 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 
 func TestRecoveryReleasesOperationReservations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -959,7 +959,7 @@ func TestRecoveryReleasesOperationReservations(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

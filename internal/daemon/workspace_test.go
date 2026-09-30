@@ -36,7 +36,9 @@ func TestAgentRunnerWorkspaceSnapshotsUseRootManagedProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	services := tools.NewServices()
-	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+	processes := newTestProcesses(t)
+	t.Cleanup(services.Close)
+	if err := services.BindDispatcher(store, store.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	agentValue := agent.NewRuntime(llm.New("http://unused.invalid", ""), "model", 100, "system", tools.NewServices())
@@ -87,7 +89,9 @@ func TestWorkspaceSnapshotsIgnoreNonGitDirectoriesAndInvalidReferences(t *testin
 		t.Fatal(err)
 	}
 	services := tools.NewServices()
-	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+	processes := newTestProcesses(t)
+	t.Cleanup(services.Close)
+	if err := services.BindDispatcher(store, store.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	meta, _, err := store.Load(rootID)

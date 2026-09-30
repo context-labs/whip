@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
-	"github.com/context-labs/whip/internal/daemon"
 )
 
 type clientCompletion struct {
@@ -21,7 +22,7 @@ type clientCompletion struct {
 
 type clientCompletionMsg struct {
 	request *clientCompletion
-	result  daemon.CompletionResult
+	result  protocol.CompletionResult
 	err     error
 }
 
@@ -80,7 +81,7 @@ func (m *model) completionCandidates(value string, explicit bool) (string, []can
 			case <-timer.C:
 			}
 		}
-		result, err := client.CompleteWorkspace(ctx, daemon.CompletionParams{RootID: request.rootID, AgentID: request.agentID, Kind: kind, Prefix: prefix, Limit: 64})
+		result, err := client.CompleteWorkspace(ctx, protocol.CompletionParams{RootID: request.rootID, AgentID: request.agentID, Kind: kind, Prefix: prefix, Limit: 64})
 		if ctx.Err() == context.Canceled && err != nil {
 			return
 		}
@@ -135,7 +136,7 @@ func (m *model) requestHostSkills() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		result, err := client.CompleteWorkspace(ctx, daemon.CompletionParams{RootID: rootID, Kind: "skill", Limit: 64})
+		result, err := client.CompleteWorkspace(ctx, protocol.CompletionParams{RootID: rootID, Kind: "skill", Limit: 64})
 		if err != nil {
 			return nil
 		}

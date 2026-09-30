@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/inferencenet"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 func TestAuthInferenceNetDispatch(t *testing.T) {
@@ -173,14 +173,14 @@ func TestCLIChooser(t *testing.T) {
 func TestProviderChoiceUsesStableIDsWithDuplicateNames(t *testing.T) {
 	for _, test := range []struct {
 		name, input, want string
-		choices           []daemon.ProviderChoice
+		choices           []protocol.ProviderChoice
 		wantErr           bool
 	}{
 		{name: "no workspaces", wantErr: true},
-		{name: "one workspace", choices: []daemon.ProviderChoice{{ID: "team-1", Name: "Work"}}, want: "team-1"},
-		{name: "duplicate names", input: "2\n", choices: []daemon.ProviderChoice{{ID: "team-1", Name: "Work"}, {ID: "team-2", Name: "Work"}}, want: "team-2"},
-		{name: "new project", input: "2\n", choices: []daemon.ProviderChoice{{ID: "project-1", Name: "Existing"}, {Name: "+ Create new project"}}},
-		{name: "invalid choice", input: "3\n", choices: []daemon.ProviderChoice{{ID: "team-1"}, {ID: "team-2"}}, wantErr: true},
+		{name: "one workspace", choices: []protocol.ProviderChoice{{ID: "team-1", Name: "Work"}}, want: "team-1"},
+		{name: "duplicate names", input: "2\n", choices: []protocol.ProviderChoice{{ID: "team-1", Name: "Work"}, {ID: "team-2", Name: "Work"}}, want: "team-2"},
+		{name: "new project", input: "2\n", choices: []protocol.ProviderChoice{{ID: "project-1", Name: "Existing"}, {Name: "+ Create new project"}}},
+		{name: "invalid choice", input: "3\n", choices: []protocol.ProviderChoice{{ID: "team-1"}, {ID: "team-2"}}, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader, writer, err := os.Pipe()

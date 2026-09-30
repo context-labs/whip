@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -198,7 +198,7 @@ func TestClearResetsImageRegistry(t *testing.T) {
 	m := compactCmdModel()
 	m.images, m.imageSeq = []pastedImage{{n: 1, path: "/p/a.png"}}, 1
 	chip := m.images[0].chipText()
-	tm, _ := m.Update(clientCommandMsg{action: Action{Operation: "history.clear"}, result: daemon.CommandResult{Status: "succeeded"}})
+	tm, _ := m.Update(clientCommandMsg{action: Action{Operation: "history.clear"}, result: protocol.CommandResult{Status: "succeeded"}})
 	m = tm.(*model)
 	if len(m.images) != 0 || m.imageSeq != 0 {
 		t.Fatalf("clear left registry: images=%d imageSeq=%d", len(m.images), m.imageSeq)
@@ -212,7 +212,7 @@ func TestClearResetsImageRegistry(t *testing.T) {
 func TestFailedClearKeepsImageRegistry(t *testing.T) {
 	m := compactCmdModel()
 	m.images, m.imageSeq = []pastedImage{{n: 1, path: "/p/a.png"}}, 1
-	tm, _ := m.Update(clientCommandMsg{action: Action{Operation: "history.clear"}, result: daemon.CommandResult{Error: "busy"}})
+	tm, _ := m.Update(clientCommandMsg{action: Action{Operation: "history.clear"}, result: protocol.CommandResult{Error: "busy"}})
 	m = tm.(*model)
 	if len(m.images) != 1 || m.imageSeq != 1 {
 		t.Fatalf("failed clear touched registry: images=%d imageSeq=%d", len(m.images), m.imageSeq)

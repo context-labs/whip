@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -17,9 +18,9 @@ func TestGatewayPreservesConnectionAndProviderOwnership(t *testing.T) {
 	f := newV2Fixture(t, &fakeRunner{})
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	connect := func() *Client {
+	connect := func() *daemonclient.Client {
 		t.Helper()
-		client, err := DialWebSocketClient(ctx, f.endpoint, InitializeParams{
+		client, err := daemonclient.DialWebSocketClient(ctx, f.endpoint, InitializeParams{
 			ProtocolMajor: ProtocolMajor, ClientID: "same-browser-id", ClientKind: "desktop",
 			Capabilities: []string{"desktop-browser-v1", "events"},
 		})

@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestSnapshotRootViewBoundsHistoryAndKeepsCursor(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +41,7 @@ func TestSnapshotRootViewBoundsHistoryAndKeepsCursor(t *testing.T) {
 }
 
 func TestSnapshotPresentationBudgetExcludesAccounting(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

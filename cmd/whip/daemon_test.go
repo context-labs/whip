@@ -20,9 +20,12 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/webgateway"
@@ -61,15 +64,15 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, nil) }()
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var client *daemon.Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: version, ClientID: "daemon-test", ClientKind: "test",
+		client, err = daemonclient.DialClient(context.Background(), paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, BuildID: version, ClientID: "daemon-test", ClientKind: "test",
 		})
 		if err == nil {
 			break
@@ -126,7 +129,7 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 		})
 	}
 	badModel, _ := json.Marshal(map[string]string{"kind": string(session.SessionKindAgent), "cwd": home, "model": "missing", "provider": "inference-net"})
-	badCreated, err := client.Command(context.Background(), daemon.CommandParams{
+	badCreated, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "bad-model", Scope: "daemon", Operation: "session.create", Payload: badModel,
 	})
 	if err != nil {
@@ -138,7 +141,7 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	payload, _ := json.Marshal(map[string]string{
 		"kind": string(session.SessionKindAgent), "cwd": home, "model": "kimi-k3-fast", "provider": "inference-net",
 	})
-	created, err := client.Command(context.Background(), daemon.CommandParams{
+	created, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "create", Scope: "daemon", Operation: "session.create", Payload: payload,
 	})
 	if err != nil || created.Output == "" || created.Status != "succeeded" {
@@ -219,15 +222,15 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, nil) }()
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var client *daemon.Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: version, ClientID: "rlm-only", ClientKind: "test",
+		client, err = daemonclient.DialClient(context.Background(), paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, BuildID: version, ClientID: "rlm-only", ClientKind: "test",
 		})
 		if err == nil {
 			break
@@ -249,14 +252,14 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 		t.Fatalf("daemon did not become ready: %v", err)
 	}
 	createPayload, _ := json.Marshal(map[string]string{"kind": string(session.SessionKindAgent), "cwd": home, "model": "test-model", "provider": "test-provider"})
-	created, err := client.Command(context.Background(), daemon.CommandParams{
+	created, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "rlm-create", Scope: "daemon", Operation: "session.create", Payload: createPayload,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	turnPayload, _ := json.Marshal(map[string]string{"text": "try the runtime"})
-	turn, err := client.Command(context.Background(), daemon.CommandParams{
+	turn, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "rlm-turn", Scope: "root", RootID: created.Output, Operation: "submit", Payload: turnPayload,
 	})
 	if err != nil || turn.Output != "rlm done" || calls.Load() != 2 {
@@ -492,7 +495,7 @@ func TestConfigureRuntimeCompactionClampsLegacyThresholds(t *testing.T) {
 func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +503,7 @@ func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runDaemon(context.Background(), nil); !errors.Is(err, daemon.ErrDaemonOwned) {
+	if err := runDaemon(context.Background(), nil); !errors.Is(err, daemonconn.ErrDaemonOwned) {
 		t.Fatalf("second daemon owner = %v", err)
 	}
 	_ = owner.Close()
@@ -515,7 +518,7 @@ func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,11 +528,11 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 	t.Cleanup(func() { restartDaemonBinary = previousRestart })
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(context.Background(), nil) }()
-	var client *daemon.Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, ClientID: "restart-test", ClientKind: "automation",
+		client, err = daemonclient.DialClient(context.Background(), paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, ClientID: "restart-test", ClientKind: "automation",
 		})
 		if err == nil {
 			break
@@ -540,13 +543,13 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(map[string]string{"reason": "test"})
-	result, err := client.Command(context.Background(), daemon.CommandParams{
+	result, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "checkpoint", Scope: "daemon", Operation: "daemon.checkpoint", Payload: payload,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var notice daemon.RestartNotice
+	var notice protocol.RestartNotice
 	if err := json.Unmarshal([]byte(result.Output), &notice); err != nil {
 		t.Fatal(err)
 	}
@@ -561,17 +564,17 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(context.Background(), nil) }()
-	var client *daemon.Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, ClientID: "stop-test", ClientKind: "automation",
+		client, err = daemonclient.DialClient(context.Background(), paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, ClientID: "stop-test", ClientKind: "automation",
 		})
 		if err == nil {
 			break
@@ -582,13 +585,13 @@ func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(map[string]string{"reason": "test"})
-	result, err := client.Command(context.Background(), daemon.CommandParams{
+	result, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "checkpoint-stop", Scope: "daemon", Operation: "daemon.checkpoint", Payload: payload,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var notice daemon.RestartNotice
+	var notice protocol.RestartNotice
 	if err := json.Unmarshal([]byte(result.Output), &notice); err != nil {
 		t.Fatal(err)
 	}

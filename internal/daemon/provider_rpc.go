@@ -78,27 +78,27 @@ func (s *Server) handleProvider(connection *serverConn, request rpcMessage) (any
 			result, err = s.providers.ReadConfiguration()
 		}
 	case "config.update":
-		var p ConfigurationUpdate
+		var p protocol.ConfigurationUpdate
 		if err = decodeProviderParams(request.Params, &p); err == nil {
 			result, err = s.providers.UpdateConfiguration(p)
 		}
 	case "mcp.import.candidates":
 		var p protocol.MCPImportCandidatesParams
 		if err = decodeProviderParams(request.Params, &p); err == nil {
-			result, err = s.providers.MCPImportCandidates(p)
+			result, err = s.hostMCP.MCPImportCandidates(p)
 		}
 	case "mcp.import.apply":
 		var p protocol.MCPImportApplyParams
 		if err = decodeProviderParams(request.Params, &p); err == nil {
-			result, err = s.providers.MCPImportApply(p)
+			result, err = s.hostMCP.MCPImportApply(p)
 		}
 	case "mcp.brand.icons":
 		var p protocol.MCPBrandIconsParams
 		if err = decodeProviderParams(request.Params, &p); err == nil {
-			result, err = s.providers.MCPBrandIcons(p)
+			result, err = s.hostMCP.MCPBrandIcons(p)
 		}
 	case "provider.key.set":
-		var p ProviderKeySetup
+		var p protocol.ProviderKeySetup
 		if err = decodeProviderParams(request.Params, &p); err == nil {
 			result, err = s.providers.SetProviderKey(connection.ctx, p)
 		}
@@ -108,7 +108,7 @@ func (s *Server) handleProvider(connection *serverConn, request rpcMessage) (any
 			result = s.providers.ListLogins()
 		}
 	case "provider.status", "provider.logout", "provider.key.rotate":
-		var p ProviderNameParams
+		var p protocol.ProviderNameParams
 		if err = decodeProviderParams(request.Params, &p); err == nil {
 			switch request.Method {
 			case "provider.status":

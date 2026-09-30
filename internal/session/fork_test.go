@@ -4,12 +4,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
 func seeded(t *testing.T) (*Store, string) {
 	t.Helper()
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

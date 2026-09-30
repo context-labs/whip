@@ -14,9 +14,10 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -24,7 +25,7 @@ import (
 const daemonManageTimeout = 10 * time.Second
 
 var (
-	launchManagedDaemon = daemon.LaunchSelfDaemon
+	launchManagedDaemon = daemonconn.LaunchSelfDaemon
 	findDaemonProcess   = os.FindProcess
 	tailDaemonLog       = func(path string, lines int, follow bool) error {
 		args := []string{"-n", strconv.Itoa(lines)}
@@ -76,26 +77,26 @@ func daemonManageCLI(args []string) error {
 	}
 }
 
-func daemonRuntimePaths() (daemon.RuntimePaths, error) {
+func daemonRuntimePaths() (daemonconn.RuntimePaths, error) {
 	dir, err := config.Dir()
 	if err != nil {
-		return daemon.RuntimePaths{}, err
+		return daemonconn.RuntimePaths{}, err
 	}
-	return daemon.Paths(dir)
+	return daemonconn.Paths(dir)
 }
 
-func daemonStatusPaths() (daemon.RuntimePaths, error) {
+func daemonStatusPaths() (daemonconn.RuntimePaths, error) {
 	home := os.Getenv(buildinfo.Env("HOME"))
 	if home == "" {
 		userHome, err := os.UserHomeDir()
 		if err != nil {
-			return daemon.RuntimePaths{}, err
+			return daemonconn.RuntimePaths{}, err
 		}
 		home = buildinfo.Home(userHome)
 	}
-	paths, err := daemon.ResolvePaths(home)
+	paths, err := daemonconn.ResolvePaths(home)
 	if err != nil {
-		return daemon.RuntimePaths{}, err
+		return daemonconn.RuntimePaths{}, err
 	}
 	for _, dir := range []string{paths.Home, paths.Runtime} {
 		info, err := os.Stat(dir)
@@ -103,10 +104,10 @@ func daemonStatusPaths() (daemon.RuntimePaths, error) {
 			continue
 		}
 		if err != nil {
-			return daemon.RuntimePaths{}, err
+			return daemonconn.RuntimePaths{}, err
 		}
 		if !info.IsDir() {
-			return daemon.RuntimePaths{}, fmt.Errorf("daemon runtime path is not a directory: %s", dir)
+			return daemonconn.RuntimePaths{}, fmt.Errorf("daemon runtime path is not a directory: %s", dir)
 		}
 	}
 	return paths, nil
@@ -252,7 +253,7 @@ func daemonLogsCLI(args []string) error {
 	return tailDaemonLog(path, *lines, *follow)
 }
 
-func probeDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus, *daemon.Client) {
+func probeDaemon(paths daemonconn.RuntimePaths, timeout time.Duration) (daemonStatus, *daemonclient.Client) {
 	status := daemonStatus{
 		State: "stopped", ClientBuild: version, Socket: paths.Socket,
 		Gateway: protocol.GatewayStatus{State: "stopped"}, GatewayLog: filepath.Join(paths.Home, "web.log"),
@@ -260,8 +261,8 @@ func probeDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	client, err := daemon.DialClient(ctx, paths, daemon.InitializeParams{
-		ProtocolMajor: daemon.ProtocolMajor, BuildID: version,
+	client, err := daemonclient.DialClient(ctx, paths, protocol.InitializeParams{
+		ProtocolMajor: protocol.Major, BuildID: version,
 		ClientID: daemonClientID("daemon-status"), ClientKind: "automation",
 	})
 	if err != nil {
@@ -305,14 +306,14 @@ func probeDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus
 	return status, client
 }
 
-func startManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus, error) {
+func startManagedDaemon(paths daemonconn.RuntimePaths, timeout time.Duration) (daemonStatus, error) {
 	// A ready socket means an owned daemon even if its optional gateway failed.
 	// Repeated starts must never reconfigure it or spawn duplicate daemons.
 	if status, client := probeDaemon(paths, min(time.Second, timeout)); client != nil {
 		_ = client.Close()
 		return status, nil
 	}
-	if err := launchManagedDaemon(paths); err != nil && !errors.Is(err, daemon.ErrDaemonOwned) {
+	if err := launchManagedDaemon(paths); err != nil && !errors.Is(err, daemonconn.ErrDaemonOwned) {
 		return daemonStatus{}, err
 	}
 	deadline := time.Now().Add(timeout)
@@ -342,7 +343,7 @@ func startManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemo
 	return latest, fmt.Errorf("daemon did not become ready within %s; inspect %s", timeout, filepath.Join(paths.Home, "daemon.log"))
 }
 
-func stopManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration, force bool) (bool, error) {
+func stopManagedDaemon(paths daemonconn.RuntimePaths, timeout time.Duration, force bool) (bool, error) {
 	deadline := time.Now().Add(timeout)
 	status, client := probeDaemon(paths, min(time.Second, timeout))
 	if client == nil {
@@ -358,7 +359,7 @@ func stopManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration, force b
 	payload, _ := json.Marshal(map[string]string{"reason": "daemon command"})
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	result, err := client.Command(ctx, daemon.CommandParams{
+	result, err := client.Command(ctx, protocol.CommandParams{
 		CommandID: daemonCommandID(daemonClientID("daemon-stop"), "checkpoint"),
 		Scope:     string(session.CommandScopeDaemon), Operation: "daemon.checkpoint", Payload: payload,
 	})
@@ -368,7 +369,7 @@ func stopManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration, force b
 			err = fmt.Errorf("daemon checkpoint is %s", result.Status)
 		}
 	}
-	var notice daemon.RestartNotice
+	var notice protocol.RestartNotice
 	if err == nil {
 		err = json.Unmarshal([]byte(result.Output), &notice)
 	}
@@ -387,7 +388,7 @@ func stopManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration, force b
 	return true, forceStopManagedDaemon(paths, timeout)
 }
 
-func waitForDaemonStop(paths daemon.RuntimePaths, timeout time.Duration) error {
+func waitForDaemonStop(paths daemonconn.RuntimePaths, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		_, owned, err := daemon.ActiveOwnerPID(paths.Lock)
@@ -401,7 +402,7 @@ func waitForDaemonStop(paths daemon.RuntimePaths, timeout time.Duration) error {
 	}
 }
 
-func forceStopManagedDaemon(paths daemon.RuntimePaths, timeout time.Duration) error {
+func forceStopManagedDaemon(paths daemonconn.RuntimePaths, timeout time.Duration) error {
 	pid, owned, err := daemon.ActiveOwnerPID(paths.Lock)
 	if err != nil {
 		return fmt.Errorf("identify daemon owner: %w", err)

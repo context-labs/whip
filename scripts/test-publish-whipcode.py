@@ -574,10 +574,10 @@ esac
     def test_shared_gates_still_fail_closed(self):
         for workflow in [self.ci, self.security]:
             self.assertIn('  workflow_call:\n', workflow)
-            self.assertIn('  pull_request:\n    branches: [main, development]\n', workflow)
+            self.assertIn("  pull_request:\n    branches: [main, development, 'codex/backend-reorg-*']\n", workflow)
             self.assertIn('  push:\n    branches: [main, development]\n', workflow)
             self.assertNotIn('continue-on-error:', workflow)
-        for name in ['lint', 'test', 'build', 'runtime', 'driver', 'sdk', 'distribution', 'desktop', 'mobile']:
+        for name in ['lint', 'test', 'build', 'runtime', 'driver', 'sdk', 'distribution', 'desktop', 'mobile', 'compatibility']:
             self.assertIn('${{ needs.' + name + '.result }}" = success', self.job(self.ci, 'go'))
         self.assertIn('if: always()', self.job(self.ci, 'go'))
         self.assertNotIn('contents: write', self.security)

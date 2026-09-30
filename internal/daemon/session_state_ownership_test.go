@@ -21,7 +21,8 @@ func TestEffortPersistsBeforeItApplies(t *testing.T) {
 	store := openStore(t, path)
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -80,7 +81,8 @@ func TestGoalCommandsRefuseWhileGoalFormulationRuns(t *testing.T) {
 		fakeRunner: &fakeRunner{turn: func(context.Context, string, bool) (string, error) { return "GOAL_MET — verified", nil }},
 		started:    make(chan struct{}), release: make(chan struct{}),
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

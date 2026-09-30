@@ -44,7 +44,7 @@ async function eventually(check, label, timeout = 35_000) {
   throw new Error(`Startup fixture timed out: ${label}`);
 }
 async function fixtureStatus(executable, env) {
-  // internal/daemon/socket_unix.go uses this path below 100 bytes, otherwise a
+  // internal/daemonconn/socket_unix.go uses this path below 100 bytes, otherwise a
   // hashed temporary runtime. Keep our fixtures short and prove the exact path.
   const socket = path.join(env.WHIPCODE_HOME, 'runtime-v2/daemon.sock');
   assert(Buffer.byteLength(socket) < 100, 'Use a shorter fixture home');

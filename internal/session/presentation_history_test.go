@@ -7,12 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
 func TestPresentationSurvivesBoundedPagesForkRewindCompactionAndReopen(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(file)
+	store, err := Open(file, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestPresentationSurvivesBoundedPagesForkRewindCompactionAndReopen(t *testin
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(file)
+	store, err = Open(file, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

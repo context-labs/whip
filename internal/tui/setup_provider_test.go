@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -90,8 +90,8 @@ func (h *providerFormHost) RemoveProvider(_ context.Context, p protocol.Provider
 	return protocol.ProviderRemoveResult{Revision: "removed"}, h.err
 }
 
-func (h *providerFormHost) ReadConfiguration(context.Context) (daemon.RuntimeConfiguration, error) {
-	return daemon.RuntimeConfiguration{Revision: h.view.Revision, DisabledProviders: new([]string{"unrelated"})}, nil
+func (h *providerFormHost) ReadConfiguration(context.Context) (protocol.RuntimeConfiguration, error) {
+	return protocol.RuntimeConfiguration{Revision: h.view.Revision, DisabledProviders: new([]string{"unrelated"})}, nil
 }
 
 func providerFormKey(key string) tea.KeyPressMsg {
@@ -807,7 +807,7 @@ func TestSetupProviderBrowserReloginReloadsCurrentPairAfterSelection(t *testing.
 	h.list.Providers[0].SuggestedModel = "coding-model"
 	_, cmd := s.Update(setupReply{
 		owner: s, request: s.request, kind: "login",
-		login: daemon.ProviderLoginStatus{Provider: "inference-net", FlowID: "replacement-login", State: "succeeded"},
+		login: protocol.ProviderLoginStatus{Provider: "inference-net", FlowID: "replacement-login", State: "succeeded"},
 	})
 	providerFormDrain(t, s, cmd)
 	if s.mode != "models" || s.provider != "inference-net" || s.model != "coding-model" || s.done || len(h.writes) != 0 {

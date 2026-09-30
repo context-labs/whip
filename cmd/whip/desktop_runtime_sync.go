@@ -18,6 +18,7 @@ import (
 
 	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 )
 
 const desktopBinaryLimit = 512 << 20
@@ -132,7 +133,7 @@ func syncDesktopRuntime(ctx context.Context, source string, options desktopSyncO
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if err := daemon.LaunchInstalledDaemon(paths, options.executable, maintenance); err != nil {
+	if err := daemonconn.LaunchInstalledDaemon(paths, options.executable, maintenance); err != nil {
 		return result, fmt.Errorf("start updated backend: %w", err)
 	}
 	for {
@@ -215,7 +216,7 @@ func stageDesktopRuntime(ctx context.Context, source, parent, expected string) (
 	return name, nil
 }
 
-func stopDesktopOwner(ctx context.Context, paths daemon.RuntimePaths) error {
+func stopDesktopOwner(ctx context.Context, paths daemonconn.RuntimePaths) error {
 	pid, owned, err := daemon.ActiveOwnerPID(paths.Lock)
 	if err != nil || !owned {
 		return err

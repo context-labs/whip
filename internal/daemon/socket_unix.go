@@ -4,71 +4,19 @@ package daemon
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"golang.org/x/sys/unix"
 )
 
-const maxUnixSocketPath = 100
-
-var ErrDaemonOwned = errors.New("another daemon owns this runtime")
-
-type RuntimePaths struct {
-	Home    string
-	Runtime string
-	Socket  string
-	Lock    string
-}
-
 type OwnerLock struct{ file *os.File }
-
-func Paths(home string) (RuntimePaths, error) {
-	paths, err := ResolvePaths(home)
-	if err != nil {
-		return RuntimePaths{}, err
-	}
-	for _, dir := range []string{paths.Home, paths.Runtime} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return RuntimePaths{}, err
-		}
-		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // directories require execute permission and remain owner-only.
-			return RuntimePaths{}, err
-		}
-	}
-	return paths, nil
-}
-
-// ResolvePaths computes daemon locations without creating or modifying them.
-// Discovery must use this instead of Paths so inspecting a stopped installation
-// does not initialize a runtime or change existing directory permissions.
-func ResolvePaths(home string) (RuntimePaths, error) {
-	if home == "" {
-		return RuntimePaths{}, errors.New("runtime home is required")
-	}
-	abs, err := filepath.Abs(filepath.Join(home, "runtime-v2"))
-	if err != nil {
-		return RuntimePaths{}, err
-	}
-	runtimeDir := abs
-	socket := filepath.Join(runtimeDir, "daemon.sock")
-	if len(socket) >= maxUnixSocketPath {
-		digest := sha256.Sum256([]byte(abs))
-		runtimeDir = filepath.Join(os.TempDir(), fmt.Sprintf("whip-%d-%s", os.Getuid(), hex.EncodeToString(digest[:8])))
-		socket = filepath.Join(runtimeDir, "daemon.sock")
-	}
-	return RuntimePaths{Home: abs, Runtime: runtimeDir, Socket: socket, Lock: filepath.Join(runtimeDir, "daemon.lock")}, nil
-}
 
 // AcquireOwner must run before opening or inspecting sessions.db.
 func AcquireOwner(path string) (*OwnerLock, error) {
@@ -83,7 +31,7 @@ func AcquireOwner(path string) (*OwnerLock, error) {
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = file.Close()
 		if errors.Is(err, unix.EWOULDBLOCK) {
-			return nil, ErrDaemonOwned
+			return nil, daemonconn.ErrDaemonOwned
 		}
 		return nil, err
 	}
@@ -144,10 +92,10 @@ func (l *OwnerLock) Close() error {
 	return err
 }
 
-func listenLocal(paths RuntimePaths) (net.Listener, error) {
+func listenLocal(paths daemonconn.RuntimePaths) (net.Listener, error) {
 	if conn, err := (&net.Dialer{Timeout: 150 * time.Millisecond}).DialContext(context.Background(), "unix", paths.Socket); err == nil {
 		_ = conn.Close()
-		return nil, ErrDaemonOwned
+		return nil, daemonconn.ErrDaemonOwned
 	}
 	if err := os.Remove(paths.Socket); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -162,19 +110,4 @@ func listenLocal(paths RuntimePaths) (net.Listener, error) {
 		return nil, err
 	}
 	return listener, nil
-}
-
-func dialLocal(paths RuntimePaths, timeout time.Duration) (net.Conn, error) {
-	info, err := os.Lstat(paths.Socket)
-	if err != nil {
-		return nil, err
-	}
-	if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0o600 {
-		return nil, errors.New("daemon socket is not owner-only")
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Getuid() {
-		return nil, errors.New("daemon socket has a different owner")
-	}
-	return (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", paths.Socket)
 }

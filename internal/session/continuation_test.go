@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -16,7 +17,7 @@ func TestContinuationStaysDurableAndOutOfPublicHistory(t *testing.T) {
 			name = "child"
 		}
 		t.Run(name, func(t *testing.T) {
-			store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+			store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}

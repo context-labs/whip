@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestStatePrivateIsolationBlackboardVisibilityAndHandles(t *testing.T) {
@@ -688,7 +690,7 @@ func snapshotStateFailure(t *testing.T, store *Store, rootID string) stateFailur
 }
 
 func TestAgentScratchSaveLoadAndDelete(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -724,7 +726,7 @@ func TestAgentScratchSaveLoadAndDelete(t *testing.T) {
 }
 
 func TestRecordScratchRestoreAppendsEvent(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -757,7 +759,7 @@ func TestRecordScratchRestoreAppendsEvent(t *testing.T) {
 }
 
 func TestLoadAgentScratchRejectsExistingEmptySnapshot(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

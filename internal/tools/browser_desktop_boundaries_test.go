@@ -116,7 +116,7 @@ func TestDesktopAttachmentHelpersDenyUnboundAndUnavailable(t *testing.T) {
 		t.Fatal("unavailable provider must not transfer attachments")
 	}
 	authority.AgentID = "unrelated-child"
-	if err := s.BindDispatcher(ledger, provider.store.Workspaces(), provider.store.Processes(), authority); err != nil {
+	if err := s.BindDispatcher(ledger, provider.store.Workspaces(), s.ProcessOptions().Processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.TransferDesktopAttachments(t.Context(), "child", []string{"copied"}); !errors.Is(err, capability.ErrDenied) {

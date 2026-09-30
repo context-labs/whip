@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -56,7 +57,7 @@ func TestTranscriptPagePreservesAssistantTimestamp(t *testing.T) {
 }
 
 func TestTranscriptPageBoundsRevisionAndRecent(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/protocoltransport"
 )
@@ -54,7 +54,7 @@ func TestWebCLIExplicitURLNeverStartsRuntime(t *testing.T) {
 		if r.URL.Path != "/api/v3/web" {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
-		fmt.Fprintf(w, `{"available":true,"protocol_major":%d,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, daemon.ProtocolMajor)
+		fmt.Fprintf(w, `{"available":true,"protocol_major":%d,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, protocol.Major)
 	}))
 	defer server.Close()
 	oldOpen, oldLaunch := openWebBrowser, launchManagedDaemon
@@ -67,7 +67,7 @@ func TestWebCLIExplicitURLNeverStartsRuntime(t *testing.T) {
 		}
 		return true
 	}
-	launchManagedDaemon = func(daemon.RuntimePaths) error {
+	launchManagedDaemon = func(daemonconn.RuntimePaths) error {
 		t.Fatal("web command must never launch or replace runtime")
 		return nil
 	}
@@ -90,7 +90,7 @@ func TestWebDiscoveryRejectsMissingAndIncompatibleAssets(t *testing.T) {
 		code            int
 		body, errorText string
 	}{
-		{name: "not packaged", code: 200, body: fmt.Sprintf(`{"available":false,"protocol_major":%d,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, daemon.ProtocolMajor), errorText: "without web assets"},
+		{name: "not packaged", code: 200, body: fmt.Sprintf(`{"available":false,"protocol_major":%d,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, protocol.Major), errorText: "without web assets"},
 		{name: "old endpoint", code: 404, errorText: "check the URL"},
 		{name: "host rejected", code: 403, errorText: "WHIPCODE_ALLOWED_HOSTS"},
 		{name: "major mismatch", code: 200, body: `{"available":true,"protocol_major":1}`, errorText: "incompatible"},
@@ -121,7 +121,7 @@ func TestWebStoppedDaemonIsNotStarted(t *testing.T) {
 func TestGatewayDialRequiresCapabilityAcknowledgement(t *testing.T) {
 	for _, ack := range []bool{false, true} {
 		t.Run(fmt.Sprintf("ack=%t", ack), func(t *testing.T) {
-			paths, err := daemon.Paths(t.TempDir())
+			paths, err := daemonconn.Paths(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -196,11 +196,11 @@ func TestGatewayDialRequiresCapabilityAcknowledgement(t *testing.T) {
 	}
 }
 
-func startWebTestDaemon(t *testing.T) daemon.RuntimePaths {
+func startWebTestDaemon(t *testing.T) daemonconn.RuntimePaths {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}

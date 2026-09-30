@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 )
 
 // The test executable dispatches the same private runner without requiring a
@@ -305,14 +305,18 @@ func TestManagedGatewayStatusFailureAndRepeatedStart(t *testing.T) {
 	t.Cleanup(func() { launchManagedDaemon = previousLaunch })
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	launches := 0
-	launchManagedDaemon = func(daemon.RuntimePaths) error { launches++; go func() { done <- runDaemon(ctx, nil) }(); return nil }
+	launchManagedDaemon = func(daemonconn.RuntimePaths) error {
+		launches++
+		go func() { done <- runDaemon(ctx, nil) }()
+		return nil
+	}
 	defer func() {
 		cancel()
 		select {

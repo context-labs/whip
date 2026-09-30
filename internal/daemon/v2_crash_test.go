@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/webgateway"
@@ -99,7 +102,7 @@ func TestV2CrashAfterAcceptanceRecoversAcrossTransports(t *testing.T) {
 			if err := json.Unmarshal(data, &accepted); err != nil {
 				t.Fatal(err)
 			}
-			store, err := session.Open(filepath.Join(home, "sessions.db"))
+			store, err := session.Open(filepath.Join(home, "sessions.db"), capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -149,11 +152,12 @@ func appendCrashEffect(home string) error {
 
 func serveCrashFixture(t *testing.T, home string, store *session.Store, rootID string, runner Runner) v2Fixture {
 	t.Helper()
-	paths, err := Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -180,23 +184,23 @@ func serveCrashFixture(t *testing.T, home string, store *session.Store, rootID s
 	gateway := startTestGateway(t, paths, webgateway.Options{})
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	initial, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "probe", ClientKind: "test"})
+	initial, err := daemonclient.DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "probe", ClientKind: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	endpoint := "ws" + strings.TrimPrefix(gateway.Endpoint(), "http") + "/api/v3/ws"
 	_ = initial.Close()
-	return v2Fixture{store: store, rootID: rootID, endpoint: endpoint, dial: func(transport, clientID string) *Client {
+	return v2Fixture{store: store, rootID: rootID, endpoint: endpoint, dial: func(transport, clientID string) *daemonclient.Client {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		params := InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: clientID, ClientKind: "test"}
-		var client *Client
+		var client *daemonclient.Client
 		var err error
 		if transport == "unix" {
-			client, err = DialClient(ctx, paths, params)
+			client, err = daemonclient.DialClient(ctx, paths, params)
 		} else {
-			client, err = DialWebSocketClient(ctx, endpoint, params)
+			client, err = daemonclient.DialWebSocketClient(ctx, endpoint, params)
 		}
 		if err != nil {
 			t.Fatal(err)

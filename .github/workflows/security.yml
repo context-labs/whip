@@ -4,7 +4,7 @@ name: security
 on:
   workflow_call:
   pull_request:
-    branches: [main, development]
+    branches: [main, development, 'codex/backend-reorg-*']
   push:
     branches: [main, development]
   schedule:

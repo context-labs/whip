@@ -15,10 +15,14 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/commandpresentation"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+
+	providersvc "github.com/context-labs/whip/internal/provider"
+
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
@@ -283,8 +287,9 @@ func (s *supervisor) wait() {
 
 type Session struct {
 	titleChanged func(string)
-	providers    *ProviderService
+	providers    *providersvc.ProviderService
 	store        *sessionstore.Store
+	processes    *capability.ProcessManager // borrowed from the daemon; roots stop only their scope
 	// Identity is fixed for the root's lifetime. Saved facts (title, goal,
 	// archive state, directory) are read from the store when a decision needs
 	// them; nothing here mirrors the sessions row.
@@ -355,13 +360,13 @@ type runConfiguration struct {
 	cacheKey string
 }
 
-func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority capability.Authority, components Components, factories ...Factory) *Session {
+func newSession(store *sessionstore.Store, processes *capability.ProcessManager, meta sessionstore.Meta, authority capability.Authority, components Components, factories ...Factory) *Session {
 	goalMax := components.GoalMaxRounds
 	if goalMax <= 0 {
 		goalMax = config.DefaultGoalMaxRounds
 	}
 	root := &Session{
-		store: store, id: meta.ID, kind: meta.Kind, engine: meta.ExecutionEngine, definitionRevision: meta.DefinitionRevision,
+		store: store, processes: processes, id: meta.ID, kind: meta.Kind, engine: meta.ExecutionEngine, definitionRevision: meta.DefinitionRevision,
 		model: meta.Model, provider: meta.Provider, effort: meta.Effort, authority: authority, definition: effectiveDefinition(components), runner: components.Runner, mcp: components.MCP, loadMCP: components.LoadMCP, mcpServers: slices.Clone(effectiveDefinition(components).MCP.Servers), runtime: components.Runtime,
 		supervisor: newSupervisor(), mailbox: make(chan inboxReady, 1), done: make(chan struct{}),
 		receipts: make(map[int64][]*Receipt), goalMax: goalMax,
@@ -457,10 +462,10 @@ func (s *Session) admitCommand(ctx context.Context, admission sessionstore.Comma
 			if resolveErr != nil {
 				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Err: resolveErr})
 			} else if result.Command.Status == "succeeded" {
-				text, _ := decodeCommandPresentation(result.Command.Operation, output, result.Command.Status)
+				text, _ := commandpresentation.Decode(result.Command.Operation, output, result.Command.Status)
 				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Output: text})
 			} else {
-				_, message := decodeCommandPresentation(result.Command.Operation, output, result.Command.Status)
+				_, message := commandpresentation.Decode(result.Command.Operation, output, result.Command.Status)
 				if message == "" {
 					message = "command is " + result.Command.Status
 				}
@@ -666,7 +671,7 @@ func (s *Session) run() {
 	if s.runtime != nil {
 		cleanupErr = errors.Join(cleanupErr, safeClose("runtime", s.runtime.Close))
 	}
-	cleanupErr = errors.Join(cleanupErr, s.store.Processes().StopRoot(s.id))
+	cleanupErr = errors.Join(cleanupErr, s.processes.StopRoot(s.id))
 	// Settle control calls that were admitted before stopping. Some of those
 	// callers are supervised workers, so waiting for workers first would leave
 	// each side waiting on the other.

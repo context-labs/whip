@@ -17,7 +17,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/daemon"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/webgateway"
 )
@@ -182,7 +183,7 @@ func (child *managedGateway) stop(grace time.Duration) {
 	}
 }
 
-func manageGateway(ctx context.Context, paths daemon.RuntimePaths, generation int64, setStatus func(protocol.GatewayStatus)) {
+func manageGateway(ctx context.Context, paths daemonconn.RuntimePaths, generation int64, setStatus func(protocol.GatewayStatus)) {
 	fail := func(err error) {
 		if ctx.Err() != nil {
 			setStatus(protocol.GatewayStatus{State: "stopped"})
@@ -195,7 +196,7 @@ func manageGateway(ctx context.Context, paths daemon.RuntimePaths, generation in
 	defer cancel()
 	// Socket readiness cannot wait for gateway readiness: the gateway itself
 	// needs to initialize against this socket. Only CLI managed-start waits for both.
-	var client *daemon.Client
+	var client *daemonclient.Client
 	var err error
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
