@@ -202,7 +202,8 @@ func inferenceNetLoginRoute(cfg *config.Config) error {
 	return nil
 }
 
-func (s *ProviderService) checkModelProvider(name string) error {
+// CheckModelProvider verifies the current host connection before model admission.
+func (s *ProviderService) CheckModelProvider(name string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return errors.New("could not read provider configuration on this host")

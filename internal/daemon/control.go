@@ -399,14 +399,6 @@ func resolveSessionDefaults(ctx context.Context, source DefinitionSource, create
 	return sessionDefaults(create, definition)
 }
 
-// defaultPermissionMode fails closed for legacy or unrecognized host settings.
-func defaultPermissionMode(cfg *config.Config) string {
-	if cfg.DefaultPermissionMode == session.PermissionModeAutomatic {
-		return session.PermissionModeAutomatic
-	}
-	return session.PermissionModePrompt
-}
-
 // sessionDefaults fills omitted routing from the definition's model defaults,
 // then omitted routing, engine, and permission mode from host configuration.
 func sessionDefaults(create CreateSession, definition agentdef.Definition) (CreateSession, error) {
@@ -427,7 +419,7 @@ func sessionDefaults(create CreateSession, definition agentdef.Definition) (Crea
 		return create, err
 	}
 	if needPermissionMode {
-		create.PermissionMode = defaultPermissionMode(cfg)
+		create.PermissionMode = session.DefaultPermissionMode(cfg.DefaultPermissionMode)
 	}
 	if create.ExecutionEngine == "" {
 		create.ExecutionEngine = cfg.RLM.Engine()
@@ -447,7 +439,7 @@ func sessionDefaults(create CreateSession, definition agentdef.Definition) (Crea
 	}
 	if needEffort {
 		if create.Effort != "" {
-			if err := validateConfiguredEffort(cfg, create.Model, create.Provider, create.Effort); err != nil {
+			if err := config.ValidateConfiguredEffort(cfg, create.Model, create.Provider, create.Effort); err != nil {
 				return create, err
 			}
 		}

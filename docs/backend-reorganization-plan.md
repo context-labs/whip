@@ -332,7 +332,7 @@ splitting the struct must not extend its lifetime or change concurrent access.
 remain unchanged in meaning. Provider operations no longer own MCP import
 implementation. One authoritative component still owns icon state.
 
-### PRs 3a–3b — Prepare and move the provider boundary
+### PRs 3a–3b2 — Prepare and move the provider boundary
 
 **PR 3a:** consolidate provider operations currently implemented from
 `client_control.go`, `query.go`, and `budget.go` into a small callable service
@@ -345,7 +345,13 @@ configuration reloads, admission order, and error handling. Locate shared
 effort/default helpers through references rather than copying them. Preserve
 the single versioned configuration update and its provisioning-lock scope.
 
-**PR 3b:** move `ProviderService` and its provider implementation files to
+**PR 3b1:** prepare integration-test boundaries using existing HTTP/authentication
+seams and public service operations. Retain every scenario and assertion; keep
+service-private tests with the implementation they exercise. Do not add
+production test hooks or interfaces. Review this test-only preparation before
+the package move so fixture changes cannot hide an extraction regression.
+
+**PR 3b2:** move `ProviderService` and its provider implementation files to
 `internal/provider`. Keep provider RPC decoding/dispatch in the server and
 client RPC methods with the client. Pass the same protocol/configuration
 values directly. Preserve the existing separation from `llm` request encoders.
@@ -360,7 +366,7 @@ while moving helper functions.
 **Acceptance:** the new package has no import of `daemon`; there is one provider
 service implementation; provider configuration/auth/catalog tests, fixed-SDK
 settings flows, and captured provider request comparisons pass. No encoder,
-retry, default, or prompt changes. Review 3a before starting 3b, then review this
+retry, default, or prompt changes. Review each preparation PR before starting its successor, then review this
 stopping point before proceeding.
 
 ### PR 4 — Make startup and construction responsibilities readable
@@ -526,7 +532,7 @@ already reviewed dependencies.
 | Merge checkpoint | Group | Evidence required before merging the group |
 | --- | --- | --- |
 | Baseline and guardrails | Separate prerequisite repairs/CI setup, then PR 1 (split into sequential PRs if needed). | Full baseline is green; stacked-base CI and frozen-client checks work. Land prerequisite repairs before establishing their dependent baseline. |
-| Provider boundary | PRs 2, 3a, and 3b. | Host MCP and provider responsibilities are separated; configuration atomicity, provider semantics, and unchanged clients are verified. |
+| Provider boundary | PRs 2, 3a, 3b1, and 3b2. | Host MCP and provider responsibilities are separated; configuration atomicity, provider semantics, and unchanged clients are verified. |
 | Resource ownership | PRs 4, 5, and 6. | Startup, process ownership, and workspace ownership are explicit; lifecycle, authority, and data compatibility evidence passes. |
 | Native Go client | PRs 7 and 8. | Client/server dependency is separated; Go clients, unchanged TypeScript SDK, reconnect, and cancellation acceptance passes. |
 | Selected follow-ups | Each separately agreed actor, tracing, persistence, or cleanup change, or a small group defined before work starts. | The specific benefit is demonstrated and the same compatibility gates pass. No open-ended final stack. |
@@ -649,11 +655,12 @@ checks on an earlier head are not a claim that a current-head rerun has finished
 | Step | Revision and PR | Evidence and status |
 | --- | --- | --- |
 | Dependency-audit prerequisite | `db3a1cea247eee7cbaa0424fe3ee89eb0d36bf9d`, [PR #299](https://github.com/context-labs/whip/pull/299) | Only 11 `brace-expansion` lockfile entries changed. Local install, unchanged production-audit threshold, protocol freshness, 470 SDK unit tests, example build, and package smoke passed. [Full CI](https://github.com/context-labs/whip/actions/runs/36678816413) and security passed. This is the green maintenance base; the original development SDK remains the fixed oracle. |
-| Stacked-base CI prerequisite | `dba610243623b1a7f6f13f910ddec4d6df9bb711`, [PR #300](https://github.com/context-labs/whip/pull/300) | Only CI/security PR-base filters and their distribution-test expectation changed, plus this plan. All 36 distribution-policy tests and workflow validation passed. GitHub verified both workflows start against stacked bases. [Current CI](https://github.com/context-labs/whip/actions/runs/36681079742) is running; current security passed. |
+| Stacked-base CI prerequisite | `dba610243623b1a7f6f13f910ddec4d6df9bb711`, [PR #300](https://github.com/context-labs/whip/pull/300) | Only CI/security PR-base filters and their distribution-test expectation changed, plus this plan. All 36 distribution-policy tests and workflow validation passed. GitHub verified both workflows start against stacked bases. [Full current CI](https://github.com/context-labs/whip/actions/runs/36681079742) and current security passed. |
 | Isolated provider test environment | `a57b5261b6225b64451b0d5b06374f721cb83153`, [PR #301](https://github.com/context-labs/whip/pull/301) | Separate test-only repair prevents inherited provider credentials from changing fixtures. [Current CI](https://github.com/context-labs/whip/actions/runs/36681286958) is running; current security passed. |
-| Frozen-contract gate | `a7be9a28a0f37598985733e2fe50e06af1aa06f4`, [PR #302](https://github.com/context-labs/whip/pull/302) | Local fixed-reference and immediate-base comparisons passed, including mutation rejection and both-engine data rollback. Hosted compatibility passed on Linux/macOS before the final workflow-policy assertion update. [Current full CI](https://github.com/context-labs/whip/actions/runs/36681287828) is running; current security passed. |
-| Dialog assertion readiness | `1882979ad414c256cada7b2fb71e11a02f46bd4e`, [PR #303](https://github.com/context-labs/whip/pull/303) | Separate test-only repair waits for sheet focus before scroll assertions. The combined 36-test workflow-policy suite passed. [Current CI](https://github.com/context-labs/whip/actions/runs/36681287194) is running; current security passed. |
-| Host MCP ownership (plan PR 2) | This change, based on PR #303. | Three operation bodies move unchanged from `ProviderService` to a private `hostMCPService`, owned by `Server`. The real HTTP cancellation characterization passed against the original implementation before extraction. Focused MCP/icon race tests, full-module build/vet/whipvet, and the full daemon race/shuffle suite passed. Fresh fixed-SDK comparisons passed against the original reference and immediate base `1882979ad414c256cada7b2fb71e11a02f46bd4e`, including both transports, mutation rejection, lifecycle and both-engine data rollback. |
+| Frozen-contract gate | `a7be9a28a0f37598985733e2fe50e06af1aa06f4`, [PR #302](https://github.com/context-labs/whip/pull/302) | Local fixed-reference and immediate-base comparisons passed, including mutation rejection and both-engine data rollback. [Current full CI](https://github.com/context-labs/whip/actions/runs/36681287828) completed: both Linux/macOS compatibility jobs, Go tests with the 90% coverage floor, lint and runtime checks passed. The aggregate failed the independently reproduced UI scroll-readiness race repaired downstream in PR #303; current security passed. |
+| Dialog assertion readiness | `1882979ad414c256cada7b2fb71e11a02f46bd4e`, [PR #303](https://github.com/context-labs/whip/pull/303) | Separate test-only repair waits for sheet focus before scroll assertions. The combined 36-test workflow-policy suite passed. [Current CI](https://github.com/context-labs/whip/actions/runs/36681287194) passed the complete SDK/UI/browser/product job, both compatibility jobs, Go tests with the 90% coverage floor, lint, runtime, mobile, builds, docs and macOS distribution. Desktop and Linux distribution are still finishing; current security passed. |
+| Host MCP ownership (plan PR 2) | `d8175212d3db3371b14862dc07ad24fc62393108`, [PR #304](https://github.com/context-labs/whip/pull/304). | Three operation bodies move unchanged from `ProviderService` to a private `hostMCPService`, owned by `Server`. The real HTTP cancellation characterization passed against the original implementation before extraction. Focused MCP/icon race tests, full-module build/vet/whipvet, and the full daemon race/shuffle suite (250.722s) passed. Fresh fixed-SDK comparisons passed against the original reference and immediate base `1882979ad414c256cada7b2fb71e11a02f46bd4e`, including both transports, mutation rejection, lifecycle and both-engine data rollback. |
+| Provider operation boundary (plan PR 3a) | This change, based on `d8175212d3db3371b14862dc07ad24fc62393108`. | Catalog operation/reload characterization passed three times under the race detector on unchanged production code before extraction. Typed catalog results, compaction validation, model admission and provider-context borrowing now form the narrow operation surface. Shared effort and permission-default helpers move once to their existing configuration/session owners. Validation results are recorded below. |
 
 ### Host MCP ownership and lifetime
 
@@ -669,3 +676,34 @@ checks on an earlier head are not a claim that a current-head rerun has finished
 This step removes host import and icon implementation ownership from provider
 onboarding. Provider context borrowing is intentional until a later separately
 reviewed composition change can preserve the same cancellation boundary.
+
+### Provider operation boundary
+
+`ProviderService.ListCatalogs` owns the existing catalog read/refresh operation
+and returns `protocol.ProviderCatalogsResult` directly. The daemon retains JSON
+serialization, query decoding and the query-only 30-second deadline; per-provider
+five-second fetches and the final configuration reload are unchanged. The new
+blocked-fetch characterization proves that a concurrent configuration change is
+reflected in the complete returned result and cannot republish a disabled route.
+
+`ConfigureCompaction` and `CheckModelProvider` are the existing operations with
+exported names. Their call sites keep the versioned configuration callback,
+provisioning-lock scope, admission check, accounting reservation and tracing in
+exactly their previous order. `Context` exposes the existing provider lifetime
+for the host MCP borrower without creating or cancelling another context.
+
+The catalog-to-storage helper stays private with provider implementation.
+`config.ValidateConfiguredEffort` now owns the one shared configuration/catalog
+validation body; `session.DefaultPermissionMode` owns the one legacy fallback
+body beside its existing constants. Callers retain the same error strings,
+explicit-off handling and unrecognized-mode fallback. No new type, configuration
+write, package, translation layer or runtime construction is introduced.
+
+Local validation passed: full-module build, vet and whipvet; focused provider and
+registry race tests (18.710s); config and session race suites (1.504s and 147.339s);
+and the full daemon race/shuffle suite (251.788s). Fresh compatibility comparisons
+passed against the fixed SDK reference and immediate base `d8175212d3db3371b14862dc07ad24fc62393108`,
+including both transports, mutation rejection, lifecycle and both-engine data
+rollback. The compatibility evidence records the tested working diff and binary
+and contract hashes; the submitted PR records the commit and hosted CI results.
+Existing CI and frozen-contract gates remain required.

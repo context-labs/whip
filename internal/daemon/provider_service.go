@@ -130,6 +130,10 @@ func NewProviderService(ctx context.Context, generation string) *ProviderService
 	return s
 }
 
+// Context is the provider lifetime borrowed by host components. Close cancels
+// it at the existing provider shutdown boundary.
+func (s *ProviderService) Context() context.Context { return s.ctx }
+
 func (s *ProviderService) Close() {
 	s.mu.Lock()
 	s.cancel()
@@ -162,7 +166,7 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 	return RuntimeConfiguration{
 		DisabledProviders:      &disabled,
 		DefaultExecutionEngine: c.RLM.Engine(),
-		DefaultPermissionMode:  defaultPermissionMode(c),
+		DefaultPermissionMode:  session.DefaultPermissionMode(c.DefaultPermissionMode),
 		RemoteHosts:            &hosts,
 		ImportClaude:           claude, ImportCodex: codex, MCPImportOffered: c.MCPImport != nil && c.MCPImport.Offered,
 		BrandIcons: c.BrandIcons == nil || *c.BrandIcons,
@@ -276,7 +280,7 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 			if p.CompactProvider != nil {
 				provider = *p.CompactProvider
 			}
-			if err := s.configureCompaction(c, model, provider); err != nil {
+			if err := s.ConfigureCompaction(c, model, provider); err != nil {
 				return err
 			}
 		}
@@ -292,7 +296,7 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 		// A blank configured default is "not chosen": each new session resolves
 		// its own concrete effort against the model at creation.
 		if p.DefaultEffort != nil && *p.DefaultEffort != "" {
-			if err := validateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, *p.DefaultEffort); err != nil {
+			if err := config.ValidateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, *p.DefaultEffort); err != nil {
 				return err
 			}
 		}
@@ -301,7 +305,7 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 			if !selection.Ready {
 				return errors.New("select a model available on a connected provider before saving defaults")
 			}
-			if p.DefaultEffort == nil && c.DefaultEffort != "" && validateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, c.DefaultEffort) != nil {
+			if p.DefaultEffort == nil && c.DefaultEffort != "" && config.ValidateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, c.DefaultEffort) != nil {
 				c.DefaultEffort = ""
 			}
 		}
@@ -318,9 +322,10 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 	return runtimeConfiguration(c, revision), nil
 }
 
-// configureCompaction validates new custom selections without revalidating an
-// unchanged saved override when a settings form resends it.
-func (s *ProviderService) configureCompaction(c *config.Config, model, provider string) error {
+// ConfigureCompaction validates new custom selections without revalidating an
+// unchanged saved override when a settings form resends it. The caller owns
+// the configuration update transaction and any provisioning lock.
+func (s *ProviderService) ConfigureCompaction(c *config.Config, model, provider string) error {
 	if model == "" {
 		c.CompactModel, c.CompactProvider = "", ""
 		return nil
