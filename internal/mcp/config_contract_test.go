@@ -17,8 +17,7 @@ func TestMCPConfigContractParity(t *testing.T) {
 	if savedType.NumField()+1 != runtimeType.NumField() || wireType.NumField() != runtimeType.NumField() {
 		t.Fatal("MCP config shapes differ beyond runtime-only trust")
 	}
-	for i := range runtimeType.NumField() {
-		field := runtimeType.Field(i)
+	for field := range runtimeType.Fields() {
 		wire, ok := wireType.FieldByName(field.Name)
 		wantTag := field.Tag
 		switch field.Name {

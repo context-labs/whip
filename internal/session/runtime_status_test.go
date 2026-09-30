@@ -11,10 +11,20 @@ func TestTurnAndCommandOutcomeStatusBoundaries(t *testing.T) {
 		status   string
 		terminal bool
 	}{
-		{"succeeded", true}, {"failed", true}, {"cancelled", true}, {"interrupted", true},
-		{"queued", false}, {"running", false}, {"waiting", false}, {"idle", false},
-		{"stopped", false}, {"deleted", false}, {"unknown", false},
-		{"", false}, {"Succeeded", false}, {" succeeded", false},
+		{"succeeded", true},
+		{"failed", true},
+		{"cancelled", true},
+		{"interrupted", true},
+		{"queued", false},
+		{"running", false},
+		{"waiting", false},
+		{"idle", false},
+		{"stopped", false},
+		{"deleted", false},
+		{"unknown", false},
+		{"", false},
+		{"Succeeded", false},
+		{" succeeded", false},
 	} {
 		t.Run(fmt.Sprintf("status=%q", test.status), func(t *testing.T) {
 			store, root, agent := newSwarmFixture(t)
@@ -97,10 +107,20 @@ func TestAgentStatusAdmissionAndSQLBoundariesAgree(t *testing.T) {
 		status   string
 		terminal bool
 	}{
-		{"succeeded", true}, {"failed", true}, {"cancelled", true}, {"interrupted", true},
-		{"stopped", true}, {"deleted", true},
-		{"queued", false}, {"running", false}, {"waiting", false}, {"idle", false},
-		{"unknown", false}, {"", false}, {"Failed", false}, {" failed", false},
+		{"succeeded", true},
+		{"failed", true},
+		{"cancelled", true},
+		{"interrupted", true},
+		{"stopped", true},
+		{"deleted", true},
+		{"queued", false},
+		{"running", false},
+		{"waiting", false},
+		{"idle", false},
+		{"unknown", false},
+		{"", false},
+		{"Failed", false},
+		{" failed", false},
 	} {
 		t.Run(fmt.Sprintf("status=%q", test.status), func(t *testing.T) {
 			store, root, agent := newSwarmFixture(t)

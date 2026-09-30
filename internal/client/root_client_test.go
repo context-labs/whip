@@ -28,10 +28,19 @@ func TestRootClientCancellationTargetsPreserveStatusBoundaries(t *testing.T) {
 		status   string
 		terminal bool
 	}{
-		{"succeeded", true}, {"failed", true}, {"cancelled", true}, {"interrupted", true},
-		{"queued", false}, {"running", false}, {"waiting", false},
-		{"stopped", false}, {"deleted", false}, {"unknown", false},
-		{"", false}, {"Succeeded", false}, {" succeeded", false},
+		{"succeeded", true},
+		{"failed", true},
+		{"cancelled", true},
+		{"interrupted", true},
+		{"queued", false},
+		{"running", false},
+		{"waiting", false},
+		{"stopped", false},
+		{"deleted", false},
+		{"unknown", false},
+		{"", false},
+		{"Succeeded", false},
+		{" succeeded", false},
 	} {
 		t.Run(fmt.Sprintf("status=%q", test.status), func(t *testing.T) {
 			connection := &statusRootConnection{staticRootConnection: newStaticRootConnection(), status: test.status}
