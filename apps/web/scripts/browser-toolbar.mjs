@@ -49,11 +49,12 @@ try {
             await expect(switcher.getByRole('button', { pressed: true })).toHaveCount(1);
             await expect(switcher.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true');
           }
-          if (width > 600) {
-            await topBar.getByRole('button', { name: 'Session details', exact: true }).click();
-            await expect(topBar.getByRole('button', { name: 'Hide session details' })).toHaveAttribute('aria-expanded', 'true');
-            await topBar.getByRole('button', { name: 'Hide session details' }).click();
-          }
+          await expect(topBar.getByRole('button', { name: 'Session details', exact: true })).toHaveCount(0);
+          await topBar.getByRole('button', { name: 'Session actions', exact: true }).click();
+          await expect(page.getByRole('menuitem', { name: /^(REPL|Trace)$/ })).toHaveCount(0);
+          await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
+          await topBar.getByRole('button', { name: 'Session actions', exact: true }).click();
+          await page.getByRole('menuitem', { name: 'Hide session details', exact: true }).click();
           const session = await topBar.boundingBox();
           const buttons = await switcher.getByRole('button').all();
           for (const button of buttons) {

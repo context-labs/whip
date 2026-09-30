@@ -18,7 +18,20 @@ export const styles = stylex.create({
   tab: { display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 auto', minWidth: 0, height: '100%', paddingInlineStart: scale.space3, paddingInlineEnd: scale.space1, borderWidth: 0, borderStyle: 'none', backgroundColor: 'transparent', color: surface.secondaryText, fontFamily: typography.sans, fontSize: typography.size13, fontWeight: 500, lineHeight: '1.5385', textDecoration: 'none', textAlign: 'start', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none', borderStartStartRadius: scale.radiusDialog, borderStartEndRadius: scale.radiusDialog, outline: { default: 'none', ':focus-visible': `1px solid ${surface.secondaryText}` }, outlineOffset: -2 },
   activeText: { color: colors.foreground },
   status: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 14px', width: 14, height: 14 },
-  title: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' },
+  title: {
+    flex: '1 1 auto', minWidth: 0, overflow: 'hidden', paddingInlineEnd: 16,
+    // End padding keeps fitting titles out of the fade; overflowing text clips through it.
+    maskImage: {
+      default: 'linear-gradient(to right, black calc(100% - 16px), transparent)',
+      ':is([dir="rtl"] *)': 'linear-gradient(to left, black calc(100% - 16px), transparent)',
+      '@media (forced-colors: active), (update: none)': 'none',
+    },
+    WebkitMaskImage: {
+      default: 'linear-gradient(to right, black calc(100% - 16px), transparent)',
+      ':is([dir="rtl"] *)': 'linear-gradient(to left, black calc(100% - 16px), transparent)',
+      '@media (forced-colors: active), (update: none)': 'none',
+    },
+  },
   metadata: { flex: '0 1 auto', minWidth: 0, maxWidth: 88, overflow: 'hidden', textOverflow: 'ellipsis', color: surface.secondaryText, fontSize: typography.size11 },
   menu: { display: 'flex', alignItems: 'center', flexShrink: 0, opacity: { default: 0, [stylex.when.ancestor(':hover', tabMarker)]: 1, [stylex.when.ancestor(':focus-within', tabMarker)]: 1, [scale.touch]: 1 } },
   menuVisible: { opacity: 1 },

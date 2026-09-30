@@ -46,7 +46,13 @@ export function Menu({trigger, items, align = 'end', onOpenChange}: {trigger: Re
 }
 export function ContextMenu({children, items, onOpenChange}: {children: ReactElement; items: readonly MenuItem[]; onOpenChange?: (open: boolean) => void}) {
   const overlay = useNativeOverlay(undefined, onOpenChange);
-  return <BaseContextMenu.Root {...overlay}><BaseContextMenu.Trigger render={children}/><BaseContextMenu.Portal><BaseContextMenu.Positioner {...stylex.props(styles.positioner)}><BaseContextMenu.Popup {...stylex.props(styles.popup)}><MenuItems items={items}/></BaseContextMenu.Popup></BaseContextMenu.Positioner></BaseContextMenu.Portal></BaseContextMenu.Root>;
+  return <BaseContextMenu.Root {...overlay}><BaseContextMenu.Trigger render={children} onKeyDown={event => {
+    if (event.defaultPrevented || !(event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) return;
+    event.preventDefault();
+    // Firefox on macOS does not synthesize contextmenu for these keyboard shortcuts.
+    const rect = event.currentTarget.getBoundingClientRect();
+    event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }));
+  }}/><BaseContextMenu.Portal><BaseContextMenu.Positioner {...stylex.props(styles.positioner)}><BaseContextMenu.Popup {...stylex.props(styles.popup)}><MenuItems items={items}/></BaseContextMenu.Popup></BaseContextMenu.Positioner></BaseContextMenu.Portal></BaseContextMenu.Root>;
 }
 export function Popover({trigger, title, children, open, onOpenChange, side, align, xstyle}: {trigger: ReactElement; title?: ReactNode; children: ReactNode; open?: boolean; onOpenChange?: (value: boolean) => void; side?: BasePopover.Positioner.Props['side']; align?: BasePopover.Positioner.Props['align']} & Styled) {
   const overlay = useNativeOverlay(open, onOpenChange);

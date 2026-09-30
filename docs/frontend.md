@@ -2135,8 +2135,13 @@ Tab creation, selection, reorder, close, and reopen are local navigation actions
 
 Desktop tabs retain their original rounded upper corners and curved lower
 shoulders in the 48px strip; selected tabs join the content canvas. Theme tokens
-also style the matching contoured drag preview. Tabs keep readable widths in a horizontal scroller; the picker handles
-overflow and secondary actions. On phones, use the current-session selector and
+also style the matching contoured drag preview. Tabs keep 144–224px widths in a
+horizontal scroller without inline ellipsis buttons. Titles clip through a subtle
+16px inline-end fade instead of a text ellipsis, including in drag previews;
+full labels remain available to assistive technology and in tooltips. The fade
+reverses in RTL and is disabled for forced colors and print. Right-click or Shift+F10
+opens tab actions, with the three close actions grouped last; the picker retains
+explicit action menus for touch and overflow. On phones, use the current-session selector and
 searchable sheet. Preserve browser Back/Forward, modified link clicks, keyboard
 activation, and explicit touch/menu alternatives to dragging. Do not hijack the
 browser's new-tab or close-tab shortcuts.
@@ -2196,8 +2201,8 @@ pinned header only after scrolling, with a reduced-motion-aware opacity transiti
 Only directory groups collapse; there are no host headings. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
 agent, current activity and scoped actions. Chat, REPL and trace/span views use
 this same component, including loading and unavailable states. It owns the
-fixed-position Chat / REPL / Trace single-selection view controls and a separate
-Details toggle. Session view choices and the span viewer's Panes and Overview/Raw
+fixed-position Chat / REPL / Trace single-selection view controls and a Session
+details toggle in the overflow menu. Session view choices and the span viewer's Panes and Overview/Raw
 controls share the UI `ToggleGroup`: compact 2px spacing, a quiet secondary fill
 for selected choices, and transparent ghost buttons when inactive. Panes enables
 multiple selection; session views and detail mode retain exactly one selection.
@@ -2208,8 +2213,9 @@ selected agent and inspector state; it never opens or selects another tab.
 The route binding commits the mode after navigation and restores it on Back/Forward.
 Explicit tab-menu opening still creates a fresh REPL/Trace. View identity, reading positions and inspector state
 remain owned by the workspace. Details reflects the inspector's open state,
-independently of the selected view. The overflow menu uses the same callbacks;
-callers provide identity, activity and callbacks
+independently of the selected view. The overflow menu includes Session details
+without a standalone icon, and omits REPL and Trace, which retain their dedicated
+view controls; menu entries use the same callbacks. Callers provide identity, activity and callbacks
 rather than assembling their own top bars. Full host/path identity is available
 on focus through a tooltip. Agent selection opens the existing paginated inspector;
 child views can return to Root. REPL keeps only language, loaded-cell count and
@@ -2218,8 +2224,8 @@ history help in its local toolbar. New Chat shows its chosen host/project and
 identity chrome; detailed errors remain in their existing notices.
 
 Narrow panes shorten the identity trail, keep an accessible activity indicator,
-and move Details into the menu while retaining the three view controls. The bar shares existing session action
-and inspector owners; it adds no subscriptions, context audits or polling. Models
+and retain the three view controls; Details stays in the menu at every width.
+The bar shares existing session action and inspector owners; it adds no subscriptions, context audits or polling. Models
 and permissions stay beside the composer, along with child activity and requests.
 Session details also opens from the tab menu or command palette.
 
