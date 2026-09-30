@@ -651,7 +651,7 @@ prerequisite. The execution ledger below records subsequent repairs and results.
 
 All active review PRs remain unmerged. Rebased dependency heads are recorded below; successful
 checks on an earlier head are not a claim that a current-head rerun has finished.
-The current order is 299 → 300 → 301 → 307 → 302 → 304 → 305 → 306 → 308 → 309 → 310 → 311 → 312 → 313 → performance-probe repair.
+The current order is 299 → 300 → 301 → 307 → 302 → 304 → 305 → 306 → 308 → 309 → 310 → 311 → 312 → 313 → 314 → 315 → 316 → native client extraction.
 The separate UI-readiness repair now precedes the compatibility gate so that
 PR #302 inherits that repair in its own required CI. The combined tree at the
 new PR #302 head is identical to the previous PR #303 tree; PRs #304–#306 and
@@ -681,8 +681,8 @@ development remains at `271c0f8d2a35648d1b45056d57432590b783483c`.
 | Gateway fixture synchronization | `067fe82cd90b99aed42efa80c24e3917ba96e820`, [PR #313](https://github.com/context-labs/whip/pull/313), following workspace ownership. | Eight test-only lines synchronize the two pipelined browser writes before backend rejection. Existing assertions remain exact; the detailed baseline diagnosis and checks are below. |
 | Browser performance probe repair | `codex/backend-reorg-06b-performance-probe`, based on PR #313. | A separate instrumentation repair measures commit markers received in snapshots as well as notifications, preserving exact event sequences and first receipt. Focused negative-control regressions, full ordinary/controlled browser runs, and source conservation are recorded below. |
 | Shared native plumbing (plan PR 7) | `3127d8ef67c3d59cd70f55ad697102e275c2a6fc`, [PR #315](https://github.com/context-labs/whip/pull/315), based on PR #314. | Shared connection primitives and command presentation move without changing client/server policy. The declaration, characterization, full affected-suite and fresh fixed/immediate-base evidence is recorded below. The PR remains unmerged. |
-| Tagged TUI title fixture repair | `codex/backend-reorg-07a-tui-title-fixture`, based on PR #315 (`3127d8ef67c3d59cd70f55ad697102e275c2a6fc`). | Separate test-only prerequisite fixes a title-generation fixture that already failed on the starting revision's policy. Both transports retain the original final assertions; the existing tagged acceptance test is added to Linux/macOS runtime CI. Diagnosis and evidence are recorded below. |
-| Native client extraction (plan PR 8) | `codex/backend-reorg-08-native-client`, initially based on PR #315. | Exact implementation/private-test moves and canonical Go import changes pass API/source conservation, full ordinary affected race/PTY suites, named native acceptance, static checks and frozen/immediate-parent compatibility. The separate tagged TUI title fixture fails identically on the unchanged parent and candidate; a separate prerequisite repair is required before publication. |
+| Tagged TUI title fixture repair | `e289b4ea3344b6fdd45a8782d17c5c66084e90e4`, [PR #316](https://github.com/context-labs/whip/pull/316), based on PR #315. | Separate test-only prerequisite fixes a title-generation fixture that already failed on the starting revision's policy. Both transports retain the original final assertions; the existing tagged acceptance test is added to Linux/macOS runtime CI. Diagnosis and evidence are recorded below. |
+| Native client extraction (plan PR 8) | `codex/backend-reorg-08-native-client`, based on PR #316 (`e289b4ea3344b6fdd45a8782d17c5c66084e90e4`). | Exact implementation/private-test moves and canonical Go imports preserve all client APIs, bodies and assertions. Full affected race/PTY suites, named native acceptance and static checks passed. After the separate inherited title-fixture repair, the tagged TUI gate and refreshed fixed/immediate-parent guard passed at clean code commit `ecf96616acf48233658620c81286a08fd9bada80`; final documentation records the complete evidence below. |
 
 Fresh post-reorder evidence is recorded at
 `/private/tmp/whip-reorg-03b2-published-compat-evidence/evidence.json`: fixed
@@ -1350,7 +1350,7 @@ on clean PR 7 in a real PTY. Its fake implements GenerateTitle(context.Context),
 but the existing runtime uses GenerateTitle(context.Context, string); its
 19-character prompt also falls below the existing 20-rune generation threshold.
 The provisional title event precedes generated-title completion. These inherited
-fixture issues require a separate test-only prerequisite, without changing title
+fixture issues required a separate test-only prerequisite, without changing title
 policy, increasing timeouts or weakening the final title assertion. The original
 and parent failures are retained in `/private/tmp/whip-pr8-native-acceptance.log`
 and `/private/tmp/whip-pr8-parent-native-title.log`; PR 8 does not repair them.
@@ -1364,6 +1364,48 @@ root/child/content/schema/trace rollback. Toolchains were Go 1.27.0 darwin/arm64
 and Node 24.14.1; fixed SDK/backend stays
 `271c0f8d2a35648d1b45056d57432590b783483c`. Candidate test binary SHA-256 was
 `8cfe4b022e942473a7f7a1b45c7f2b687a271346586375ed5ce80785f3d4ae6e`.
-Publication remains on hold for the separate fixture repair, followed by a
-rebase, refreshed immediate-parent proof and compatibility evidence. This entry
-does not claim that the inherited tagged gate passed.
+Publication was held at that checkpoint for the separate fixture repair. The
+initial failure and initial-parent evidence above remain historical results;
+the repaired-parent validation below supersedes that publication hold.
+
+
+After independent review of the separate test-only prerequisite [PR #316](https://github.com/context-labs/whip/pull/316),
+the extraction was rebased onto its exact head
+`e289b4ea3344b6fdd45a8782d17c5c66084e90e4`. Clean code commit
+`ecf96616acf48233658620c81286a08fd9bada80` retains both additive CI commands and
+all repaired fixture assertions. The rebase changes only that inherited fixture,
+CI and the ordered ledger relative to local checkpoint
+`c87ecb8e6021480e0a1c83d874d39a982c23fe90`. All 435 production Go files, plus 11
+tracked skill examples, are byte-identical; the prior full affected race results
+remain applicable without repeating unchanged suites. Exact tree evidence is
+`/private/tmp/whip-pr8-rebase-production-proof.json`.
+
+Fresh typed reference analysis and expected-source regeneration use the repaired
+parent, rather than the earlier snapshot. All 124 API entries still match;
+source conservation still covers 1,305 declarations across 109 files, including
+1,012 function bodies and 344 named tests. All 534 authored daemon test names
+remain exactly once across daemon/client, with precisely the approved 24 moved
+tests and one additional architecture test. All 1,257 original Go comments are
+preserved verbatim; splitting the autostart test intentionally copies its existing
+Unix build constraint into both files. Both extra-declaration/file negative
+controls still fail, and all three RPC error frames match the repaired parent's
+server constructors byte-for-byte. Refreshed artifacts use the
+`/private/tmp/whip-pr8-rebased-` prefix, with the test-name proof at
+`whip-pr8-rebased-test-conservation.log`.
+
+On the rebased code, repaired tagged TUI startup/title acceptance passed both
+transports in a real PTY (7.226s). Module build, vet, whipvet, integration-tag
+fixture compilation and pinned golangci-lint passed with zero lint issues. All
+36 workflow policy tests passed (52.097s), retaining the title fixture command
+alongside the client package's existing runtime command.
+
+The final fresh compatibility run passed at
+`/private/tmp/whip-pr8-rebased-compat-fresh/evidence.json`, recording clean candidate
+`ecf96616acf48233658620c81286a08fd9bada80`, exact immediate parent
+`e289b4ea3344b6fdd45a8782d17c5c66084e90e4`, and an empty candidate diff. Both
+transport comparisons, response/order mutation rejection, lifecycle checks and
+both-engine fixed/immediate-parent persisted root/child/content/schema/trace
+rollback passed. The fixed SDK/backend pin, toolchains and candidate daemon test
+binary hash are unchanged from the initial evidence above. The final follow-up
+commit changes only documentation; hosted checks will record its own SHA and PR
+base. The extraction and its prerequisite remain separate, unmerged review PRs.
