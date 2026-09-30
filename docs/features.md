@@ -147,7 +147,7 @@ Available modules are summarized in [tools.md](tools.md).
   reason on the summary's trace. Cancellation, uncertain completion, partial
   output and accounting/budget failures never cause a second-route replay.
   See [compaction settings](models-providers.md#compaction-model),
-  `cmd/whip/daemon.go`, `internal/agent/agent.go`,
+  `cmd/whip/daemon_runtime.go`, `internal/agent/agent.go`,
   `packages/app/src/settings/configuration.tsx`, and their configuration,
   compaction-fallback and settings regression tests.
 - Large values are immutable, content-addressed, and separately authorized.
