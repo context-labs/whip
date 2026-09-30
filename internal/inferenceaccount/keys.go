@@ -8,7 +8,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferenceauth"
 )
 
@@ -148,22 +147,16 @@ func (s *Service) cleanupKey(f *flow) error {
 // cleanup is bounded and separately reported; retries reuse only the prior
 // cleanup record, never reauthorize locally or repeat creation.
 func (s *Service) Logout(ctx context.Context) (LogoutResult, error) {
-	return s.logout(ctx, func(clear func() error) error { _ = clear(); return nil })
+	return s.LogoutGuarded(ctx, func(clear func() error) error { _ = clear(); return nil })
 }
 
-// LogoutProvider reuses logout while checking route revision and shared account
-// references under the existing login lock. Remote cleanup remains outside it.
-func (s *Service) LogoutProvider(ctx context.Context, authority *config.Authority, revision, id string) (LogoutResult, config.ProviderDisconnect, error) {
-	var result config.ProviderDisconnect
-	status, err := s.logout(ctx, func(clear func() error) error {
-		var err error
-		result, err = authority.DisconnectProvider(ctx, revision, id, "inference-net", clear)
-		return err
-	})
-	return status, result, err
-}
-
-func (s *Service) logout(ctx context.Context, guard func(func() error) error) (LogoutResult, error) {
+// LogoutGuarded checks host-owned route authority while the login lock is held.
+// The guard may call clear once and must not do network work or call account
+// methods. Cleanup happens after the lock is released, only after local revocation.
+func (s *Service) LogoutGuarded(ctx context.Context, guard func(clear func() error) error) (LogoutResult, error) {
+	if guard == nil {
+		return LogoutResult{}, ErrInvalid
+	}
 	s.mu.Lock()
 	if err := s.check(ctx); err != nil {
 		s.mu.Unlock()

@@ -870,7 +870,7 @@ export function SessionContent({
             : undefined}
           historyCursor={history.olderCursor ?? undefined}
           historyReady={!!history.snapshot}
-          canLoadOlder={connected}
+          canLoadOlder={hostConnected}
           loadingHistory={state.status === 'loading'}
           hasMore={history.olderCursor !== null}
           loadOlder={() => view.loadOlder()}
@@ -947,15 +947,13 @@ export function SessionContent({
           }
         />
       )}
-      {scopeValid && (
-        <PendingRequests
-          session={session}
-          rootId={rootId}
-          disabled={!connected}
-          refresh={refresh}
-          pendingCount={state.activity?.pending_permission_count}
-        />
-      )}
+      <PendingRequests
+        session={session}
+        rootId={rootId}
+        disabled={!connected}
+        refresh={refresh}
+        pendingCount={state.activity?.pending_permission_count}
+      />
       {kind === 'chat' && (
         <Composer
           key={`composer:${expectedRuntimeId}:${rootId}:${session.id}`}

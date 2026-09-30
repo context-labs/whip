@@ -2,19 +2,55 @@ package providerhost
 
 import (
 	"context"
-	"slices"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/mcpconfig"
 	"github.com/context-labs/whip/internal/session"
 )
 
-// Candidate reports only credential availability from the fixed setup presets.
-// It never returns credential contents or publishes a provider declaration.
+// importEnvironment publishes missing preset routes once at host startup.
+// Existing routes, including disabled ones, and model defaults take precedence.
+func (s *Service) importEnvironment(ctx context.Context) error {
+	snapshot, err := s.snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	providers := map[string]config.Provider{}
+	for _, preset := range Presets() {
+		if _, configured := snapshot.Host.Providers[preset.ID]; configured {
+			continue
+		}
+		for _, environment := range preset.Environments {
+			provider := config.Provider{Kind: preset.Kind, BaseURL: preset.BaseURL, CredentialSource: "env", CredentialEnv: environment}
+			status, _, err := s.inspect(ctx, provider)
+			if err == nil && status.State == "available" {
+				providers[preset.ID] = provider
+				break
+			}
+		}
+	}
+	if len(providers) == 0 {
+		return ctx.Err()
+	}
+	_, err = s.config.Update(ctx, snapshot.Revision, func(host *config.Host) error {
+		if host.Providers == nil {
+			host.Providers = map[string]config.Provider{}
+		}
+		for id, provider := range providers {
+			host.Providers[id] = provider
+		}
+		return nil
+	})
+	if err != nil {
+		return safeConfigError(err)
+	}
+	return nil
+}
+
+// Candidate reports saved account availability, never credential contents.
+// Environment routes are already imported when the host starts.
 type Candidate struct {
 	Provider        string `json:"provider"`
 	Source          string `json:"source"`
-	Environment     string `json:"environment"`
 	CredentialState string `json:"credential_state"`
 }
 
@@ -32,13 +68,6 @@ func (s *Service) Candidates(ctx context.Context) (Candidates, error) {
 	for _, preset := range Presets() {
 		if _, configured := snapshot.Host.Providers[preset.ID]; configured {
 			continue
-		}
-		for _, environment := range preset.Environments {
-			provider := config.Provider{Kind: preset.Kind, BaseURL: preset.BaseURL, CredentialSource: "env", CredentialEnv: environment}
-			status, _, err := s.inspect(ctx, provider)
-			if err == nil && status.State == "available" {
-				result.Items = append(result.Items, Candidate{Provider: preset.ID, Source: "env", Environment: environment, CredentialState: status.State})
-			}
 		}
 		if preset.ID == "inference-net" || preset.ID == "openai-codex" {
 			provider := config.Provider{Kind: preset.Kind, BaseURL: preset.BaseURL}
@@ -64,11 +93,9 @@ func (s *Service) UseCandidate(ctx context.Context, revision string, candidate C
 		}
 		provider = config.Provider{Kind: preset.Kind, BaseURL: preset.BaseURL}
 		switch {
-		case candidate.Source == "env" && slices.Contains(preset.Environments, candidate.Environment):
-			provider.CredentialSource, provider.CredentialEnv = "env", candidate.Environment
-		case candidate.Source == "inference-net" && preset.ID == "inference-net" && candidate.Environment == "":
+		case candidate.Source == "inference-net" && preset.ID == "inference-net":
 			provider.CredentialSource = "inference-net"
-		case candidate.Source == "openai-codex" && preset.ID == "openai-codex" && candidate.Environment == "":
+		case candidate.Source == "openai-codex" && preset.ID == "openai-codex":
 		default:
 			return Inventory{}, ErrInvalid
 		}
@@ -146,15 +173,7 @@ func (s *Service) SetExecutionPreferences(ctx context.Context, revision string, 
 		host.Defaults.Compaction.ThresholdPercent = values.CompactionPercent
 		host.GoalMaxContinuations = values.GoalMaxContinuations
 		host.MaxAttempts = values.MaxAttempts
-		for _, value := range []struct {
-			source  **mcpconfig.ImportSource
-			enabled bool
-		}{{&host.MCP.Imports.Claude, values.ImportClaude}, {&host.MCP.Imports.Codex, values.ImportCodex}} {
-			if *value.source == nil {
-				*value.source = &mcpconfig.ImportSource{}
-			}
-			(*value.source).Enabled = new(value.enabled)
-		}
+		host.SetAgentImportPreferences(values.ImportClaude, values.ImportCodex)
 		return nil
 	})
 	if err != nil {

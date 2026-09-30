@@ -18,6 +18,15 @@ func TestProviderDisconnectGuardsAndJoinsInferenceLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	disconnect := func(revision string) (LogoutResult, config.ProviderDisconnect, error) {
+		var result config.ProviderDisconnect
+		status, err := f.service.LogoutGuarded(t.Context(), func(clear func() error) error {
+			var guardErr error
+			result, guardErr = a.DisconnectProvider(t.Context(), revision, "inference-net", "inference-net", clear)
+			return guardErr
+		})
+		return status, result, err
+	}
 	before, err := a.Snapshot(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -37,13 +46,13 @@ func TestProviderDisconnectGuardsAndJoinsInferenceLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-started
-	if _, _, err := f.service.LogoutProvider(t.Context(), a, before.Revision, "inference-net"); !errors.Is(err, config.ErrRevisionConflict) {
+	if _, _, err := disconnect(before.Revision); !errors.Is(err, config.ErrRevisionConflict) {
 		t.Fatal("stale disconnect accepted", err)
 	}
 	if value, err := f.service.Get(t.Context(), flow.ID); err != nil || value.State != Authorizing {
 		t.Fatal("stale disconnect cancelled login", value, err)
 	}
-	status, result, err := f.service.LogoutProvider(t.Context(), a, configured.Revision, "inference-net")
+	status, result, err := disconnect(configured.Revision)
 	if err != nil || result.CredentialState != "cleared" || status.LocalFailure != "" {
 		t.Fatal(status, result, err)
 	}

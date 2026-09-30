@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DeliveryError, type HostExecutionDefaults, type SetExecutionPreferencesParams } from '@whip/sdk';
@@ -45,4 +45,21 @@ it('refreshes a failed publication, retains draft, and never retries with a newe
   fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '4' } }); fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' })); await screen.findByText(/Lost acknowledgement/);
   await screen.findByRole('button', { name: 'Discard edits and load current defaults' }); expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('4'); expect(f.count('host.set_execution_preferences')).toBe(1);
   fireEvent.click(screen.getByRole('button', { name: 'Discard edits and load current defaults' })); expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('5');
+});
+
+it('retains the whole unpublished execution draft through query removal and client replacement', async () => {
+  const f = await fixture(); const view = f.render();
+  fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '8' } });
+  fireEvent.change(screen.getByLabelText('Goal round limit'), { target: { value: '12' } });
+  view.rerender(f.wrap(<ExecutionSettings client={f.client} enabled={false} />));
+  act(() => f.queries.removeQueries({ queryKey: ['host-defaults', f.client.runtimeID] }));
+  expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('8');
+  expect(screen.getByRole('button', { name: 'Save host defaults' }).hasAttribute('disabled')).toBe(true);
+  const replacement = await fixture(); replacement.change({ revision: nextRevision });
+  view.rerender(f.wrap(<ExecutionSettings client={replacement.client} enabled />));
+  await screen.findByRole('button', { name: 'Discard edits and load current defaults' });
+  expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('8');
+  expect((screen.getByLabelText('Goal round limit') as HTMLInputElement).value).toBe('12');
+  expect(screen.getByRole('button', { name: 'Save host defaults' }).hasAttribute('disabled')).toBe(true);
+  expect(f.count('host.set_execution_preferences') + replacement.count('host.set_execution_preferences')).toBe(0);
 });

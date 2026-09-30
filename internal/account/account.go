@@ -16,7 +16,6 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/openaiauth"
-	"github.com/context-labs/whip/internal/session"
 )
 
 var (
@@ -289,28 +288,23 @@ func (s *Service) setup(ctx context.Context) error {
 }
 
 func (s *Service) Logout(ctx context.Context) (Status, error) {
-	return s.logout(ctx, func(clear func() error) error { return clear() })
+	return s.LogoutGuarded(ctx, func(clear func() error) error { return clear() })
 }
 
-// LogoutProvider orders the revision/shared-source check and local revocation
-// under the existing login lock, so an older flow cannot publish afterward.
-func (s *Service) LogoutProvider(ctx context.Context, revision, id string) (Status, config.ProviderDisconnect, error) {
-	var result config.ProviderDisconnect
-	status, err := s.logout(ctx, func(clear func() error) error {
-		var err error
-		result, err = s.config.DisconnectProvider(ctx, revision, id, "openai-codex", clear)
-		return err
-	})
-	return status, result, err
-}
-
-func (s *Service) logout(ctx context.Context, guard func(func() error) error) (Status, error) {
+// LogoutGuarded lets the host check route ownership and revision while the login
+// lock is held. The guard may call clear once; it must not do network work or
+// call other account methods. A rejected guard must leave authorization intact.
+func (s *Service) LogoutGuarded(ctx context.Context, guard func(clear func() error) error) (Status, error) {
+	if guard == nil {
+		return Status{}, ErrInvalid
+	}
 	s.mu.Lock()
 	if err := s.check(ctx); err != nil {
 		s.mu.Unlock()
 		return Status{}, err
 	}
 	done := make([]<-chan struct{}, 0, len(s.flows))
+	var localErr error
 	err := guard(func() error {
 		for _, flow := range s.flows {
 			if flow.view.State == Authorizing {
@@ -319,7 +313,8 @@ func (s *Service) logout(ctx context.Context, guard func(func() error) error) (S
 			}
 			done = append(done, flow.done)
 		}
-		return s.auth.Logout()
+		localErr = s.auth.Logout()
+		return localErr
 	})
 	result := s.status(ctx)
 	s.mu.Unlock()
@@ -327,7 +322,7 @@ func (s *Service) logout(ctx context.Context, guard func(func() error) error) (S
 		<-finished
 	}
 	if err != nil {
-		if errors.Is(err, config.ErrRevisionConflict) || errors.Is(err, session.ErrInvalid) {
+		if localErr == nil {
 			return result, err
 		}
 		return result, ErrLogout

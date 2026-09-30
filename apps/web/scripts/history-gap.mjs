@@ -82,6 +82,8 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
     await page.goto(`${origin}/h/${client.runtimeID}/s/${root}`);
     await expect(reading).toBeVisible(); await page.evaluate(() => document.fonts.ready);
     const session = client.session(root), initial = await session.history.snapshot(deadline());
+    const cell = await session.cells.get(fixture.history.cell_id, deadline());
+    const cellDisplayID = JSON.stringify([root, cell.call_message_id, cell.call_id]);
     const draft = 'Keep this draft while reading earlier history.';
     const composer = page.getByRole('textbox', { name: 'Message WHIP', exact: true });
     await composer.fill(draft);
@@ -89,7 +91,7 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
     // Execution metadata reads are independent of the first transcript paint.
     const notebook = page.getByRole('region', { name: 'REPL executions', exact: true });
     await page.getByRole('button', { name: 'REPL', exact: true }).click();
-    await expect(notebook.locator(`[data-repl-cell="${fixture.history.cell_id}"]`)).toBeVisible();
+    await expect(notebook.locator(`[data-repl-cell=${JSON.stringify(cellDisplayID)}]`)).toBeVisible();
     await page.goBack(); await expect(reading).toBeVisible();
     await expect(composer).toHaveValue(draft);
     await top(); mode = 'hold';
@@ -110,7 +112,7 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
     await expect(error).toBeVisible(); assert.equal(requests.length, 2);
     const failed = requests[1];
     await page.getByRole('button', { name: 'REPL', exact: true }).click();
-    await expect(notebook.locator(`[data-repl-cell="${fixture.history.cell_id}"]`)).toBeVisible();
+    await expect(notebook.locator(`[data-repl-cell=${JSON.stringify(cellDisplayID)}]`)).toBeVisible();
     await expect(error).toBeVisible(); await page.goBack();
     await expect(reading).toBeVisible(); await expect(error).toBeVisible();
     await page.waitForTimeout(500);

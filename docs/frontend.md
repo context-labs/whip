@@ -18,8 +18,10 @@ boundaries and do not waive retained-feature parity.
 
 The [frontend UX restoration plan](frontend-ux-restoration-plan.md) records the
 approved latest-development reference, proposed minimal compatibility work and
-comparative acceptance criteria. It is a proposal, not implemented behavior;
-this guide continues to describe the current application until each change lands.
+comparative acceptance criteria. This guide describes implemented ownership;
+the [implementation record](frontend-ux-restoration-progress.md) and
+[acceptance index](frontend-ux-restoration-acceptance.md) track completed validation
+and explicit parity limits.
 
 ## Start here
 
@@ -201,6 +203,15 @@ requires explicit acceptance. Explicit Connect retains the platform's normal
 user-requested native preparation contract. Local failure does not detach other
 hosts or cancel their accepted work.
 
+During transport recovery, already visible session panes retain their suspended
+SDK leases and lease-owned client while the new verified client is reconciled.
+Retained transcript/copy and local interaction state stay mounted; live reads and
+mutations require the current attached client. This does not admit a previously
+unseen offline session or preserve a lease after explicit Disconnect.
+A failed observation does not disable an explicit read of retained history on
+the current attached client: the SDK still checks its exact owner and captured
+revision. Mutation controls continue to require live observation.
+
 Saved URL profiles use `client.hosts.profiles()` and `setProfiles()` through the
 single host configuration revision. Profiles retain exact validated root HTTP(S)
 URLs and observed runtime pins, with at most 16 records. Input normalization can
@@ -341,7 +352,15 @@ account secrets and resource handles never enter the durable command journal.
 Native permission/question decisions preserve the selected operation/question,
 exact decision and original identity through an uncertain acknowledgement.
 Ordinary pending replies keep their original controls disabled in place; Check
-and Retry appear only after a failed/uncertain reply. The request dock reads
+and Retry appear only after a failed/uncertain reply. The mounted dock retains one
+attempted approval, scoped to runtime/process/root/session, through cache eviction
+and client replacement. A later queue entry cannot replace it; an explicit Check
+reads that operation's state before releasing the captured decision. The same dock
+retains at most four displayed question cards while reads recover, preserving their
+local authored drafts; attempted answers remain pinned until an exact question-state
+check resolves delivery. Late responses settle against immutable runtime/process/
+session/operation identity, so replacing a client does not strand pending controls.
+The request dock reads
 human approvals only for the root. Child operations retain native delegation
 and denial behavior; they cannot be turned into directly approvable requests.
 The root card shows the requested command/path and a readable requester; exact
@@ -355,12 +374,24 @@ Access, standing grants, intrinsic questions and tool-denial policy are distinct
 
 ### Provider and model settings
 
-Provider screens read explicit host routes and a bounded set of candidate sources
-through `Client.listProviders()` and `providerCandidates()`. Candidate evidence is
+At host startup, supported providers with available environment credentials are
+automatically imported as configured routes, storing variable names rather than
+secret values. Existing routes, including disabled routes, take precedence;
+model defaults remain unchanged. Restart the host after changing its environment.
+Provider screens read these routes through `Client.listProviders()` without a
+**Use** activation step. Onboarding requires a provider choice, with no bypass to
+draft before connecting and no model picker or confirmation panel. Selecting a
+canonical provider with a known preset
+saves its suggested model and effort as the host default and opens the composer;
+completing its connection does the same. Providers without a preset, including
+custom endpoints, open the composer with the provider selected and model unset.
+That partial choice belongs to the persistent New Chat draft; the composer owns
+model/effort selection and blocks sending until a model is chosen.
+`providerCandidates()` reports saved account sources only. Candidate evidence is
 read-only: it contains source labels and availability, never secret values, and
 never runs credential commands or publishes routes. Opening Settings or New Chat
 does not refresh a catalog, start sign-in, or change a default. Using a detected
-source is an explicit CAS operation. Cached and bundled model reads do not
+account is an explicit CAS operation. Cached and bundled model reads do not
 establish inference access. Unknown token prices remain null and display as
 unknown; exact decimal prices are formatted without a JavaScript number. A
 current, successful empty catalog is not filled from the offline bundle.
@@ -368,8 +399,10 @@ current, successful empty catalog is not filled from the offline bundle.
 Model catalogs retain at most 4,096 choices and report truncation. Session model
 edits use the selected root's exact configuration revision; child model controls
 remain read-only. Missing activity disables edits rather than implying idle.
-Model changes clear old effort, and **Default** is distinct from provider-defined
-**Off**. Providers settings saves model, effort and permission in one host CAS.
+Session model changes clear old effort. Providers settings retains the selected
+effort when the new model/provider supports it, otherwise resets to **Default**;
+provider-defined **Off** remains distinct. Providers settings saves model, effort
+and permission in one host CAS.
 Execution settings saves engine, compaction, limits and MCP source preferences in
 one host CAS. Conversation Model leaves compaction selection unset. Zero attempts
 means the host default; the raw goal preference distinguishes null/default from
@@ -388,11 +421,15 @@ enter query data, saved commands, or the recovery journal.
 Disable/Enable persists route state without changing its credentials or defaults.
 Disconnect uses the host's source-aware cleanup: owned key files may be removed,
 external credentials are preserved with an explanation, and shared credentials
-are kept while the selected route is disabled. Local and remote cleanup failures
+are kept while the selected route is disabled. The connection menu offers
+Disconnect only when the host reports `credential.can_disconnect`; environment,
+external-file, command and unauthenticated routes retain Disable instead. File
+ownership is determined by the host, not inferred from filenames in the renderer.
+Local and remote cleanup failures
 remain explicit and retryable. Advanced **Remove configured route** is a separate
 CAS operation that preserves credentials and rejects dangling defaults.
-Connecting an account leaves model defaults unchanged, and choosing a default
-never submits an existing chat draft.
+Connecting an account in Settings leaves model defaults unchanged, and choosing
+a default never submits an existing chat draft.
 
 ### Dedicated Settings workspace
 
@@ -480,7 +517,9 @@ backward lookup can locate an opening outside the current window. Completed
 response footers resolve the actual whole-group end with a bounded forward
 lookup; neither action performs sequence arithmetic. Timestamp and bounded
 canonical-prose copy remain available offline. A partial/missing response tail
-does not expose history actions. Host conflicts do not silently capture a different edit.
+does not expose history actions. Rewind requires no active turn or uncancelled
+queued input; the host checks this atomically with history revision/tail and
+retirement, without a separate stop/restart. Host conflicts do not silently capture a different edit.
 Workspace restoration is a separate durable effect with explicit uncertain states.
 
 New Chat's tab UUID is its tree-creation identity. Verify accepted native root,

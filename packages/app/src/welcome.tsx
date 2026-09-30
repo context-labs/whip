@@ -16,7 +16,7 @@ import { DirectoryPicker } from './directory-picker';
 import { useSkillCompletion } from './use-skill-completion';
 import { welcomeDraftKey, type NewChatTab } from './session-tabs';
 import { ProviderSetup } from './provider-setup';
-import { useProviderConnections } from './settings/provider-connections';
+import { locallyAvailable, useProviderConnections } from './settings/provider-connections';
 import { CatalogModelPicker, DraftEffortPicker, PickerSkeletons, catalogModels, modelEfforts, useProviderCatalog } from './model-selection';
 import { PermissionModeControl } from './permission-mode';
 import { errorMessage } from './platform';
@@ -90,7 +90,6 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const { sending: busy, attachments } = useSyncExternalStore(runtime.compositions.subscribe, () => runtime.compositions.get(key));
   const [error, setError] = useState('');
   const [showProviders, setShowProviders] = useState(false);
-  const [draftingRuntime, setDraftingRuntime] = useState<string>();
   const [showOptions, setShowOptions] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
@@ -117,7 +116,8 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const effortAvailable = tab.effort === undefined || levels.includes(effort);
   const readiness = useQuery({ queryKey: ['provider-readiness', runtimeId, { provider, name: model, effort: effort === 'default' ? '' : effort }],
     queryFn: ({ signal }) => client.providerReadiness({ provider, name: model, effort: effort === 'default' ? '' : effort }, { signal }), enabled: connected && !!provider && !!model, retry: false });
-  const ready = providerReady(readiness.data) ?? (providers.ready === false ? false : undefined);
+  const ready = tab.model === '' ? false : providerReady(readiness.data) ?? (providers.ready === false ? false : undefined);
+  const providerChosen = !!tab.provider && providers.entries.some(entry => entry.id === tab.provider && entry.route && locallyAvailable(entry));
   const readinessPending = ready === undefined && !readiness.error && !providers.inventory.error;
   const executionEngine = tab.executionEngine ?? execution.data?.engine ?? '';
   const engineOptions = engines.map(engine => ({ value: engine.id, label: engine.label }));
@@ -133,7 +133,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const changeDraft = (text: string) => { try { runtime.setDraft(key, text); } catch (error) { setError(errorMessage(error)); } };
   const skills = useSkillCompletion({ client, owner: key, scope: { cwd, definition: definition ?? null },
     input, draft, change: changeDraft, connected, blocked: busy || !permissionAvailable || showOptions || showProviders || !focused });
-  function openProviders() { setShowProviders(true); requestAnimationFrame(() => { if (!isFocused.current) return; const setup = panel.current?.querySelector<HTMLElement>('[aria-label="Provider setup"]'); setup?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); (setup?.querySelector<HTMLButtonElement>('[data-provider-confirm]:not(:disabled)') ?? setup?.querySelector<HTMLButtonElement>('[data-provider-choice]'))?.focus(); }); }
+  function openProviders() { setShowProviders(true); requestAnimationFrame(() => { if (!isFocused.current) return; const setup = panel.current?.querySelector<HTMLElement>('[aria-label="Provider setup"]'); setup?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); setup?.querySelector<HTMLButtonElement>('[data-provider-choice]:not(:disabled)')?.focus(); }); }
   function focusComposer() { setShowProviders(false); requestAnimationFrame(() => { if (isFocused.current) input.current?.focus(); }); }
   function attach(files: File[]) {
     if (busy || unresolved) return;
@@ -145,6 +145,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
     if (!connected || busy || !permissionAvailable || (!draft.trim() && !attachments.length) || unresolved) return;
     if (!engineAvailable) { setError('Choose an execution language after the host defaults finish loading.'); return; }
     if (!definition) { setError('Choose an exact agent revision before sending.'); setShowOptions(true); return; }
+    if (providerChosen && !model) { setError('Choose a model before sending.'); return; }
     if (!ready) { openProviders(); return; }
     if (!effortAvailable) { setError('Choose an available reasoning effort for this model before sending.'); return; }
     if (!cwd.trim()) { setError('Choose a project folder on this host before sending.'); return; }
@@ -159,7 +160,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const disabled = !connected || busy;
   // While readiness is pending, the device's last answer for this host picks the layout; unknown keeps the composer's footprint.
   const knownReady = readinessPending ? providers.lastKnownReady : ready;
-  const setupVisible = (knownReady === false && draftingRuntime !== runtimeId) || showProviders;
+  const setupVisible = (knownReady === false && !providerChosen) || showProviders;
   // Once a provider works, a host that has MCP servers configured for other
   // agents gets one offer to bring them in. Native MCP configuration records whether this host
   // has answered, so an answered host never reads the other agents' files again.
@@ -205,9 +206,9 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         <IconButton variant="ghost" label="Add context" title="Context suggestions are available after the session starts" disabled><AtSign size={16} /></IconButton>
         <span {...stylex.props(layout.grow)} />
         <PermissionModeControl value={permission} inherited={tab.permissionMode === undefined} disabled={disabled} onChange={permissionMode => updateSetup({ permissionMode: permissionMode as NewChatTab['permissionMode'] })} />
-        {ready ? <CatalogModelPicker model={model} provider={provider} catalog={catalog.data} loading={catalog.isFetching}
+        {ready || providerChosen ? <CatalogModelPicker model={model} provider={provider} showProvider={!model} catalog={catalog.data} loading={catalog.isFetching}
           error={connected ? catalog.error?.message : undefined} onRetry={() => void catalog.refetch()} disabled={disabled}
-          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data, provider), model).includes(effort) ? effort : 'default' })}
+          onChange={(model, provider) => { updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data, provider), model).includes(effort) ? effort : 'default' }); setError(''); }}
           onSessionOptions={() => setShowOptions(true)} />
           : readinessPending ? <PickerSkeletons count={2} />
           : <><Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>
@@ -255,11 +256,9 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
       </>} />}
     {error && !unresolved && <ErrorNotice type="submission" owner={key} error={error} action={error.includes('saved session creation') ? <Button onClick={() => void navigate({ to: '/settings', search: { section: 'general', setting: 'commandRecovery' } })}>Review saved commands</Button> : undefined} />}
     {!connected && <p role="status" {...stylex.props(styles.note)}>Reconnecting to {host.name}. Your draft stays here and will not be sent automatically.</p>}
-    {setupVisible && <><ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers} onExpandedChange={onProviderExpandedChange}
+    {setupVisible && <ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers} onExpandedChange={onProviderExpandedChange}
       actions={host.local ? <Button variant="ghost" disabled={busy} onClick={() => onConnectRemote ? onConnectRemote() : void navigate({ to: '/settings', search: { section: 'connections' } })}><Monitor size={14} />Connect Remote</Button> : showProviders ? hostControl : undefined}
-      onReady={() => { updateSetup({ model: undefined, provider: undefined, effort: undefined }); focusComposer(); }} />
-      <Button variant="ghost" disabled={disabled} onClick={() => { setDraftingRuntime(runtimeId); focusComposer(); }}>Draft before connecting</Button>
-    </>}
+      onReady={(provider, model, effort) => { updateSetup({ provider, model, effort: effort || 'default' }); focusComposer(); }} />}
   </div></>;
 }
 

@@ -55,8 +55,10 @@ export async function checkActivityReading({ page, fixture, run, directory, name
   const scroll = await run('activity:scroll'); await tail();
   await expect(reading.locator('[data-markdown-block]').filter({ hasText: 'Streaming paragraph.' })).toBeVisible();
   const owner = await reading.locator('article').filter({ hasText: 'Streaming paragraph.' }).getAttribute('data-message-id');
-  assert(owner && owner.startsWith('message:'));
-  const row = reading.locator(`[data-message-id="${owner}"]`);
+  assert(owner, 'Streaming prose has a stable presentation owner');
+  const identity = JSON.parse(owner);
+  assert(identity.length === 3 && identity.every(value => typeof value === 'string' && value.length > 0));
+  const row = reading.locator(`[data-message-id=${JSON.stringify(owner)}]`);
   const gap = () => reading.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop);
   const settledOffset = async () => {
     let previous = -1, unchangedSince = Date.now();

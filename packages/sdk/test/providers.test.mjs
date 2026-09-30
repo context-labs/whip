@@ -68,7 +68,7 @@ test('provider response validation rejects lossy numeric prices and secret proje
 
 test('candidate evidence, enablement, disconnect outcomes and combined preferences use only the requested native call', async () => {
   const calls = [];
-  const candidates = { revision: inventory.revision, items: [{ provider: 'openrouter', source: 'env', environment: 'OPENROUTER_API_KEY', credential_state: 'available' }] };
+  const candidates = { revision: inventory.revision, items: [{ provider: 'inference-net', source: 'inference-net', credential_state: 'available' }] };
   let lost = false;
   const client = await Client.connect(async request => {
     if (request.method === 'initialize') return success(request, initial);

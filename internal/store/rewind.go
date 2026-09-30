@@ -59,11 +59,10 @@ func (s *Store) Rewind(ctx context.Context, request session.RewindRequest) (resu
 
 func validateRewind(ctx context.Context, tx *sql.Tx, request session.RewindRequest) error {
 	var revision session.Revision
-	var lifecycle session.Lifecycle
 	var through int64
-	if err := tx.QueryRowContext(ctx, `SELECT history_revision,lifecycle,
+	if err := tx.QueryRowContext(ctx, `SELECT history_revision,
  (SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=s.id AND retired_revision IS NULL)
- FROM sessions s WHERE id=?`, request.SessionID).Scan(&revision, &lifecycle, &through); err != nil {
+ FROM sessions s WHERE id=?`, request.SessionID).Scan(&revision, &through); err != nil {
 		return found(err)
 	}
 	if revision != request.ExpectedRevision || through != request.ObservedThrough {
@@ -72,9 +71,8 @@ func validateRewind(ctx context.Context, tx *sql.Tx, request session.RewindReque
 	if revision == math.MaxInt64 {
 		return ErrLimit
 	}
-	if lifecycle != session.Stopped {
-		return fmt.Errorf("%w: rewind requires a stopped session", ErrConflict)
-	}
+	// Admission and turn claiming use the same write boundary. An idle owner
+	// need not change lifecycle; work admitted afterward captures the new revision.
 	var busy bool
 	if err := tx.QueryRowContext(ctx, `SELECT
  EXISTS(SELECT 1 FROM turns WHERE session_id=? AND state IN ('running','cancelling')) OR

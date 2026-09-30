@@ -1377,7 +1377,9 @@ count in one read. Revision-aware full history pages read that boundary and thei
 bounded messages in the same SQL snapshot. Expected-revision checks reject a
 cursor after rewind; later appends retain the revision and advance the tail.
 
-Rewind requires a stopped owner with no active turn or uncancelled queued input.
+Rewind requires an idle owner with no active turn or uncancelled queued input.
+It does not change lifecycle. Admission and turn claiming serialize with the edit;
+work admitted afterward captures the new history revision.
 The caller supplies a stable edit identity, expected revision, observed tail and
 whole terminal group boundary (or zero). One transaction records an immutable
 edit, advances revision, retires the suffix and clears incompatible summary
@@ -1838,8 +1840,12 @@ receipts resolve before a changed or invalid current host file is read. Startup
 instruction registries remain a separately scoped runtime snapshot.
 
 `providerhost.Service` owns bounded disposable catalog observations and borrows
-credential managers. Route creation/update/removal and default/compaction changes
-use explicit host revision CAS. Removing a selected default requires an atomic
+credential managers. Startup imports missing preset routes for available
+environment credentials through host revision CAS, retaining environment names
+rather than key bytes. Existing routes (including disabled ones) and model
+defaults remain unchanged. Saved account candidates still require explicit use.
+Route edits and default/compaction changes use explicit host revision CAS.
+Removing a selected default requires an atomic
 replacement or clear; referenced compaction routes must be changed explicitly.
 An uncatalogued explicit model selection remains valid on a configured route,
 including after cache expiry/restart. This deliberately removes legacy dependence
@@ -1854,6 +1860,12 @@ At most256 files are retained; ambiguous orphan files are not automatically
 removed. Public status omits key bytes and credential command arguments. Keeping
 an existing credential is allowed only for unchanged endpoint/codec and without
 a conflicting pasted key.
+
+Provider inventory exposes `credential.can_disconnect` from the authority's
+existing owned-key namespace check or managed account source. It is a read-only
+UI capability hint, not authorization to delete credentials. Disconnect still
+checks the current revision, shared references and cleanup safety; external
+sources are preserved. Listing this flag never publishes or removes credentials.
 
 Catalog reads perform no discovery HTTP or credential command. Explicit refresh
 uses bounded HTTP with no cookie jar or redirects, captures the route and exact

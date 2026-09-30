@@ -75,7 +75,8 @@ export async function checkComposerAttachments({ page, directory, name, transfer
   assert.equal(await page.evaluate(() => window.composerPreviewURLs.size), 3);
   const sources = await strip.locator('img').evaluateAll(images => images.map(img => img.src));
   const originalURL = page.url();
-  await page.locator('[data-workspace-tab]').first().getByRole('button', { name: /^Tab actions for / }).click();
+  await page.locator('[data-workspace-tab]').first().getByRole('tab').focus();
+  await page.keyboard.press('Shift+F10');
   await page.getByRole('menuitem', { name: 'Open REPL', exact: true }).click();
   await expect(page.getByRole('region', { name: 'REPL executions', exact: true })).toBeVisible();
   await page.locator('[data-workspace-tab]').first().getByRole('tab').click();

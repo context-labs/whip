@@ -53,10 +53,11 @@ type ProviderModelSettings struct {
 }
 
 type ProviderCredentialStatus struct {
-	Source      string `json:"source" enum:"env,file,command,none,inference-net,openai-codex"`
-	State       string `json:"state" enum:"unavailable,unchecked,not_required,missing,available,refresh_required"`
-	Environment string `json:"environment"`
-	File        string `json:"file"`
+	CanDisconnect bool   `json:"can_disconnect"`
+	Source        string `json:"source" enum:"env,file,command,none,inference-net,openai-codex"`
+	State         string `json:"state" enum:"unavailable,unchecked,not_required,missing,available,refresh_required"`
+	Environment   string `json:"environment"`
+	File          string `json:"file"`
 }
 type ProviderRoute struct {
 	ID         ID                               `json:"id"`
@@ -161,8 +162,7 @@ type SetProviderEnabledParams struct {
 
 type ProviderCandidate struct {
 	Provider        ID     `json:"provider"`
-	Source          string `json:"source" enum:"env,inference-net,openai-codex"`
-	Environment     string `json:"environment" maxLength:"256"`
+	Source          string `json:"source" enum:"inference-net,openai-codex"`
 	CredentialState string `json:"credential_state" enum:"available,refresh_required"`
 }
 
@@ -172,10 +172,9 @@ type ProviderCandidates struct {
 }
 
 type UseProviderCandidateParams struct {
-	Revision    string `json:"revision" pattern:"^[a-f0-9]{64}$"`
-	Provider    ID     `json:"provider"`
-	Source      string `json:"source" enum:"env,inference-net,openai-codex"`
-	Environment string `json:"environment" maxLength:"256"`
+	Revision string `json:"revision" pattern:"^[a-f0-9]{64}$"`
+	Provider ID     `json:"provider"`
+	Source   string `json:"source" enum:"inference-net,openai-codex"`
 }
 
 type DisconnectProviderParams struct {
@@ -197,8 +196,6 @@ func providerSchema(schema *jsonschema.Schema, t reflect.Type) {
 		texts = map[string]int{"local_failure": 512, "cleanup_failure": 512}
 	case reflect.TypeFor[ProviderCandidates]():
 		arrays["items"] = 24
-	case reflect.TypeFor[ProviderCandidate](), reflect.TypeFor[UseProviderCandidateParams]():
-		texts["environment"] = 256
 	case reflect.TypeFor[ProviderPresetsResult]():
 		arrays["items"] = 11
 	case reflect.TypeFor[ProviderPreset]():

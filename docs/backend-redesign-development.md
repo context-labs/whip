@@ -6135,3 +6135,95 @@ with stable owner/attempt/slot identity, exact canonical fallback and copy. Fail
 and imported evidence stays truthful. Combined77 focused tests and app types
 pass. Comparative acceptance is running; an immediate source-eviction SDK
 retention hole is tracked for the final integration fixes.
+
+## 2026-09-29 — combined UX acceptance and recovery corrections
+
+Combined acceptance restored bounded execution-body retention, Projects render
+stability, provider lifecycle/model filtering, narrow dialog wrapping and
+same-host form drafts. Visible conversations now survive suspended transport and
+client replacement. Native idle rewind uses the existing atomic busy/revision
+checks, preserving lifecycle and exact retry identity. Full renderer, SDK,
+protocol, CLI/TUI/ACP, mobile bundles and disposable desktop lifecycle evidence
+are recorded in [the UX progress record](frontend-ux-restoration-progress.md).
+Permission/reading-position acceptance and package-boundary cleanup remain open;
+no merge, deployment or installed runtime change is authorized or performed.
+
+## 2026-09-29 — complete frontend restoration and local acceptance
+
+Restored the approved latest-development interaction and presentation over the
+native SDK through stacked draft #298. Final integration fixes exact permission
+and question recovery, same-owner reconnect retention, cached-child and Projects
+reading anchors, explicit read-only history retry and atomic idle rewind. Final
+renderer 1,480 tests, SDK 223, protocol 18/drift, native client checks, mobile
+contracts/bundles and isolated packaged-desktop workflows pass. Browser evidence
+covers ordinary comparison, actual transport faults and retained reading state;
+its exact checkpoints and limits are in the
+[acceptance index](frontend-ux-restoration-acceptance.md). Hosted draft CI is not
+implied by local checks. Broader old Remember authority and missing historical
+reasoning remain explicit limits. The original checkout's HEAD and 14 captured
+file hashes are unchanged; no installed runtime, merge or deployment occurred.
+
+
+## 2026-09-29 — UX parity audit correction and new-session handoff
+
+Human review found that the added Draft before connecting action and normal
+Inference.net default-model confirmation still differ from the approved
+frontend. Read-only comparison then identified further differences in terminal
+opening/reconnect, readiness, large-content reading, REPL subjects, queue/history
+browsing, settings, agent authoring and permission/recovery presentation.
+The earlier overall restoration-complete claim was too broad; exact passing
+checks remain valid only for their recorded scenarios.
+
+The user directs the next session to finish a complete parity inventory and
+plan before code changes, and to decide each proposed protocol-driven UI change
+with them. Their latest explicit Yes authorizes later implementation, validation
+and draft PR updates after that planning/decision step. It supersedes an earlier
+local-only response. No merge, deployment, release or installed-runtime change
+is authorized. The accepted 72 ms result remains outside further optimization.
+
+The [new handoff](backend-redesign-handoff-2026-09-29.md) records exact checkpoints,
+protected directories, the private reference overlay, process lessons, a
+27-finding seed inventory, validation limits, temporary-runtime context and
+next-session deliverables. Draft #298 was freshly verified OPEN/draft at
+e10d77a3e40d2bd788cab5431096f7353d6119c1, with no hosted checks reported. Its
+production source matches packaged f91cdb610. This handoff work changes only
+documentation; no builds, tests, product edits, runtime actions, inference,
+commits, pushes or PR updates were performed.
+
+## 2026-09-29 — approved provider/onboarding and Settings follow-ups
+
+The complete scoped desktop/web source inventory is now recorded in
+`docs/frontend-desktop-web-parity-inventory.md` and its source map. Case-by-case
+user decisions approved the provider/onboarding increment `32157959b`: import
+environment providers at startup without selecting a provider; apply known
+model/effort presets only on explicit selection or connection completion; move
+unknown-preset model selection into the composer; remove the onboarding model
+confirmation and draft-before-connecting bypass. Existing routes/defaults are
+preserved by discovery and obsolete environment-candidate contracts are deleted.
+
+The next separately approved increment `fb8e7e716` retains supported effort when
+changing the Settings default model and resets unsupported effort to Default.
+The preservation regression fails before and passes after; atomic Save remains.
+`task check:fast`, protocol types/18 interop tests/generated drift, focused app
+tests, app types and production builds pass. Exact incremental browser reports,
+renderer identities and remaining acceptance limits are recorded in the
+frontend acceptance index and progress increments 12–13. These increments do not
+establish full UX parity or new packaged-desktop acceptance. The current user
+request authorizes committing the work using the existing draft-PR process.
+
+## 2026-09-29 — source-aware Disconnect visibility
+
+The user selected hidden, rather than disabled, Disconnect controls for external
+credentials (UX-19). Increment `aed5ae24d` exposes the authority's existing
+ownership decision as read-only `credential.can_disconnect` and gates the
+desktop/web connection menu. Environment/external-file/command sources retain
+Disable without making an inapplicable Disconnect request; owned/shared keys
+and managed accounts retain native cleanup and recovery. Backend authorization
+and deletion safeguards are unchanged.
+
+The required fast gate, protocol drift/18 interop checks, 80 affected frontend
+tests, 223 SDK tests, app/desktop/mobile type checks and renderer build pass.
+Both browsers pass 12 provider/settings groups at the exact renderer and report
+recorded in progress increment 14. A stale SDK environment-candidate fixture was
+updated to the account-only contract; a socket-permission retry is recorded.
+This is focused UX evidence, not a new complete desktop/package parity claim.

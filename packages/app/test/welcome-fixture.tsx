@@ -20,7 +20,7 @@ afterEach(() => { for (const runtime of runtimes.splice(0)) runtime.dispose(); v
 export async function fixture(remoteHost = false, providerReady = true, focused = true) {
   const f = await providerFixture({ runtimeID: 'host', builtins: [{ id: 'coding', revision }] });
   f.data.inventory = { revision, routes: providerReady ? [route('openai')] : [], defaults: providerReady ? { provider: 'openai', name: 'gpt-6-astra', effort: 'high' } : null, compaction_model: null, permission_mode: 'prompt' };
-  f.data.presets.items = [{ ...preset('openai'), name: 'OpenAI', suggested_models: ['gpt-6-astra'] }, preset('inference-net'), preset('openai-codex')];
+  f.data.presets.items = [{ ...preset('openai'), name: 'OpenAI', suggested_models: ['gpt-6-astra'], suggested_effort: 'medium' }, preset('inference-net'), preset('openai-codex')];
   const rpc: Record<string, ReturnType<typeof vi.fn<(...args: any[]) => any>>> = {};
   const on = (name: string, callback: (params: any, signal?: AbortSignal) => any) => {
     const mock = vi.fn(callback); rpc[name] = mock;
@@ -28,7 +28,7 @@ export async function fixture(remoteHost = false, providerReady = true, focused 
     return mock;
   };
   on('providers.list', () => f.data.inventory);
-  on('providers.bundled', () => ({ items: [model('gpt-6-astra'), model('gpt-5.5')] }));
+  on('providers.bundled', () => ({ items: [{ ...model('gpt-6-astra'), reasoning_efforts: ['low', 'medium', 'high', 'max'] }, model('gpt-5.5')] }));
   on('providers.catalog', ({ provider }) => ({ provider, state: 'missing', scope_state: 'unverified', discovery: 'not_checked', fetched_at: null, stale: false, failure: null, models: [] }));
   on('providers.readiness', () => ({ configured: f.data.inventory.routes.length > 0, disabled: false, credential_state: f.data.inventory.routes.length ? 'available' : 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }));
   on('providers.create', ({ provider }) => { f.data.inventory = { ...f.data.inventory, routes: [route(provider)] }; return f.data.inventory; });

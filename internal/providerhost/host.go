@@ -32,10 +32,11 @@ var (
 )
 
 type CredentialStatus struct {
-	Source      string `json:"source"`
-	State       string `json:"state"`
-	Environment string `json:"environment"`
-	File        string `json:"file"`
+	CanDisconnect bool   `json:"can_disconnect"`
+	Source        string `json:"source"`
+	State         string `json:"state"`
+	Environment   string `json:"environment"`
+	File          string `json:"file"`
 }
 
 // Route contains editable nonsecret declarations. Command arguments and raw
@@ -111,7 +112,12 @@ func New(ctx context.Context, authority *config.Authority, client *http.Client, 
 	value.Jar = nil
 	value.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	ctx, cancel := context.WithCancel(ctx)
-	return &Service{ctx: ctx, cancel: cancel, config: authority, http: &value, lookup: lookup, openAI: openAI, inference: inference, active: map[string]context.CancelFunc{}, catalogs: map[string]catalogEntry{}}, nil
+	service := &Service{ctx: ctx, cancel: cancel, config: authority, http: &value, lookup: lookup, openAI: openAI, inference: inference, active: map[string]context.CancelFunc{}, catalogs: map[string]catalogEntry{}}
+	if err := service.importEnvironment(ctx); err != nil {
+		cancel()
+		return nil, err
+	}
+	return service, nil
 }
 
 func (s *Service) check(ctx context.Context) error {
@@ -144,6 +150,7 @@ func (s *Service) List(ctx context.Context) (Inventory, error) {
 	result.PermissionMode, _ = session.ResolvePermissionMode(value.Host.DefaultPermissionMode)
 	for id, provider := range value.Host.Providers {
 		status, _, _ := s.inspect(ctx, provider)
+		status.CanDisconnect = s.config.CanDisconnectProvider(provider)
 		result.Routes = append(result.Routes, Route{ID: id, Disabled: provider.Disabled, Kind: provider.Kind, BaseURL: provider.BaseURL, Credential: status, Models: provider.Models})
 	}
 	slices.SortFunc(result.Routes, func(a, b Route) int { return strings.Compare(a.ID, b.ID) })

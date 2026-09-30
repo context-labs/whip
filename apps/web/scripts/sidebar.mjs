@@ -302,15 +302,24 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     console.log(`${name}: completed workflow ${checks.length + 1}`);
     checks.push('debounced flat search, Escape focus restoration, consumed commands, background menu and hover without hydration');
 
-    await saved().evaluate(node => { node.scrollTop = 1400; });
+    // Hiding navigation above remounts the directory rows and resets their
+    // expansion. Establish a real scrolled reading position before asserting
+    // anchoring; at scrollTop=0 a recent directory is expected to move to the top.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (await saved().evaluate(node => node.scrollHeight > node.clientHeight + 1600)) break;
+      await saved().evaluate(node => { node.scrollTop = node.scrollHeight; });
+      await more().click();
+    }
+    await saved().evaluate(node => { node.scrollTop = 1000; });
+    assert.ok(await saved().evaluate(node => node.scrollTop > 0), 'Reading-anchor fixture must actually scroll');
     await page.waitForTimeout(100);
     const anchor = await saved().evaluate(node => {
       const top = node.getBoundingClientRect().top;
       const row = [...node.querySelectorAll('[data-sidebar-session]')].find(row => row.getBoundingClientRect().bottom > top);
       return { id: row.dataset.sidebarSession, y: row.getBoundingClientRect().top - top };
     });
-    // Native metadata edits preserve ID ordering. Moving an existing root
-    // between directories changes the grouped rows before the reading anchor.
+    // Moving an existing root changes native recency and grouped rows before
+    // the reading anchor; the retained visible row must keep its position.
     const moved = await client.session(roots[138]).get(deadline());
     await client.setWorkingDirectory({ id: crypto.randomUUID(), session_id: moved.id, expected_revision: moved.config_revision, path: paths[0] }, deadline());
     await page.waitForTimeout(2500);

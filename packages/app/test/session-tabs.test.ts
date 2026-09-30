@@ -248,6 +248,14 @@ describe('window session tabs', () => {
     expect(() => state.updateNew(first.id, { provider: undefined })).toThrow('Invalid New Chat options');
     expect(() => state.updateNew(first.id, { effort: 'high\nlow' })).toThrow('Invalid New Chat options');
   });
+  it('restores a selected provider before its model is chosen', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const draft = state.openNew({ provider: 'cerebras', model: '', effort: 'default' });
+    expect(new SessionTabs(disk).workspace().tabs[0]).toMatchObject({ provider: 'cerebras', model: '', effort: 'default' });
+    state.updateNew(draft.id, { model: 'chosen-model', effort: 'high' });
+    expect(new SessionTabs(disk).workspace().tabs[0]).toMatchObject({ provider: 'cerebras', model: 'chosen-model', effort: 'high' });
+    expect(() => state.updateNew(draft.id, { model: '', provider: undefined })).toThrow('Invalid New Chat options');
+  });
   it('opens fresh REPL views next to their source and restores each identity independently', () => {
     const disk = storage(), state = new SessionTabs(disk);
     state.open('mac', 'before'); state.visit('mac', 'root', { agent: 'child', panel: 'context' }); state.open('mac', 'after');

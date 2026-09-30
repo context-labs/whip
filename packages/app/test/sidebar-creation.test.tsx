@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { expect, it } from 'vitest';
 import { welcomeDraftKey, type NewChatTab } from '../src/session-tabs';
 import { fixture } from './welcome-fixture';
-import { preset, revision, route, sessionRecord } from './provider-fixture';
+import { model, preset, revision, route, sessionRecord } from './provider-fixture';
 
 async function openSessionOptions() {
   fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
@@ -15,7 +15,7 @@ async function chooseFolder(f: Awaited<ReturnType<typeof fixture>>) {
 }
 function detectedOpenRouter(f: Awaited<ReturnType<typeof fixture>>) {
   f.data.inventory = { ...f.data.inventory, routes: [route('openrouter')], defaults: null };
-  f.data.presets.items.push({ ...preset('openrouter'), suggested_models: ['gpt-6-astra'] });
+  f.data.presets.items.push({ ...preset('openrouter'), suggested_models: ['gpt-6-astra'], suggested_effort: 'max' });
   f.runtime.queries.setQueryData(['provider-list', 'host'], f.data.inventory);
   f.runtime.queries.setQueryData(['provider-presets', 'host'], f.data.presets);
 }
@@ -73,19 +73,53 @@ it('does not send while execution defaults are unavailable and preserves the dra
   expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep this task');
 });
-it('offers one explicit default confirmation for a detected OpenRouter route', async () => {
+it('selects a detected provider with its model and effort without another confirmation', async () => {
   const f = await fixture(false, false); detectedOpenRouter(f);
   f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Retain this task'); f.render();
   const panel = await screen.findByRole('region', { name: 'Provider setup' });
-  expect(await within(panel).findByRole('button', { name: 'Use OpenRouter' })).toBeTruthy();
-  expect(screen.getAllByRole('button', { name: 'Use gpt-6-astra' })).toHaveLength(1);
+  expect(await within(panel).findByRole('button', { name: 'Select OpenRouter' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Set default model' })).toBeNull();
   expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Use gpt-6-astra' }));
-  await waitFor(() => expect(f.rpc['providers.defaults']).toHaveBeenCalledExactlyOnceWith({ revision, defaults: expect.objectContaining({ selection: { name: 'gpt-6-astra', provider: 'openrouter', effort: '' } }) }, expect.any(AbortSignal)));
+  fireEvent.click(screen.getByRole('button', { name: 'Select OpenRouter' }));
+  await waitFor(() => expect(f.rpc['providers.defaults']).toHaveBeenCalledExactlyOnceWith({ revision, defaults: expect.objectContaining({ selection: { name: 'gpt-6-astra', provider: 'openrouter', effort: 'max' } }) }, expect.any(AbortSignal)));
   expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Retain this task');
   expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
-it('masks a setup key and preserves the draft until explicit model confirmation', async () => {
+it('opens the composer for a provider without a preset and preserves the partial choice across tabs', async () => {
+  const f = await fixture(false, false);
+  f.data.inventory.routes = [route('cerebras')];
+  f.data.presets.items = [{ ...preset('cerebras'), suggested_models: [], suggested_effort: '' }];
+  f.runtime.queries.setQueryData(['provider-list', 'host'], f.data.inventory);
+  f.runtime.queries.setQueryData(['provider-presets', 'host'], f.data.presets);
+  f.runtime.queries.removeQueries({ queryKey: ['provider-catalogs'] });
+  f.on('providers.bundled', () => ({ items: [model('chosen-model')] }));
+  f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep this task'); f.render();
+  fireEvent.click(await screen.findByRole('button', { name: 'Select cerebras' }));
+  expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Keep this task');
+  expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Set default model' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Model', exact: true })).toHaveProperty('title', 'Choose model · cerebras');
+  expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', true);
+  fireEvent.keyDown(screen.getByLabelText('Your first message'), { key: 'Enter' });
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
+  expect(f.runtime.tabs.workspace().tabs.find(tab => tab.id === f.tab.id)).toMatchObject({ provider: 'cerebras', model: '', effort: 'default' });
+  act(() => { const other = f.runtime.tabs.openNew({ runtimeId: 'host', hostProfileId: 'local' }); f.select(other.id); });
+  await screen.findByRole('region', { name: 'Provider setup' });
+  act(() => f.select(f.tab.id));
+  expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Keep this task');
+  fireEvent.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(await screen.findByRole('option', { name: 'chosen-model · cerebras' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Reasoning effort' })).toHaveProperty('disabled', false));
+  fireEvent.click(screen.getByRole('button', { name: 'Reasoning effort' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'High', exact: true }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', false));
+  expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledWith(expect.objectContaining({ overrides: { model: { provider: 'cerebras', name: 'chosen-model', effort: 'high' } } }), undefined));
+});
+it('masks a setup key and opens the composer with the preset after connection', async () => {
   const f = await fixture(false, false);
   f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep me while signing in'); f.render();
   fireEvent.click(await screen.findByRole('button', { name: 'Show all providers' }));
@@ -94,29 +128,25 @@ it('masks a setup key and preserves the draft until explicit model confirmation'
   expect(key).toHaveProperty('type', 'password');
   fireEvent.change(key, { target: { value: 'secret-key' } });
   fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
-  const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra' });
-  expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
-  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
+  await waitFor(() => expect(f.rpc['providers.defaults']).toHaveBeenCalledOnce());
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep me while signing in');
   expect(JSON.stringify(f.runtime.platform.storage.keys().map(key => f.runtime.platform.storage.getItem(key)))).not.toContain('secret-key');
   expect(JSON.stringify(f.runtime.queries.getQueryCache().getAll().map(query => query.state.data))).not.toContain('secret-key');
   expect(f.rpc['trees.create']).not.toHaveBeenCalled();
-  fireEvent.click(confirm);
   expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Keep me while signing in');
   expect(screen.getByLabelText('Your first message')).toHaveProperty('disabled', false);
   expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
-it('replaces an unavailable draft route only after explicit provider setup confirmation', async () => {
+it('replaces an unavailable draft route only when a provider is selected', async () => {
   const f = await fixture();
   f.on('providers.readiness', ({ selection: { provider } }) => ({ configured: provider === 'openai', disabled: false, credential_state: provider === 'openai' ? 'available' : 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }));
   f.render();
   fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Keep this draft' } });
   act(() => f.runtime.tabs.updateNew(f.tab.id, { model: 'unavailable-model', provider: 'openrouter', effort: 'high' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Use OpenAI' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Use gpt-6-astra' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Select OpenAI' }));
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
   const tab = f.runtime.tabs.workspace().tabs.find(tab => tab.id === f.tab.id) as NewChatTab;
-  expect(tab.model).toBeUndefined(); expect(tab.provider).toBeUndefined(); expect(tab.effort).toBeUndefined();
+  expect(tab).toMatchObject({ model: 'gpt-6-astra', provider: 'openai', effort: 'medium' });
   expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Keep this draft');
   expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
@@ -138,7 +168,7 @@ it('retains the draft when native provider metadata fails without looping throug
   f.on('providers.list', () => { throw new Error('Provider metadata unavailable'); });
   f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep this task'); f.render();
   await screen.findByText('Could not load provider status');
-  expect(screen.queryByRole('button', { name: 'Use OpenAI' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Select OpenAI' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', true);
   expect(f.rpc['trees.create']).not.toHaveBeenCalled(); expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep this task');
@@ -151,7 +181,7 @@ it('retains the draft when native provider metadata fails without looping throug
 });
 it('does not focus a background pane composer when provider setup completes', async () => {
   const f = await fixture(false, false, false); detectedOpenRouter(f); f.render();
-  const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra' });
+  const confirm = await screen.findByRole('button', { name: 'Select OpenRouter' });
   confirm.focus(); fireEvent.click(confirm);
   const input = await screen.findByLabelText('Your first message');
   await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });

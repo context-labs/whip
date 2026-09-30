@@ -1,0 +1,273 @@
+// A5/A6: production renderer, native authority and disposable fake credentials.
+// Presentation expectations come from the pinned reference provider/settings runners.
+import assert from 'node:assert/strict';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { chromium, firefox, expect } from '@playwright/test';
+import { deadline, eventually, startFixture, repository } from './native-fixture.mjs';
+
+const results = process.env.WHIP_PROVIDER_RESTORATION_RESULTS ?? '/tmp/whip-provider-restoration';
+const names = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
+assert(names.length > 0 && names.length <= 2 && new Set(names).size === names.length && names.every(name => ['chromium', 'firefox'].includes(name)));
+await mkdir(results, { recursive: true });
+const manifest = JSON.parse(await readFile(join(repository, 'apps/web/renderer-manifest.json'), 'utf8'));
+const reports = [];
+for (const name of names) {
+  let fixture, browser, page;
+  const report = { name, rendererDigest: manifest.digest, checks: [] }; reports.push(report);
+  const frames = [], errors = [], csp = [];
+  let loseMethod, lostID, dropMethod;
+  try {
+    fixture = await startFixture({ providerSettings: true, lifetimeMs: 600_000 });
+    const client = await fixture.connect(`restored-providers-${name}`);
+    const control = value => writeFile(join(fixture.directory, 'provider-control.json'), JSON.stringify(value), { mode: 0o600 });
+    const network = async () => (await readFile(join(fixture.directory, 'provider-requests.jsonl'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; })).trim().split('\n').filter(Boolean);
+    const count = method => frames.filter(frame => frame.method === method).length;
+    const get = () => client.listProviders(deadline());
+    let inventory = await get();
+    const loopbackURL = inventory.routes.find(route => route.id === 'provider').base_url;
+    const commandMarker = join(fixture.directory, 'credential-command-ran');
+    inventory = await client.createProvider({ revision: inventory.revision, provider: 'command-fixture', declaration: { kind: 'openai-chat', base_url: loopbackURL, credential: { source: 'command', environment: '', file: '', command: { executable: '/bin/sh', arguments: ['-c', `printf ran > ${commandMarker}; printf fixture-key`], environment: [] } }, models: {} }, keep_credential: false, key: null }, deadline());
+    const externalKey = join(fixture.directory, 'external-provider-key');
+    await writeFile(externalKey, 'external-fixture-key', { mode: 0o600 });
+    inventory = await client.createProvider({ revision: inventory.revision, provider: 'external-file', declaration: { kind: 'openai-chat', base_url: loopbackURL, credential: { source: 'file', environment: '', file: externalKey, command: null }, models: {} }, keep_credential: false, key: null }, deadline());
+    await client.setProviderDefaults({ revision: inventory.revision, defaults: { selection: null, settings: null } }, deadline());
+    const { root } = await fixture.createRoot(client);
+    browser = await ({ chromium, firefox }[name]).launch();
+    const context = await browser.newContext({ viewport: { width: 1280, height: 960 } });
+    // No verification-page navigation is allowed outside this isolated gateway.
+    await context.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
+    page = await context.newPage(); page.setDefaultTimeout(15000);
+    page.on('pageerror', error => { if (errors.length < 64) errors.push(error.message); });
+    await page.exposeFunction('__providerCSP', value => { if (csp.length < 64) csp.push(value); });
+    await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => { void window.__providerCSP(event.violatedDirective); }));
+    await page.routeWebSocket('**/*', socket => {
+      const server = socket.connectToServer();
+      socket.onMessage(message => { const frame = JSON.parse(String(message)); if (frames.length >= 10000) throw new Error('Fixture frame bound'); frames.push(frame); if (frame.method === dropMethod) { dropMethod = undefined; void socket.close({ code: 1011, reason: 'Fixture interrupted before publication' }); void server.close(); return; } if (frame.method === loseMethod) { lostID = frame.id; loseMethod = undefined; } server.send(message); });
+      server.onMessage(message => { const frame = JSON.parse(String(message)); if (frame.id === lostID && frame.result) { lostID = undefined; void socket.close({ code: 1011, reason: 'Fixture lost acknowledgement' }); void server.close(); return; } socket.send(message); });
+    });
+    const categories = page.getByRole('navigation', { name: 'Settings categories', exact: true });
+    const category = label => categories.getByRole('button', { name: label, exact: true }).click();
+    const select = async (label, choice) => { await page.getByRole('combobox', { name: label, exact: true }).click(); await page.getByRole('option', { name: choice, exact: true }).click(); };
+    const option = async (dialog, label) => { await dialog.getByRole('button', { name: /Connection options/ }).click(); await page.getByRole('menuitem', { name: label, exact: true }).click(); };
+    const manage = async label => { await page.getByRole('button', { name: `Manage ${label}`, exact: true }).click(); return page.getByRole('dialog', { name: label, exact: true }); };
+    const shot = label => page.screenshot({ path: join(results, `${name}-${label}.png`), fullPage: true });
+    await page.goto(`${fixture.info.web}/h/${client.runtimeID}/s/${root.id}`);
+    await page.locator('[data-whip-composer]').waitFor();
+    await page.getByRole('link', { name: 'New session', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Select Inference.net', exact: true })).toBeVisible();
+    assert.equal((await get()).routes.some(route => route.id === 'inference-net'), true);
+    assert.equal(count('providers.defaults'), 0); assert.equal(count('providers.use_candidate'), 0); assert.deepEqual(await network(), []); await assert.rejects(access(commandMarker), { code: 'ENOENT' });
+    await expect(page.getByRole('button', { name: 'Set default model', exact: true })).toHaveCount(0);
+    await shot('detected-setup');
+    await page.getByRole('button', { name: 'Select provider', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Your first message', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveAttribute('title', 'Choose model · provider');
+    await expect(page.getByRole('button', { name: 'Send first message', exact: true })).toBeDisabled();
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveAttribute('title', 'Choose model · provider');
+    await shot('composer-provider-only');
+    await page.getByRole('button', { name: 'Model', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search models', exact: true }).fill('replacement');
+    await page.getByRole('option', { name: 'replacement · provider', exact: true }).click();
+    await page.getByRole('button', { name: 'Reasoning effort', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'High', exact: true }).click();
+    assert.equal(count('providers.defaults'), 0); assert.equal(count('sessions.submit'), 0);
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveAttribute('title', 'replacement · provider');
+    await expect(page.getByRole('button', { name: 'Reasoning effort', exact: true })).toContainText('High');
+    report.checks.push('provider without a preset opens the composer immediately; partial provider and explicit model/effort choices survive reload without setting defaults or submitting');
+    await page.getByRole('link', { name: 'New session', exact: true }).click();
+    await page.getByRole('button', { name: 'Select Inference.net', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Your first message', exact: true }).waitFor();
+    await expect(page.getByRole('button', { name: 'Reasoning effort', exact: true })).toContainText('High');
+    inventory = await get(); const kimi = inventory.routes.find(route => route.id === 'inference-net').models['kimi-k3-fast'];
+    const bundled = (await client.bundledProviderModels('inference-net', deadline())).items.find(model => model.id === 'kimi-k3-fast');
+    assert.equal(inventory.defaults.effort, 'high'); assert.equal(bundled.max_output_tokens, '1048576'); assert.equal(kimi.max_output_tokens, bundled.max_output_tokens); assert.equal(kimi.context_window_tokens, bundled.context_window_tokens);
+    assert.equal(count('providers.use_candidate'), 0); assert.equal(count('providers.defaults'), 1); assert.equal(count('sessions.submit'), 0); assert.deepEqual(await network(), []);
+    report.checks.push('one explicit provider choice saves the preset model, high effort and bundled Kimi 1,048,576 limit and opens the composer without another confirmation');
+    await page.locator('#whip-settings-link').click(); await category('Providers & models');
+    await expect(page.getByText('Connected providers', { exact: true })).toBeVisible();
+    let dialog = await manage('Inference.net');
+    await option(dialog, 'Disable on this host'); await expect(page.getByText('Disabled providers', { exact: true })).toBeVisible();
+    assert.equal((await client.providerReadiness(inventory.defaults, deadline())).disabled, true);
+    assert.deepEqual((await get()).defaults, inventory.defaults);
+    await page.reload(); dialog = await manage('Inference.net'); await option(dialog, 'Enable on this host'); await expect(dialog).toHaveCount(0);
+    assert.equal((await get()).routes.find(route => route.id === 'inference-net').disabled, false);
+    for (const provider of ['Inference.net', 'external-file', 'command-fixture']) {
+      dialog = await manage(provider);
+      await dialog.getByRole('button', { name: /Connection options/ }).click();
+      await expect(page.getByRole('menuitem', { name: 'Disconnect provider', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('menuitem', { name: 'Disable on this host', exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await dialog.getByRole('button', { name: /^(Done|Cancel)$/ }).click();
+    }
+    assert.equal((await get()).routes.find(route => route.id === 'inference-net').credential.state, 'available');
+    assert.equal(await readFile(externalKey, 'utf8'), 'external-fixture-key');
+    await assert.rejects(access(commandMarker), { code: 'ENOENT' }); assert.equal(count('providers.disconnect'), 0);
+    report.checks.push('disable/re-enable survives reload and preserves defaults/credentials; external environment/file/command sources hide Disconnect without side effects');
+
+    // Imported environment routes use ordinary management and key replacement.
+    dialog = await manage('OpenRouter');
+    await option(dialog, 'Replace API key');
+    const key = dialog.getByLabel('API key', { exact: true }); await expect(key).toBeFocused();
+    await key.fill('fixture-discard-key'); await page.keyboard.press('Escape');
+    await page.getByRole('dialog', { name: 'Discard this credential?', exact: true }).getByRole('button', { name: 'Discard credential', exact: true }).click();
+    await expect(dialog).toHaveCount(0); await expect(page.getByRole('button', { name: 'Manage OpenRouter', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter'); await option(dialog, 'Replace API key'); await expect(key).toBeFocused(); await expect(key).toHaveValue('');
+    await key.fill('fixture-unsaved-key'); await dialog.getByRole('button', { name: 'Back', exact: true }).click();
+    const discard = page.getByRole('dialog', { name: 'Discard this credential?', exact: true });
+    await discard.getByRole('button', { name: 'Keep editing', exact: true }).click(); await expect(key).toHaveValue('fixture-unsaved-key');
+    await key.fill('fixture-invalid-key'); await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(dialog).toContainText('Could not connect with this key'); await expect(key).toHaveValue('fixture-invalid-key');
+    assert.equal((await get()).routes.find(route => route.id === 'openrouter').credential.source, 'env');
+    await key.fill('fixture-saved-key'); await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.getByText('OpenRouter connected.', { exact: true })).toBeVisible();
+    inventory = await get(); const savedRoute = inventory.routes.find(route => route.id === 'openrouter');
+    assert.equal((await readFile(savedRoute.credential.file, 'utf8')).trim(), 'fixture-saved-key');
+    assert.equal(inventory.defaults.name, 'kimi-k3-fast');
+    inventory = await client.createProvider({ revision: inventory.revision, provider: 'shared-route', declaration: { kind: 'openai-chat', base_url: loopbackURL, credential: { source: 'file', environment: '', file: savedRoute.credential.file, command: null }, models: {} }, keep_credential: false, key: null }, deadline());
+    await page.reload(); dialog = await manage('OpenRouter'); await option(dialog, 'Disconnect provider');
+    await expect(page.getByText('OpenRouter disabled. Its credentials are shared with another provider and were kept.', { exact: true })).toBeVisible();
+    assert.equal((await readFile(savedRoute.credential.file, 'utf8')).trim(), 'fixture-saved-key');
+    inventory = await get(); await client.removeProvider({ revision: inventory.revision, provider: 'shared-route', replacement: null }, deadline());
+    await page.reload(); dialog = await manage('OpenRouter'); await option(dialog, 'Enable on this host'); await expect(dialog).toHaveCount(0);
+    dialog = await manage('OpenRouter'); await option(dialog, 'Disconnect provider');
+    await expect(page.getByText('OpenRouter disconnected.', { exact: true })).toBeVisible();
+    await assert.rejects(access(savedRoute.credential.file), { code: 'ENOENT' });
+    assert.equal((await client.providerCatalog('openrouter', deadline())).state, 'missing');
+    report.checks.push('focused key form retains drafts/failures, validates canonical keys, preserves defaults and Disconnect deletes only its owned key/catalog');
+
+    await page.getByRole('button', { name: 'Add custom provider', exact: true }).click();
+    dialog = page.getByRole('dialog', { name: 'Custom provider', exact: true });
+    await dialog.getByLabel('Provider id', { exact: true }).fill('custom-fixture'); await dialog.getByLabel('Endpoint', { exact: true }).fill(loopbackURL); await dialog.getByLabel('API key', { exact: true }).fill('fixture-custom-key');
+    await dialog.getByRole('button', { name: 'Save provider', exact: true }).click(); await expect(dialog).toHaveCount(0);
+    inventory = await get(); const customFile = inventory.routes.find(route => route.id === 'custom-fixture').credential.file;
+    dialog = await manage('custom-fixture'); await expect(dialog.getByLabel('Endpoint', { exact: true })).toHaveCount(0); await option(dialog, 'Disconnect provider'); await expect(dialog).toHaveCount(0);
+    await assert.rejects(access(customFile), { code: 'ENOENT' });
+    report.checks.push('shared credential Disconnect preserves the other route and key; existing custom route exposes ordinary lifecycle controls');
+
+    // Native login states, not renderer-seeded progress. Opening settings never began one.
+    assert.equal(count('accounts.inference.begin'), 0);
+    dialog = await manage('Inference.net'); await option(dialog, 'Sign in with another account');
+    await expect(dialog.getByRole('heading', { name: 'Finish signing in in your browser' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel sign-in', exact: true }).click();
+    await expect(dialog).toContainText('Sign-in cancelled.');
+    assert.equal((await client.listInferenceLogins(deadline())).items[0].state, 'cancelled');
+    await control({ login: 'expired' }); await option(dialog, 'Sign in with another account');
+    await expect(dialog.getByRole('heading', { name: 'Sign-in expired' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Back', exact: true }).click();
+    await control({ login: 'success' }); await option(dialog, 'Sign in with another account');
+    await expect(dialog.getByRole('button', { name: 'Continue setup', exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Continue setup', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    dialog = await manage('Inference.net'); await expect(dialog).toContainText('person@example.test'); await expect(dialog).toContainText('Fixture team'); await expect(dialog).toContainText('Fixture project');
+    await shot('account-context');
+    await control({ login: 'success', cleanupFailure: true }); await option(dialog, 'Disconnect provider');
+    await expect(dialog).toContainText('remote cleanup needs attention');
+    assert.equal((await client.inferenceAccountStatus(deadline())).inference_state, 'absent');
+    await control({ login: 'success' }); await option(dialog, 'Disconnect provider');
+    await expect(page.getByText('Inference.net disconnected.', { exact: true })).toBeVisible();
+    report.checks.push('real login cancellation/expiry, explicit setup continuation and account context; partial remote cleanup remains truthful and explicit retry completes');
+
+    // Restore a harmless loopback default to exercise complete category saves.
+    inventory = await get(); await client.setProviderDefaults({ revision: inventory.revision, defaults: { selection: { provider: 'provider', name: 'model', effort: '' }, settings: null } }, deadline());
+    await page.reload();
+    await page.getByRole('button', { name: 'Default model', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search models', exact: true }).fill('replacement'); await page.getByRole('option', { name: 'replacement · provider', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Reasoning effort', exact: true })).toContainText('Default');
+    await select('Reasoning effort', 'Off');
+    await page.getByRole('button', { name: 'Default permission level', exact: true }).click();
+    await page.getByRole('option', { name: /Full Access/ }).click();
+    const beforePreferences = await get();
+    assert.equal(count('providers.set_preferences'), 0);
+    await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+    await expect(page.getByText('Host defaults saved.', { exact: true })).toBeVisible();
+    inventory = await get(); assert.equal(inventory.defaults.name, 'replacement'); assert.equal(inventory.defaults.effort, 'off'); assert.equal(inventory.permission_mode, 'automatic');
+    assert.notEqual(inventory.revision, beforePreferences.revision); assert.equal(count('providers.set_preferences'), 1); assert.equal(count('host.set_permission_default'), 0);
+    await shot('providers-defaults');
+    report.checks.push('Providers model, explicit Default/Off effort and permission save atomically through one native CAS');
+
+    await category('Agents & execution');
+    await select('Execution language', 'JavaScript');
+    await page.getByRole('button', { name: 'Summary model', exact: true }).click();
+    await expect(page.getByRole('option', { name: 'Conversation Model', exact: true })).toBeVisible();
+    await page.getByRole('textbox', { name: 'Search models', exact: true }).fill('replacement'); await page.getByRole('option', { name: 'replacement · provider', exact: true }).click();
+    await select('Compact at', '70%'); await page.getByLabel('Goal round limit', { exact: true }).fill('0'); await page.getByLabel('Retry limit', { exact: true }).fill('8');
+    await page.getByRole('switch', { name: 'Import Claude configuration', exact: true }).click();
+    const beforeExecution = await client.hosts.executionDefaults(deadline());
+    await page.getByRole('button', { name: 'Save host defaults', exact: true }).click(); await expect(page.getByText('Host defaults saved.', { exact: true })).toBeVisible();
+    const execution = await client.hosts.executionDefaults(deadline());
+    assert.equal(execution.preferences.engine, 'quickjs'); assert.equal(execution.preferences.compaction_model.selection.name, 'replacement'); assert.equal(execution.preferences.compaction_percent, 70); assert.equal(execution.preferences.goal_max_continuations, null); assert.equal(execution.goal_max_continuations, '100'); assert.equal(execution.preferences.max_attempts, 8); assert.equal(execution.preferences.import_claude, false);
+    assert.equal(count('host.set_execution_preferences'), 1); assert.equal(count('mcp.configure'), 0); assert.equal(count('mcp.refresh'), 0);
+    assert.notEqual(execution.revision, beforeExecution.revision); await shot('execution-defaults');
+    await page.getByLabel('Retry limit', { exact: true }).fill('0'); await page.getByRole('button', { name: 'Summary model', exact: true }).click(); await page.getByRole('option', { name: 'Conversation Model', exact: true }).click();
+    await page.getByRole('button', { name: 'Save host defaults', exact: true }).click(); await expect(page.getByText('Host defaults saved.', { exact: true })).toBeVisible();
+    const defaults = await client.hosts.executionDefaults(deadline()); assert.equal(defaults.preferences.max_attempts, 0); assert.equal(defaults.max_attempts, 3); assert.equal(defaults.preferences.compaction_model.selection, null);
+    report.checks.push('Execution language, summary, threshold, zero/default limits and import sources save once; >5 attempts preserved, no import/connect side effect');
+
+    // A real revision conflict cannot partially save a multi-field draft.
+    await page.getByLabel('Retry limit', { exact: true }).fill('9'); await select('Compact at', '60%');
+    inventory = await get(); await client.setProviderEnabled({ revision: inventory.revision, provider: 'provider', enabled: false }, deadline());
+    await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+    await expect(page.getByText('Could not save host defaults', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Retry limit', { exact: true })).toHaveValue('9'); await expect(page.getByRole('combobox', { name: 'Compact at', exact: true })).toContainText('60%');
+    assert.equal((await client.hosts.executionDefaults(deadline())).preferences.max_attempts, 0); assert.equal((await client.hosts.executionDefaults(deadline())).preferences.compaction_percent, 70);
+    await page.getByRole('button', { name: 'Discard edits and load current defaults', exact: true }).click();
+    await expect(page.getByLabel('Retry limit', { exact: true })).toHaveValue('0');
+    inventory = await get(); await client.setProviderEnabled({ revision: inventory.revision, provider: 'provider', enabled: true }, deadline());
+    await page.reload(); await category('Providers & models');
+    await select('Reasoning effort', 'Default'); const beforeLost = count('providers.set_preferences'), beforeLostReconnect = count('initialize'); loseMethod = 'providers.set_preferences';
+    await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+    await eventually(async () => (await get()).defaults.effort === '' && count('initialize') > beforeLostReconnect, { description: 'published before acknowledgement loss, then replacement connection' });
+    await expect(page.getByText('Connected', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Discard edits and load current defaults', exact: true })).toBeVisible();
+    await expect(page.getByText('Host defaults saved.', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('combobox', { name: 'Reasoning effort', exact: true })).toContainText('Default');
+    assert.equal((await get()).defaults.effort, ''); assert.equal(count('providers.set_preferences'), beforeLost + 1);
+    await expect(page.getByRole('combobox', { name: 'Reasoning effort', exact: true })).toContainText('Default');
+    await shot('lost-acknowledgement'); await page.reload();
+    assert.equal(count('providers.set_preferences'), beforeLost + 1);
+    report.checks.push('conflict keeps complete edits and leaves every host field untouched; accepted-but-lost acknowledgement is never replayed');
+    await select('Reasoning effort', 'High'); const beforeDrop = count('providers.set_preferences'), beforeReconnect = count('initialize'); dropMethod = 'providers.set_preferences';
+    await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+    await eventually(async () => count('providers.set_preferences') === beforeDrop + 1 && count('initialize') > beforeReconnect, { description: 'unpublished request fault and a replacement connection' });
+    await expect(page.getByText('Connected', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Reasoning effort', exact: true })).toContainText('High');
+    assert.equal((await get()).defaults.effort, ''); assert.equal(count('providers.set_preferences'), beforeDrop + 1);
+    await shot('unpublished-draft-after-reconnect');
+    report.checks.push('unpublished Providers draft survives same-host reconnect without replay or an adopted revision');
+    await page.reload(); await category('Agents & execution');
+    await page.getByLabel('Retry limit', { exact: true }).fill('17'); await select('Compact at', '60%');
+    const beforeExecutionDrop = count('host.set_execution_preferences'), beforeExecutionReconnect = count('initialize'); dropMethod = 'host.set_execution_preferences';
+    await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+    await eventually(async () => count('host.set_execution_preferences') === beforeExecutionDrop + 1 && count('initialize') > beforeExecutionReconnect, { description: 'unpublished execution request fault and replacement connection' });
+    await expect(page.getByText('Connected', { exact: true }).first()).toBeVisible();
+    await expect(page.getByLabel('Retry limit', { exact: true })).toHaveValue('17'); await expect(page.getByRole('combobox', { name: 'Compact at', exact: true })).toContainText('60%');
+    assert.equal((await client.hosts.executionDefaults(deadline())).preferences.max_attempts, 0); assert.equal(count('host.set_execution_preferences'), beforeExecutionDrop + 1);
+    report.checks.push('unpublished complete Execution draft survives same-host reconnect and never replays');
+    await page.reload(); await category('Providers & models');
+
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(theme => localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: theme })), theme); await page.reload(); await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme); await shot(`providers-${theme}`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false); await shot('providers-narrow');
+    await page.setViewportSize({ width: 1280, height: 960 }); await category('Appearance');
+    await page.getByRole('textbox', { name: 'UI font size', exact: true }).fill('20'); await page.getByRole('textbox', { name: 'UI font size', exact: true }).press('Tab');
+    await category('Providers & models'); dialog = await manage('Inference.net'); await page.setViewportSize({ width: 320, height: 640 });
+    await expect(dialog).toHaveCSS('font-size', '20px'); assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth), false);
+    for (const control of await dialog.getByRole('button').all()) assert.equal(await control.evaluate(element => element.scrollWidth > element.clientWidth), false, 'Every button label remains readable at 320px/20px');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).scrollIntoViewIfNeeded();
+    // Allow subpixel intersection rounding at the scrolling dialog edge, not clipped text.
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 0.98 }); await shot('dialog-narrow-large-text');
+    report.checks.push('reference light/dark, narrow layout, source/logo presentation and 320px/20px dialog bounds retained');
+    assert.deepEqual(errors, []); assert.deepEqual(csp, []); assert.deepEqual(await fixture.effects(), []); await assert.rejects(access(commandMarker), { code: 'ENOENT' });
+    Object.assign(report, { browser: browser.version(), errors, csp, passed: true, requestMethods: frames.map(frame => frame.method).filter(Boolean) });
+  } catch (error) {
+    Object.assign(report, { error: String(error.stack ?? error), errors, csp });
+    if (page) { await page.screenshot({ path: join(results, `${name}-failure.png`), fullPage: true }).catch(() => {}); report.body = (await page.locator('body').innerText().catch(() => '')).slice(0, 20000); }
+    throw error;
+  } finally { try { await browser?.close(); } finally { try { await fixture?.close(); } finally { await writeFile(join(results, 'report.json'), JSON.stringify(reports, null, 2)); } } }
+  console.log(`${name}: ${report.checks.length} provider/settings restoration groups passed`);
+}

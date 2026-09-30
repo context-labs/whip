@@ -32,10 +32,12 @@ An explicit older execution read replaces the turn window; it does not retain
 all 80 cells at once. Exhaustion remains stable across background read refreshes.
 A text-only tail does not silently scan older history.
 
-The old one-root-subscription assertion is now at most one outstanding
-`sessions.observe` per exact session owner across duplicated views. Root and
-child observations have distinct owners. This does not claim one observer for
-an entire recursive tree or count the SDK's retained warm leases.
+The old one-root-subscription assertion is now at most one locally active
+`sessions.observe` per exact document, verified runtime/process epoch and session
+owner across duplicated views. Root and child observations have distinct owners.
+This does not claim one observer for an entire recursive tree or count the SDK's
+retained warm leases. A locally retired observer does not remain active merely
+because its physical socket-close event has not arrived.
 
 ## Validation
 
@@ -71,9 +73,10 @@ Playwright socket events across reload and runtime restart; it did not retain
 the overlapping identities before throwing. The failure artifact glob also
 missed this runner's previous default output directory.
 
-The original at-most-one assertion, requests, geometry and deadlines remain
-unchanged. The runner now records up to 32 raw overlap groups (at most 16 requests
-each), retaining exact connection/request IDs, expected runtime/process epoch,
+At that diagnostic checkpoint, the original at-most-one assertion, requests,
+geometry and deadlines remained unchanged. The runner recorded up to 32 raw
+overlap groups (at most 16 requests each), retaining exact connection/request IDs,
+expected runtime/process epoch,
 send and settlement times, and reply-versus-close settlement. It saves maxima
 before asserting and on every failure. The default output directory now ends in
 `-results`, matching the existing CI artifact glob.
@@ -91,7 +94,7 @@ of 128 KiB each. Maxima are published before navigation because a pagehide bindi
 can be lost when its JavaScript context is destroyed. Current-document evidence
 is also captured directly before the assertion and on failure.
 
-This instrumentation distinguishes local observer retirement from socket-close
+That instrumentation distinguishes local observer retirement from socket-close
 delivery and separates document/process lifetimes. It does not declare the
 hosted failure a measurement error, change the shared SDK view owner, or weaken
 the original assertion. A local pass alone cannot establish the hosted cause.
@@ -115,3 +118,44 @@ Syntax and whitespace checks pass. Those final diagnostic edge changes were
 not rerun through the whole browser matrix; they change no product code, native
 request, assertion, deadline or workflow. The hosted cause remains open pending
 an exact failing overlap capture.
+
+## Lifecycle-qualified sharing assertion (2026-09-29)
+
+Source review identified a concrete mismatch in the fixture's assertion:
+The [shipping browser connection](../../../packages/sdk/src/browser-connection.ts) retires a
+local wait and notifies its observer when `close()` is called, without waiting
+for a later physical close event. The fixture's raw counter retained that
+request until a reply or physical close and also combined the same session ID
+across reloads and runtime epochs. Those raw requests are useful transport
+diagnostics, but are not all active observations of one shared view owner.
+
+The assertion now consumes the existing document-local probe's verified
+runtime/epoch/session maxima. Raw socket frames, maxima and overlap groups remain
+in the report (`rawMaximumOwnerObservations` and `rawOverlaps`). Every published
+document snapshot is checked before replacement, so an out-of-order older
+publication cannot erase an already observed violation. Missing observations,
+unverified identities, probe faults and evidence overflow fail the workflow.
+True same-document/runtime/epoch/session overlap still fails, even after both
+requests settle. No product ownership code, request, scenario or deadline changes.
+
+The regression uses the shipping `openBrowserConnection` transport and
+reproduces a raw count of two after caller cancellation while the native close
+event is withheld: the former assertion fails and the current lifecycle-qualified
+assertion passes. Separate cases reject genuine overlap,
+retain failures across late publications, and separate documents and epochs.
+This proves the fixture bug; the original hosted failure did not retain the
+necessary identities to prove it was caused by this particular ordering.
+
+Validation on production base `674347705b7d3fc162146a4bfd5a7174ff57de13`:
+`npm ci --ignore-scripts`, `npm run pack:web`, all eleven observation tests,
+syntax and whitespace checks passed. One run of the unchanged public REPL
+entrypoint passed all ten workflow groups in Chromium 153.0.8010.12 and Firefox
+155.0. The renderer digest remained
+`0af75b87cce53a45cc1fb60227912395b09dfe601c899c4abfeb0e0d79cdc39d`.
+Both browsers recorded five document lifetimes, maxima of one, no raw or active
+overlap, and no page/CSP/probe faults or overflow. Chromium retained 8,416 request
+records / 2,185,379 counted bytes; Firefox 6,985 / 1,823,583. Browser/runtime
+cleanup joined. Evidence is
+`/tmp/whip-repl-observation-ownership-results/results.json` and
+`/tmp/whip-repl-observation-ownership-browser.log`. This is functional ownership
+coverage, not latency or memory acceptance.

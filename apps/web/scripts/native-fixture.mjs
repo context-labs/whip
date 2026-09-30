@@ -40,9 +40,11 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, replStreams = false, chatPolishStreams = false, networkTerminals = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, replStreams = false, chatPolishStreams = false, networkTerminals = false, terminalProfile = false, providerSettings = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+  if (typeof providerSettings !== 'boolean') throw new TypeError('providerSettings must be a boolean');
   if (typeof chatPolishStreams !== 'boolean') throw new TypeError('chatPolishStreams must be a boolean');
   if (typeof replStreams !== 'boolean') throw new TypeError('replStreams must be a boolean');
+  if (typeof terminalProfile !== 'boolean') throw new TypeError('terminalProfile must be a boolean');
   if (typeof networkTerminals !== 'boolean') throw new TypeError('networkTerminals must be a boolean');
   if (!Number.isInteger(workers) || workers < 1 || workers > 16) throw new RangeError('Fixture workers must be within 1..16');
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
@@ -61,6 +63,8 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
   const runtimeEnvironment = { PATH: helperDirectory + ':/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/sh',
     HOME: fixtureHome, ZDOTDIR: fixtureHome, XDG_CONFIG_HOME: join(fixtureHome, '.config'),
     TMPDIR: join(directory, 'tmp'), WHIPCODE_HOME: join(fixtureHome, '.whipcode') };
+  if (terminalProfile) Object.assign(runtimeEnvironment, { SHELL: '/bin/zsh', ZDOTDIR: join(fixtureHome, 'shell'), WHIP_FIXTURE_PROMPT_LABEL: 'fixture-human' });
+  if (providerSettings) Object.assign(runtimeEnvironment, { INFERENCE_API_KEY: 'fixture-environment-key', OPENROUTER_API_KEY: 'fixture-environment-key', WHIP_PROVIDER_FIXTURE_DIRECTORY: directory });
   const lifetime = new AbortController(), holds = new Map();
   let runtime, exited, executor, local, info, output = '', closed = false, gatewayAddress = '127.0.0.1:0';
   let effectBytes = 0;
@@ -85,7 +89,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     try {
       if (request.url === '/v1/models') {
         response.setHeader('Content-Type', 'application/json');
-        response.end(JSON.stringify({ data: [{ id: 'model', supports_tools: true }, { id: 'replacement', reasoning_efforts: ['low', 'medium', 'high'], supports_tools: true }] })); return;
+        response.end(JSON.stringify({ data: [{ id: 'model', supports_tools: true }, { id: 'replacement', reasoning_efforts: [...(providerSettings ? ['off'] : []), 'low', 'medium', 'high'], supports_tools: true }] })); return;
       }
       if (request.url !== '/v1/chat/completions' || request.method !== 'POST') { response.writeHead(404).end(); return; }
       let bytes = 0; const chunks = [];
@@ -115,6 +119,19 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
       if (polished) message = polished;
       else if (queued) message = queued;
       else if (toolImages) message = { role: 'assistant', content: 'Received tool images.' };
+      else if (replStreams && /^acceptance:many:[0-9]+:[0-9]+$/.test(text)) {
+        const base = Number(text.split(':')[2]), count = Number(text.split(':')[3]);
+        if (base < 0 || base > 130 || count < 1 || count > 64 || base + count > 131) throw new Error('Execution paging fixture bound exceeded');
+        const completed = messages.slice(messages.findLastIndex(message => message.role === 'user')).filter(message => message.role === 'tool').length;
+        if (completed >= count) message = { role: 'assistant', content: 'All 131 actual cells completed.' };
+        else {
+          message = { role: 'assistant', content: null, tool_calls: Array.from({ length: Math.min(16, count - completed) }, (_, offset) => {
+            const index = base + completed + offset;
+            const code = 'print("bulk cell ' + String(index).padStart(3, '0') + '")' + (index === 130 ? '\ntools.fixture_wait(key="many-execution")' : '');
+            return { id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } };
+          }) };
+        }
+      }
       else if (replStreams && text === 'repl:live') {
         if (!stream) throw new Error('REPL fixture requires actual provider streaming');
         message = await replResponse({ last, delta, wait, signal });
@@ -228,12 +245,18 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
   }
   try {
     await mkdir(fixtureHome); await mkdir(runtimeEnvironment.TMPDIR); await mkdir(helperDirectory);
+    if (terminalProfile) {
+      await mkdir(runtimeEnvironment.ZDOTDIR);
+      await writeFile(join(runtimeEnvironment.ZDOTDIR, '.zshrc'), "PROMPT='fixture-human> '\nalias whip_fixture_alias='printf fixture-alias-ok'\nexport WHIP_FIXTURE_PROFILE=fixture-profile-ok\nexport PATH=\"$HOME/profile-bin:$PATH\"\n", { mode: 0o600 });
+      await mkdir(join(fixtureHome, 'profile-bin'));
+    }
     // Never open a real OS chooser during browser checks. The production app
     // falls back to its real bounded host-directory browser on unavailable.
     for (const name of ['osascript', 'zenity', 'kdialog', 'powershell']) await writeFile(join(helperDirectory, name), '#!/bin/sh\nexit 2\n', { mode: 0o700 });
     await writeFile(join(directory, 'effects.jsonl'), '', { mode: 0o600 });
+    if (providerSettings) await writeFile(join(directory, 'provider-control.json'), JSON.stringify({ login: 'pending' }), { mode: 0o600 });
     provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
-    await promisify(execFile)('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], { cwd: repository, timeout: 120000, signal: lifetime.signal, env: { ...process.env, GOTOOLCHAIN: 'go1.27.0' } });
+    await promisify(execFile)('go', ['build', '-race=false', '-o', binary, providerSettings ? './apps/web/scripts/fixtures/provider-settings' : './cmd/whip-runtime'], { cwd: repository, timeout: 120000, signal: lifetime.signal, env: { ...process.env, GOTOOLCHAIN: 'go1.27.0' } });
     if (origin) {
       // Select a loopback port before configuring exact Host authorities. A lost
       // reservation fails startup; never broaden the production gateway policy.

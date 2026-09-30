@@ -12,14 +12,9 @@
     "source": {
       "type": "string",
       "enum": [
-        "env",
         "inference-net",
         "openai-codex"
       ]
-    },
-    "environment": {
-      "type": "string",
-      "maxLength": 256
     }
   },
   "$id": "https://whip.dev/protocol/v4/UseProviderCandidateParams",
@@ -28,8 +23,7 @@
   "required": [
     "revision",
     "provider",
-    "source",
-    "environment"
+    "source"
   ],
   "additionalProperties": false
 }

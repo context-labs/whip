@@ -28,10 +28,10 @@ const effortLabels: Record<string, string> = {
   medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max',
 };
 
-export function useProviderCatalog(client: Client, connected: boolean, provider?: string) {
+export function useProviderCatalog(client: Client, connected: boolean) {
   return useQuery({
-    queryKey: ['provider-catalogs', client.runtimeID, provider ?? ''],
-    queryFn: ({ signal }) => readModelCatalog(client, signal, provider),
+    queryKey: ['provider-catalogs', client.runtimeID, ''],
+    queryFn: ({ signal }) => readModelCatalog(client, signal),
     enabled: connected,
   });
 }
@@ -148,7 +148,7 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
     ? filtered
     : [selected, ...filtered.filter(option => option.value !== current)];
   const usingDefault = !!defaultChoice && !model.trim();
-  const routeLabel = usingDefault ? defaultChoice.label : [model || 'Model unavailable', provider || (showProvider && model ? 'provider resolved by host' : '')].filter(Boolean).join(' · ');
+  const routeLabel = usingDefault ? defaultChoice.label : [model || 'Choose model', provider || (showProvider && model ? 'provider resolved by host' : '')].filter(Boolean).join(' · ');
   const pick = async (option: { value: string; name: string; provider: string }) => {
     if (pending) return;
     if (option.value === current) { setOpen(false); return; }

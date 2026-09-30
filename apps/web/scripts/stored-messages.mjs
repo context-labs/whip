@@ -243,6 +243,7 @@ export async function checkStoredMessages({ page, client, root, directory, name,
     await expect(host.locator('img, [data-user-bubble]')).toHaveCount(0);
     await group.locator('[data-activity-content]').click();
     await reading.getByRole('button').filter({ hasText: 'mcp.call.trusted' }).click();
+    await host.getByText('Operation details', { exact: true }).click();
     await expect(host.getByRole('button', { name: 'Read host result', exact: true })).toHaveCount(2);
     assert.equal(hostReads(), 0, 'Inspecting metadata must not read screenshot bytes');
     await host.getByRole('button', { name: 'Read host result', exact: true }).first().click();

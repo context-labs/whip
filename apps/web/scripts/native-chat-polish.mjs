@@ -114,7 +114,7 @@ for (const name of names) {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: join(output, `${name}-large-reasoning.png`) });
     fixture.release('polish-execute');
-    const active = groups.filter({ hasText: /Read 1 file.*called 1 tool/ });
+    const active = groups.filter({ hasText: /read 1 file.*called 1 tool/i });
     await expect(active).toBeVisible(); const activeID = await active.getAttribute('data-activity-group');
     const childWork = await run(client.session(child.session.id), 'hold:polish-child-only');
     await eventually(async () => (await client.session(child.session.id).activity(deadline())).active_turn);

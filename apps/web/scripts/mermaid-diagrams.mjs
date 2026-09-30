@@ -176,7 +176,9 @@ ${fence(source)}`;
       await expect(liveFigures.last()).toHaveAttribute('data-mermaid-view', 'diagram');
       await first.getByRole('button', { name: 'Copy source', exact: true }).click();
       assert.equal(await page.evaluate(() => window.__mermaidCopies.at(-1)), source);
-      await page.getByRole('button', { name: 'Copy response', exact: true }).click();
+      const responseCopy = page.getByRole('button', { name: 'Copy response', exact: true });
+      await page.locator('[data-response-end]').filter({ has: responseCopy }).hover();
+      await responseCopy.click();
       assert.equal(await page.evaluate(() => window.__mermaidCopies.at(-1)), prompt);
       await first.getByRole('button', { name: 'Diagram', exact: true }).click();
       const expand = first.getByRole('button', { name: 'Expand', exact: true });
@@ -214,7 +216,8 @@ ${fence(source)}
 ${paragraphs.join('\n\n')}`);
       await page.goto(scroll.url); await ready();
       const prose = page.locator('[data-message-role="assistant"] [data-markdown-block]');
-      await reading().evaluate(element => element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 })));
+      await reading().hover({ position: { x: 8, y: 8 } });
+      await page.mouse.wheel(0, -1);
       // Virtualized rows mount as we move toward the start of the assistant turn.
       await reading().evaluate(element => { element.scrollTop = element.scrollHeight; });
       await eventually(async () => {

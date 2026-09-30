@@ -105,7 +105,7 @@ export class Client {
     return this.call('providers.list', {}, options);
   }
 
-  /** Bounded local credential evidence. Never publishes a route or runs a command. */
+  /** Saved account evidence. Never publishes a route or runs a command. */
   providerCandidates(options: CallOptions = {}): Promise<Operations['providers.candidates']['result']> {
     return this.call('providers.candidates', {}, options);
   }

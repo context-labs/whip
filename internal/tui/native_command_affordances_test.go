@@ -78,10 +78,11 @@ func TestNativeDirectModelCommandsResolveCachedRoutesAndKeepScopes(t *testing.T)
 		t.Fatal("explicit configured route did not save exact default", inventory.Defaults)
 	}
 	before := m.owner
-	if value := nativeUIControl(t, m, "/model refresh"); value.err != nil || f.requests.Load() != 1 || m.owner.ConfigRevision != before.ConfigRevision {
+	// Refresh includes the imported OpenRouter route's two catalog endpoints.
+	if value := nativeUIControl(t, m, "/model refresh"); value.err != nil || f.requests.Load() != 3 || m.owner.ConfigRevision != before.ConfigRevision {
 		t.Fatal("explicit refresh changed selection or failed to refresh", value.err, f.requests.Load())
 	}
-	if value := nativeUIControl(t, m, "/model-for-session discovered"); value.err != nil || m.owner.Configuration.Model.Name != "discovered" || f.requests.Load() != 1 {
+	if value := nativeUIControl(t, m, "/model-for-session discovered fixture"); value.err != nil || m.owner.Configuration.Model.Name != "discovered" || f.requests.Load() != 3 {
 		t.Fatal("cached discovered model did not resolve", value.err, m.owner.Configuration.Model)
 	}
 	if value := nativeUIControl(t, m, "/model-for-session missing-provider-model absent"); value.err == nil {

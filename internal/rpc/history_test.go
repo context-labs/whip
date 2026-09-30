@@ -33,7 +33,6 @@ func TestRewindRPCPreservesIdentityAndRejectsStaleHistoryAtEveryDepth(t *testing
 			first := call[protocol.HistoryResult](t, c, "sessions.history", protocol.HistoryParams{SessionID: owner, Limit: 100})
 			submitHistoryTurn(t, c, owner, "second")
 			suffix := call[protocol.HistoryResult](t, c, "sessions.history", protocol.HistoryParams{SessionID: owner, After: first.Snapshot.ThroughSequence, Limit: 100})
-			call[protocol.Session](t, c, "sessions.lifecycle", protocol.LifecycleParams{SessionID: owner, Lifecycle: "stopped"})
 			page := call[protocol.HistoryResult](t, c, "sessions.history", protocol.HistoryParams{SessionID: owner, Limit: 1})
 			if len(page.Items) != 1 || page.Snapshot.Revision != 1 || page.Snapshot.ThroughSequence != 4 || page.Snapshot.MessageCount != 4 {
 				t.Fatalf("snapshot must describe the whole active history, not just the page: %+v", page)

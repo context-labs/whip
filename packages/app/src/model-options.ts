@@ -1,3 +1,4 @@
+import { providerReady } from './provider-readiness';
 import type { Client, ProviderCatalog, ProviderInventory, ProviderModelsResult } from '@whip/sdk';
 export type ProviderModelSettings = NonNullable<ProviderInventory['routes'][number]['models']>[string];
 export type ModelSelection = NonNullable<ProviderInventory['defaults']>;
@@ -36,16 +37,13 @@ export async function readModelCatalog(client: Client, signal: AbortSignal, prov
     if (values.length > remaining) truncated = true;
     remaining -= Math.min(values.length, remaining);
   }
-  // Setup can preview reviewed models before an explicit candidate Use publishes
-  // its route. This reads bundled metadata only, never discovery or credentials.
-  if (provider && !inventory.routes.some(route => route.id === provider)) {
-    const bundled = await client.bundledProviderModels(provider, { signal });
-    providers.push({ id: provider, catalog: { provider, state: 'missing', scope_state: 'unverified', discovery: 'not_checked', fetched_at: null, stale: false, failure: null, models: [] }, models: bundled.items });
-  }
   return { inventory, providers, truncated };
 }
 export function modelOptions(catalog: ModelCatalog | undefined) {
-  return (catalog?.providers ?? []).filter(provider => !catalog?.inventory.routes.find(route => route.id === provider.id)?.disabled).flatMap(({ id, models }) => models.map(model => ({ value: JSON.stringify([model.id, id]), label: `${model.id} · ${id}`, name: model.id, provider: id, model })))
+  return (catalog?.providers ?? []).filter(provider => {
+    const route = catalog?.inventory.routes.find(route => route.id === provider.id);
+    return !route || providerReady({ configured: true, disabled: route.disabled, credential_state: route.credential.state });
+  }).flatMap(({ id, models }) => models.map(model => ({ value: JSON.stringify([model.id, id]), label: `${model.id} · ${id}`, name: model.id, provider: id, model })))
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 

@@ -1,9 +1,19 @@
 # Restore frontend UX over the native SDK
 
-Status: implementation in progress, 2026-09-29. The planning checkpoint was
+> **Status correction (2026-09-29):** restoration is not complete UX parity.
+> The implementation and focused evidence described below remain useful, but
+> the user has requested a complete new parity inventory and plan before code
+> changes, with each proposed protocol-driven UI change discussed individually.
+> The [desktop/web inventory](frontend-desktop-web-parity-inventory.md) now records
+> the completed source inventory, approved onboarding corrections and remaining
+> decisions. The [handoff](backend-redesign-handoff-2026-09-29.md) preserves the
+> initial audit and authorization. Historical status below is retained.
+
+Status: implementation completed, 2026-09-29. The planning checkpoint was
 draft #287. See the [implementation record](frontend-ux-restoration-progress.md)
-for completed slices, exact validation and remaining acceptance. Comparative
-product acceptance is not yet complete.
+and [acceptance index](frontend-ux-restoration-acceptance.md) for tested slices,
+exact comparison evidence and explicit limits. Findings below preserve the
+planning-time state; frontend.md remains the current architecture authority.
 
 The goal is the latest development frontend's experience over the current native
 backend and SDK. Restore established markup, interactions, loading treatment and

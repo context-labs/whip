@@ -48,6 +48,21 @@ export function PendingRequests({
   refresh(): Promise<void>;
   pendingCount?: string;
 }) {
+  const owner = `${session.client.runtimeID}:${session.client.processEpoch}:${rootId}:${session.id}`;
+  // Retain one attempted decision while query eviction or the pending queue changes.
+  const [captured, setCaptured] = useState<{
+    owner: string;
+    permission: DeepReadonly<Permission>;
+    operation: DeepReadonly<HostOperation>;
+  }>();
+  const retainedQuestions = useRef<{
+    owner: string;
+    items: readonly DeepReadonly<Question>[];
+  } | undefined>(undefined);
+  const [questionAttempts, setQuestionAttempts] = useState<{
+    owner: string;
+    ids: string[];
+  }>({ owner, ids: [] });
   const root = useMemo(
     () => session.client.session(rootId),
     [session.client, rootId],
@@ -97,7 +112,18 @@ export function PendingRequests({
     await refresh();
   };
   const data = query.data;
-  if (!data?.permission && !data?.questions.length && !query.error) return null;
+  const approval = captured?.owner === owner ? captured : data;
+  const previousQuestions = retainedQuestions.current?.owner === owner
+    ? retainedQuestions.current.items : [];
+  const attemptedIDs = questionAttempts.owner === owner ? questionAttempts.ids : [];
+  // Keep at most the four displayed questions. Drafts survive temporary read
+  // eviction; attempted answers stay pinned until their exact state is checked.
+  const pinned = previousQuestions.filter(question => attemptedIDs.includes(question.operation_id));
+  const questions = data
+    ? [...pinned, ...data.questions.filter(question => !attemptedIDs.includes(question.operation_id))].slice(0, 4)
+    : previousQuestions;
+  retainedQuestions.current = { owner, items: questions };
+  if (!approval?.permission && !questions.length && !query.error) return null;
   return (
     <section
       aria-label="Needs your attention"
@@ -109,11 +135,13 @@ export function PendingRequests({
         error={query.error}
         title="Pending requests unavailable"
       />
-      {data?.permission && data.operation?.state === 'waiting' && (
+      {approval?.permission && approval.operation?.state === 'waiting' && (
         <PermissionRequest
-          key={`${session.client.processEpoch}:${session.id}:${data.permission.operation_id}`}
-          permission={data.permission}
-          operation={data.operation}
+          key={`${owner}:${approval.permission.operation_id}`}
+          permission={approval.permission}
+          operation={approval.operation}
+          onAttempt={() => setCaptured({ owner, permission: approval.permission!, operation: approval.operation! })}
+          onResolved={() => setCaptured(value => value?.owner === owner && value.permission.operation_id === approval.permission?.operation_id ? undefined : value)}
           waiting={
             BigInt(pendingCount) > 0n ? String(BigInt(pendingCount) - 1n) : '0'
           }
@@ -122,16 +150,22 @@ export function PendingRequests({
           refresh={update}
         />
       )}
-      {data?.questions.map((question) => (
+      {questions.map((question) => (
         <QuestionRequest
-          key={`${root.id}:${question.operation_id}`}
+          key={`${owner}:${question.operation_id}`}
+          onAttempt={() => setQuestionAttempts(value => ({
+            owner,
+            ids: [...new Set([...(value.owner === owner ? value.ids : []), question.operation_id])].slice(0, 4),
+          }))}
+          onResolved={() => setQuestionAttempts(value => value.owner === owner
+            ? { owner, ids: value.ids.filter(id => id !== question.operation_id) } : value)}
           question={question}
           session={root}
           disabled={disabled || !!query.error}
           refresh={update}
         />
       ))}
-      {data?.questions.length === 4 && (
+      {questions.length === 4 && (
         <p {...stylex.props(layout.notice)}>
           Showing up to four pending questions. Further questions appear after
           these close.
@@ -142,6 +176,8 @@ export function PendingRequests({
 }
 
 export function PermissionRequest({
+  onAttempt,
+  onResolved,
   permission,
   operation,
   waiting,
@@ -149,6 +185,8 @@ export function PermissionRequest({
   disabled,
   refresh,
 }: {
+  onAttempt?(): void;
+  onResolved?(): void;
   permission: DeepReadonly<Permission>;
   operation: DeepReadonly<HostOperation>;
   waiting: string;
@@ -164,27 +202,42 @@ export function PermissionRequest({
   const [pending, setPending] = useState(false);
   const [attempt, setAttempt] = useState<boolean>();
   const [error, setError] = useState<unknown>();
-  const active = useRef<Session | undefined>(session);
+  const owner = `${session.client.runtimeID}:${session.client.processEpoch}:${session.id}:${permission.operation_id}`;
+  const active = useRef<string | undefined>(owner);
   useEffect(() => {
-    active.current = session;
-    return () => {
-      active.current = undefined;
-    };
-  }, [session]);
+    active.current = owner;
+    return () => { active.current = undefined; };
+  }, [owner]);
   async function decide(allow: boolean) {
     if (disabled || pending) return;
     const restoreFocus = captureAnswerFocus();
     setPending(true);
     setError(undefined);
     setAttempt(allow);
+    onAttempt?.();
     try {
       await session.permissions.resolve(permission.operation_id, allow);
+      if (active.current !== owner) return;
       restoreFocus();
       await refresh();
+      if (active.current === owner) onResolved?.();
     } catch (error) {
-      if (active.current === session) setError(error);
+      if (active.current === owner) setError(error);
     } finally {
-      if (active.current === session) setPending(false);
+      if (active.current === owner) setPending(false);
+    }
+  }
+  async function check() {
+    if (disabled || pending) return;
+    setPending(true);
+    try {
+      const current = await session.operations.get(permission.operation_id);
+      await refresh();
+      if (active.current === owner && current.state !== 'waiting') onResolved?.();
+    } catch (error) {
+      if (active.current === owner) setError(error);
+    } finally {
+      if (active.current === owner) setPending(false);
     }
   }
   return (
@@ -248,12 +301,7 @@ export function PermissionRequest({
           <div {...stylex.props(permissionStyles.footer)}>
             <Button
               disabled={disabled || pending}
-              onClick={() => {
-                setPending(true);
-                void refresh()
-                  .catch(setError)
-                  .finally(() => setPending(false));
-              }}
+              onClick={() => void check()}
             >
               Check approval state
             </Button>
@@ -509,11 +557,15 @@ type QuestionItem = {
 };
 
 export function QuestionRequest({
+  onAttempt,
+  onResolved,
   question,
   session,
   disabled,
   refresh,
 }: {
+  onAttempt?(): void;
+  onResolved?(): void;
   question: DeepReadonly<Question>;
   session: Session;
   disabled: boolean;
@@ -523,13 +575,12 @@ export function QuestionRequest({
   const [attempt, setAttempt] =
     useState<Operations['questions.answer']['params']['answers']>();
   const [error, setError] = useState<unknown>();
-  const active = useRef<Session | undefined>(session);
+  const owner = `${session.client.runtimeID}:${session.client.processEpoch}:${session.id}:${question.operation_id}`;
+  const active = useRef<string | undefined>(owner);
   useEffect(() => {
-    active.current = session;
-    return () => {
-      active.current = undefined;
-    };
-  }, [session]);
+    active.current = owner;
+    return () => { active.current = undefined; };
+  }, [owner]);
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
     questions.map(() => ({ selected: [], text: '', skipped: false })),
@@ -566,14 +617,30 @@ export function QuestionRequest({
     setPending(true);
     setError(undefined);
     setAttempt(answers);
+    onAttempt?.();
     try {
       await session.questions.answer(question.operation_id, answers);
+      if (active.current !== owner) return;
       restoreFocus();
       await refresh();
+      if (active.current === owner) onResolved?.();
     } catch (error) {
-      if (active.current === session) setError(error);
+      if (active.current === owner) setError(error);
     } finally {
-      if (active.current === session) setPending(false);
+      if (active.current === owner) setPending(false);
+    }
+  }
+  async function check() {
+    if (disabled || pending) return;
+    setPending(true);
+    try {
+      const current = await session.questions.get(question.operation_id);
+      await refresh();
+      if (active.current === owner && current.state !== 'pending') onResolved?.();
+    } catch (error) {
+      if (active.current === owner) setError(error);
+    } finally {
+      if (active.current === owner) setPending(false);
     }
   }
   async function submit(nextDrafts = drafts) {
@@ -626,14 +693,7 @@ export function QuestionRequest({
           <div {...stylex.props(layout.row, layout.wrap)}>
             <Button
               disabled={disabled || pending}
-              onClick={() => {
-                setPending(true);
-                void session.questions
-                  .get(question.operation_id)
-                  .then(refresh)
-                  .catch(setError)
-                  .finally(() => setPending(false));
-              }}
+              onClick={() => void check()}
             >
               Check answer state
             </Button>

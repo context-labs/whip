@@ -33,12 +33,12 @@ func dispatchProvider(ctx context.Context, host HostServices, method string, raw
 		value, err := service.Candidates(ctx)
 		result := protocol.ProviderCandidates{Revision: value.Revision, Items: []protocol.ProviderCandidate{}}
 		for _, candidate := range value.Items {
-			result.Items = append(result.Items, protocol.ProviderCandidate{Provider: protocol.ID(candidate.Provider), Source: candidate.Source, Environment: candidate.Environment, CredentialState: candidate.CredentialState})
+			result.Items = append(result.Items, protocol.ProviderCandidate{Provider: protocol.ID(candidate.Provider), Source: candidate.Source, CredentialState: candidate.CredentialState})
 		}
 		return result, err
 	case "providers.use_candidate":
 		return decode(raw, func(p protocol.UseProviderCandidateParams) (any, error) {
-			value, err := service.UseCandidate(ctx, p.Revision, providerhost.Candidate{Provider: string(p.Provider), Source: p.Source, Environment: p.Environment})
+			value, err := service.UseCandidate(ctx, p.Revision, providerhost.Candidate{Provider: string(p.Provider), Source: p.Source})
 			return providerInventory(value), err
 		})
 	case "providers.set_enabled":
@@ -99,13 +99,21 @@ func dispatchProvider(ctx context.Context, host HostServices, method string, raw
 				if host.OpenAI == nil {
 					return nil, ErrMethod
 				}
-				_, value, err = host.OpenAI.LogoutProvider(ctx, p.Revision, string(p.Provider))
+				_, err = host.OpenAI.LogoutGuarded(ctx, func(clear func() error) error {
+					var guardErr error
+					value, guardErr = host.Config.DisconnectProvider(ctx, p.Revision, string(p.Provider), "openai-codex", clear)
+					return guardErr
+				})
 			case route.CredentialSource == "inference-net":
 				if host.Inference == nil {
 					return nil, ErrMethod
 				}
-				status, disconnected, logoutErr := host.Inference.LogoutProvider(ctx, host.Config, p.Revision, string(p.Provider))
-				value, err, cleanupFailure = disconnected, logoutErr, status.CleanupFailure
+				status, logoutErr := host.Inference.LogoutGuarded(ctx, func(clear func() error) error {
+					var guardErr error
+					value, guardErr = host.Config.DisconnectProvider(ctx, p.Revision, string(p.Provider), "inference-net", clear)
+					return guardErr
+				})
+				err, cleanupFailure = logoutErr, status.CleanupFailure
 			default:
 				value, err = host.Config.DisconnectProvider(ctx, p.Revision, string(p.Provider), "", nil)
 			}
@@ -200,7 +208,15 @@ func providerInventory(value providerhost.Inventory) protocol.ProviderInventory 
 		for id, settings := range route.Models {
 			models[id] = settingsProjection(settings)
 		}
-		result.Routes = append(result.Routes, protocol.ProviderRoute{ID: protocol.ID(route.ID), Disabled: route.Disabled, Kind: route.Kind, BaseURL: route.BaseURL, Credential: protocol.ProviderCredentialStatus{Source: route.Credential.Source, State: route.Credential.State, Environment: route.Credential.Environment, File: route.Credential.File}, Models: models})
+		result.Routes = append(result.Routes, protocol.ProviderRoute{
+			ID: protocol.ID(route.ID), Disabled: route.Disabled, Kind: route.Kind, BaseURL: route.BaseURL,
+			Credential: protocol.ProviderCredentialStatus{
+				Source: route.Credential.Source, State: route.Credential.State,
+				Environment: route.Credential.Environment, File: route.Credential.File,
+				CanDisconnect: route.Credential.CanDisconnect,
+			},
+			Models: models,
+		})
 	}
 	return result
 }

@@ -45,6 +45,24 @@ describe('workspace session reconciliation', () => {
     expect(a.lease.release).toHaveBeenCalledTimes(1);
     expect(f.active.size).toBe(0); expect(f.leases.size).toBe(0);
   });
+  it('retains only already visible exact session leases while their host is recovering', () => {
+    const f = fixture();
+    const selected = root('a');
+    reconcileWorkspaceViews(f.runtime, f.leases, [selected]);
+    const original = f.leases.get(key('a'))!;
+    const offline = { ...selected, client: undefined, recovering: true };
+    expect(reconcileWorkspaceViews(f.runtime, f.leases, [offline]).size).toBe(0);
+    expect(f.leases.get(key('a'))).toBe(original);
+    expect(original.lease.release).not.toHaveBeenCalled();
+    const errors = reconcileWorkspaceViews(f.runtime, f.leases, [offline, { ...offline, sessionId: 'unseen-child' }]);
+    expect(errors.get(workspaceSessionKey({ ...offline, sessionId: 'unseen-child' }))).toContain('disconnected');
+    expect(f.runtime.acquireView).toHaveBeenCalledTimes(1);
+    reconcileWorkspaceViews(f.runtime, f.leases, [{ ...selected, client: remote }]);
+    expect(original.lease.release).toHaveBeenCalledOnce();
+    expect(f.leases.get(key('a'))!.client).toBe(remote);
+    reconcileWorkspaceViews(f.runtime, f.leases, [{ ...offline, rootId: 'another-root' }]);
+    expect(f.leases.size).toBe(0);
+  });
   it('reports failed admissions without dropping healthy roots and permits retry', () => {
     const f = fixture();
     f.runtime.acquireView.mockImplementationOnce(() => { throw new Error('Root unavailable'); });

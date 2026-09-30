@@ -24,14 +24,13 @@ type ProviderCredentialInput = NonNullable<ChangeProviderParams['declaration']['
 export interface ProviderEntry { id: string; name: string; preset?: ProviderPreset; route?: ProviderRoute; candidates?: ProviderCandidates['items'] }
 const keySetupEndpoints: Record<string, string> = { 'inference-net': 'https://api.inference.net/v1', openrouter: 'https://openrouter.ai/api/v1' };
 export function sourceLabel(entry: ProviderEntry) {
-  const source = entry.route?.credential.source ?? preferredCandidate(entry)?.source;
+  const source = entry.route?.credential.source ?? entry.candidates?.[0]?.source;
   return source ? ({ env: 'Environment', file: 'Key file', command: 'Command', none: 'No authentication', 'inference-net': 'Inference.net account', 'openai-codex': 'ChatGPT subscription' })[source] : '';
 }
-export function preferredCandidate(entry: ProviderEntry) { return entry.candidates?.find(value => value.source !== 'env') ?? entry.candidates?.[0]; }
-export function locallyAvailable(entry: ProviderEntry) { return entry.route ? providerReady({ configured: true, disabled: entry.route.disabled, credential_state: entry.route.credential.state }) === true : !!preferredCandidate(entry); }
+export function locallyAvailable(entry: ProviderEntry) { return entry.route ? providerReady({ configured: true, disabled: entry.route.disabled, credential_state: entry.route.credential.state }) === true : !!entry.candidates?.[0]; }
 export function stateLabel(entry: ProviderEntry) {
   if (entry.route?.disabled) return 'Disabled on this host';
-  if (!entry.route) return preferredCandidate(entry) ? 'Detected on this host' : 'Not connected';
+  if (!entry.route) return entry.candidates?.[0] ? 'Detected on this host' : 'Not connected';
   return ({ available: 'Credentials available', not_required: 'No authentication required', missing: 'Credentials missing', unavailable: 'Credential source unavailable', unchecked: 'Credential command not checked', refresh_required: 'Account refresh required' })[entry.route.credential.state];
 }
 export function useProviderConnections(client: Client, enabled: boolean) {
@@ -64,7 +63,7 @@ export function useProviderConnections(client: Client, enabled: boolean) {
 export function ProviderConnectionRow({ entry, enabled, connect, onSelect, setup = false, hostName }: {
   entry: ProviderEntry; enabled: boolean; connect: boolean; onSelect(): void; setup?: boolean; hostName?: string;
 }) {
-  const action = entry.route?.disabled ? 'Manage' : connect ? 'Connect' : setup ? 'Use' : 'Manage';
+  const action = entry.route?.disabled ? 'Manage' : connect ? 'Connect' : setup ? 'Select' : 'Manage';
   return <div {...stylex.props(styles.row, setup && styles.setupRow)}>
     <div {...stylex.props(styles.identity, setup && styles.setupIdentity)}><span {...stylex.props(styles.logoSlot)}><ProviderLogo id={entry.id} size={20} /></span>
       <div {...stylex.props(styles.details)}><div {...stylex.props(styles.nameLine)}><strong {...stylex.props(styles.name)}>{entry.name}</strong>{connect && entry.id === 'inference-net' && entry.preset?.base_url === keySetupEndpoints[entry.id] && (!entry.route || entry.route.base_url === entry.preset.base_url && entry.route.kind === entry.preset.kind) && <Badge tone="success">Recommended</Badge>}{!setup && locallyAvailable(entry) && sourceLabel(entry) && <Badge>{sourceLabel(entry)}</Badge>}{!entry.preset && <Badge>Custom</Badge>}</div>
@@ -145,8 +144,8 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
   const [base, setBase] = useState({ revision, route: entry.route });
   const [key, setKey] = useState('');
   const keyInput = useRef<HTMLInputElement>(null);
-  const [advanced, setAdvanced] = useState(!entry.preset);
-  const [showKey, setShowKey] = useState(!entry.route && !preferredCandidate(entry) && !entry.preset?.methods.some(method => method === 'login') && !!entry.preset?.methods.some(method => method === 'api_key'));
+  const [advanced, setAdvanced] = useState(!entry.preset && !entry.route);
+  const [showKey, setShowKey] = useState(!entry.route && !entry.candidates?.[0] && !entry.preset?.methods.some(method => method === 'login') && !!entry.preset?.methods.some(method => method === 'api_key'));
   const [discardDestination, setDiscardDestination] = useState<'back' | 'close'>('close');
   const publication = useRef<{ key: string; id: string } | null>(null);
   const [id, setID] = useState(entry.id);
@@ -224,10 +223,10 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
   const initialConnection = !entry.route || !locallyAvailable(entry) && !entry.route.disabled;
   const canKey = entry.id !== 'openai-codex';
   const editKey = () => { setSource('key'); setShowKey(true); setAdvanced(false); setError(''); setNotice(''); };
-  const detected = preferredCandidate(entry);
+  const detected = entry.candidates?.[0];
   const useDetected = () => void action(async signal => {
     if (!detected) return;
-    const result = await client.useProviderCandidate({ revision, provider: entry.id, source: detected.source, environment: detected.environment }, { signal });
+    const result = await client.useProviderCandidate({ revision, provider: entry.id, source: detected.source }, { signal });
     runtime.queries.setQueryData(['provider-list', client.runtimeID], result);
     await changed(`${entry.name} connected.`, signal);
   });
@@ -259,7 +258,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
     }) });
     options.push({ id: 'refresh', label: 'Refresh models', onSelect: () => void action(async signal => { const result = await client.refreshProviderCatalog(entry.id, { signal }); await refresh(); if (result.failure) throw new Error(result.failure); if (!signal.aborted) setNotice('Models refreshed.'); }) });
     if (entry.id === 'inference-net' && entry.route.credential.source === 'inference-net') options.push({ id: 'rotate', label: 'Rotate machine key', onSelect: () => void action(async signal => { const value = await client.rotateInferenceKey({ signal }); if (!signal.aborted) await updateFlow({ provider: 'inference-net', value }); }) });
-    options.push({ id: 'disconnect-divider', label: '', separator: true }, { id: 'disconnect', label: 'Disconnect provider', danger: true, onSelect: () => void action(async signal => {
+    if (entry.route.credential.can_disconnect) options.push({ id: 'disconnect-divider', label: '', separator: true }, { id: 'disconnect', label: 'Disconnect provider', danger: true, onSelect: () => void action(async signal => {
       const result = await client.disconnectProvider({ revision, provider: entry.id }, { signal });
       await refresh();
       if (result.local_failure || result.cleanup_failure) throw new Error([result.local_failure, result.cleanup_failure].filter(Boolean).join(' '));
@@ -278,7 +277,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
         {base.revision !== revision && <p role="status">Provider settings changed. Your key is kept here. <Button disabled={busy} onClick={() => setBase({ revision, route: entry.route })}>Review current connection and keep this key</Button></p>}
         <div {...stylex.props(loginStyles.footer)}><Button variant="ghost" disabled={busy} onClick={() => leave('back')}>Back</Button><Button variant="primary" xstyle={loginStyles.submit} type="submit" disabled={!enabled || busy || !key.trim() || base.revision !== revision}>{busy ? 'Connecting…' : 'Connect'}</Button></div>
       </form> : !advanced ? <>
-        {initialConnection && managed && <div {...stylex.props(loginStyles.content)}><h3 {...stylex.props(loginStyles.title)}>How would you like to connect?</h3><p {...stylex.props(loginStyles.text)}>Sign in with your {entry.id === 'inference-net' ? 'Inference.net' : 'ChatGPT'} account{canKey ? ', or use an API key.' : '.'}</p></div>}
+        {initialConnection && managed && <div {...stylex.props(layout.column)}><h3 {...stylex.props(loginStyles.title)}>How would you like to connect?</h3><p {...stylex.props(loginStyles.text)}>Sign in with your {entry.id === 'inference-net' ? 'Inference.net' : 'ChatGPT'} account{canKey ? ', or use an API key.' : '.'}</p></div>}
         {!initialConnection && <div {...stylex.props(styles.account)}><div {...stylex.props(styles.nameLine)}><Badge tone={entry.route?.disabled ? 'neutral' : locallyAvailable(entry) ? 'success' : 'warning'}>{entry.route?.disabled ? 'Disabled on this host' : locallyAvailable(entry) ? 'Connected' : stateLabel(entry)}</Badge></div>
           <dl {...stylex.props(styles.metadata)}>
             {sourceLabel(entry) && <><dt {...stylex.props(styles.description)}>Connection method</dt><dd {...stylex.props(styles.value)}>{sourceLabel(entry)}</dd></>}
@@ -289,10 +288,11 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
         </div>}
         {entry.route?.disabled && <p {...stylex.props(styles.description)}>Your credentials are unchanged. Enable this provider to use its existing connection again.</p>}
         {entry.route?.credential.source === 'env' && <p {...stylex.props(styles.description)}><code>{entry.route.credential.environment}</code> is read from this host’s environment. To disconnect, remove the key from the host’s environment and restart the host.</p>}
+        {entry.route?.credential.source === 'file' && !entry.route.credential.can_disconnect && <p {...stylex.props(styles.description)}>This key file is managed outside Whip. Remove the key at its source, or disable this provider on this host.</p>}
         {entry.route?.credential.source === 'command' && <p {...stylex.props(styles.description)}>The host runs your configured credential command when it needs a key. Opening this page does not run the command.</p>}
         {entry.id === 'openai-codex' && <p {...stylex.props(styles.description)}>Uses your ChatGPT account’s Codex access. Enable device code authorization in ChatGPT Security settings before signing in. Subscription usage is separate from API billing.</p>}
         <ErrorNotice type="resource" owner={`${entry.id}:account`} title="Account needs attention" error={account.error || account.data?.value.failure} />
-        {initialConnection ? <div {...stylex.props(loginStyles.content)}>
+        {initialConnection ? <div {...stylex.props(layout.column)}>
           {managed && <Button variant="primary" xstyle={loginStyles.full} disabled={!enabled || busy} onClick={start}>{entry.id === 'inference-net' ? 'Sign in with Inference.net' : 'Sign in'}</Button>}
           {canKey && <Button xstyle={loginStyles.full} disabled={!enabled || busy} onClick={editKey}>Use an API key</Button>}
           {detected && <Button xstyle={loginStyles.full} disabled={!enabled || busy} onClick={useDetected}>Use detected credentials</Button>}
@@ -345,5 +345,5 @@ const styles = stylex.create({
   metadata: { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', columnGap: scale.space4, rowGap: scale.space3, margin: 0, alignItems: 'baseline' },
   value: { margin: 0, overflowWrap: 'anywhere' },
   actionButton: { maxWidth: '100%', whiteSpace: 'normal' },
-  accountFooter: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: scale.space2, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, paddingTop: scale.space4 },
+  accountFooter: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: scale.space2, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, paddingTop: scale.space4 },
 });

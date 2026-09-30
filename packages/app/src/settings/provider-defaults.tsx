@@ -15,8 +15,12 @@ import { useSettingsEdits } from './unsaved';
 /** The reference Providers category has one draft and one atomic Save. */
 export function ProviderDefaultsSettings({ client, enabled }: { client: Client; enabled: boolean }) {
   const inventory = useQuery({ queryKey: ['provider-list', client.runtimeID], queryFn: ({ signal }) => client.listProviders({ signal }), enabled });
+  const owner = `${client.runtimeID}:${client.processEpoch}`;
+  const previous = useRef<{ owner: string; current: ProviderInventory } | undefined>(undefined);
+  if (inventory.data) previous.current = { owner, current: inventory.data };
+  const current = inventory.data ?? (previous.current?.owner === owner ? previous.current.current : undefined);
   return <><ErrorNotice type="resource" owner={`${client.runtimeID}:defaults`} title="Could not load model defaults" error={inventory.error} />
-    {inventory.data && <ProviderDefaultsForm key={client.runtimeID} client={client} enabled={enabled} current={inventory.data} />}</>;
+    {current && <ProviderDefaultsForm key={owner} client={client} enabled={enabled && !!inventory.data} current={current} />}</>;
 }
 function ProviderDefaultsForm({ client, enabled, current }: { client: Client; enabled: boolean; current: ProviderInventory }) {
   const runtime = useRuntime();
@@ -55,7 +59,7 @@ function ProviderDefaultsForm({ client, enabled, current }: { client: Client; en
       <SettingRow id="default_model" label="Default model" description="Choose the model and provider for new work.">
         <CatalogModelPicker label="Default model" settings model={selection?.name ?? ''} provider={selection?.provider ?? ''} catalog={catalog.data}
           loading={catalog.isPending} error={enabled ? catalog.error?.message : undefined} disabled={!enabled || busy} xstyle={settingsSection.control}
-          onChange={(name, provider) => setSelection({ ...selection, name, provider, effort: '' })} />
+          onChange={(name, provider) => setSelection({ name, provider, effort: modelEfforts(catalogModels(catalog.data, provider), name).includes(effort) ? selection?.effort ?? '' : '' })} />
       </SettingRow>
       <SettingRow id="default_effort" label="Reasoning effort" description="Available levels depend on the selected model and provider.">
         <Select label="Reasoning effort" value={effort} disabled={!enabled || busy || !selection} xstyle={settingsSection.control}

@@ -56,6 +56,7 @@ function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolea
           result = { candidates: options.globalSkills ? [{ text: '$global-fixture', description: 'Host-global fixture skill' }] : [], truncated: false }; break;
         case 'accounts.inference.list': case 'accounts.openai.list': result = { items: [] }; break;
         case 'trees.catalog': result = { revision: '1' }; break;
+        case 'trees.recent': result = { catalog_revision: '1', items: [], has_more: false }; break;
         case 'trees.list': result = { revision: '1', items: [], next_cursor: null }; break;
         default:
           unexpected.push(request.method);

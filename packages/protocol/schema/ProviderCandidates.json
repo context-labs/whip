@@ -17,14 +17,9 @@
           "source": {
             "type": "string",
             "enum": [
-              "env",
               "inference-net",
               "openai-codex"
             ]
-          },
-          "environment": {
-            "type": "string",
-            "maxLength": 256
           },
           "credential_state": {
             "type": "string",
@@ -37,7 +32,6 @@
         "required": [
           "provider",
           "source",
-          "environment",
           "credential_state"
         ],
         "additionalProperties": false

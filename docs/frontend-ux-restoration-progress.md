@@ -1,7 +1,16 @@
 # Frontend UX restoration implementation record
 
-Status: in progress. This is not a claim of complete UX parity or release acceptance.
+> **Later audit correction (2026-09-29):** the increments below were implemented
+> and tested within their recorded scopes, but the overall parity completion
+> claim was too broad. The [desktop/web inventory](frontend-desktop-web-parity-inventory.md)
+> records remaining differences and the user's inventory-first, case-by-case
+> planning direction. Preserve the evidence; do not infer complete UX equivalence.
+
+Status: restoration implementation complete; final local acceptance and explicit
+limits are recorded in the [acceptance index](frontend-ux-restoration-acceptance.md).
 The [approved plan](frontend-ux-restoration-plan.md) defines scope and A1–A12.
+Entries below preserve each checkpoint’s state; later entries supersede earlier
+remaining-work notes. This is not merge or release approval.
 
 ## Reference and authority
 
@@ -206,14 +215,185 @@ history-confirmation checks pass (77 tests); app types pass. The REPL leaf tests
 verify the same article and selected code through partial ID/commit/cell/result,
 persisted expansion, failed reseed and imported output. Comparative browser runs
 are in progress. Inspection also found an immediate source-eviction body-retention
-hole; that bounded SDK follow-up is being fixed before final acceptance.
+hole; the bounded SDK fix is recorded in increment 10.
 
 Projects/polish is draft [#295](https://github.com/context-labs/whip/pull/295).
 
-## Remaining work
+## Increment 10 — integration and comparative acceptance
 
-Backend/provider/settings/terminal and durable presentation prerequisites are
-being implemented in isolated branches. SDK bindings, restored ordinary forms,
-activity/REPL presentation, response actions and latest reference polish follow.
-A1–A12 comparative browser and desktop acceptance is still outstanding, including
-the previously open NATIVE findings; unit tests alone do not close those gates.
+The isolated combined acceptance branch stacks on draft
+[#297](https://github.com/context-labs/whip/pull/297). Browser comparison exposed
+and corrected an actual Projects virtualizer render loop, same-host settings
+draft loss during reconnect, narrow provider action clipping, a transient REPL
+engine-label change, and conversation unmounting during host/client recovery.
+ExecutionView now retains shared immutable bodies within its existing byte
+budget when the transcript moves away. Custom provider lifecycle controls and
+unavailable-provider filtering are restored.
+
+Idle response Rewind exposed a backend/UI mismatch: the original native guard
+required a stopped lifecycle even with no work. Rewind now checks active turns
+and uncancelled input atomically with its existing revision/tail/boundary guards.
+It leaves lifecycle alone. New concurrent-admission and active/queued refusal
+regressions, both-engine kernel reset cases, and RPC/history race checks pass.
+A later submission captures the new revision; exact retry cannot retire later
+work or reset its kernel. No stop/restart sequence or mutation replay was added.
+
+Current combined evidence:
+
+- Renderer: final combined 1,480 tests across 117 files pass, with app types
+  and the production build. Recovery/handover, exact decisions and explicit
+  read-only history retry regressions are included.
+- SDK: all 223 tests, source/test types and packed consumer/browser/native smoke
+  pass. Protocol: 18 interop tests and generator drift pass.
+- Native CLI/TUI/ACP: the complete `check:native-cli` gate passes, including real
+  compiled clients and `go vet`. Agent example: 18 acceptance tests; browser/Node
+  client example smoke and types pass.
+- Mobile: types, all 226 UI cases across the main and sandbox-enabled storage
+  rerun, six real-backend cases, two fixture cases, both platform bundles and
+  all 21 Expo doctor checks pass.
+- Native backend: full store race suite passes. Full runtime race suite found
+  three provider-work package boundary violations; all other runtime cases pass.
+  Boundary corrections now pass the unchanged architecture gate and affected
+  account/provider/configuration/RPC race checks. Model/runner/providerhost/
+  hostview/terminal/protocol/RPC race suites pass. Idle-rewind follow-up races
+  pass; independent review found no correctness issue.
+- A1/A2/A3/A11: reference and native Chromium/Firefox comparison passes. See
+  `apps/web/scripts/frontend-migration-parity.md` for exact scenario coverage;
+  focused fault tests supplement it.
+- A5/A6: approved reference five comparison groups and combined native eleven
+  fault/lifecycle/form groups pass in each browser. Both form drafts survive
+  real pre-publication socket loss; accepted-but-lost replies never replay or
+  falsely claim confirmation. Kimi's real 1,048,576 output setting is verified.
+- A7: native activity, ordered Markdown, durable reasoning, child work and
+  original 12px reading-intent assertions pass across Chromium/Firefox.
+  One Firefox status-label timeout after theme reload was retained; a repeat
+  with bounded response-identity evidence passes. No speculative product fix.
+- Packaged desktop: package verification, native browser/daemon discovery,
+  onboarding, ordinary and failed-turn workspace, terminal, and editor IPC
+  all pass using an isolated unsigned bundle. These runs use renderer
+  `0d021161ba140a68cdf755e7860a3d3efc90e849b1013d864af066b318afead8`;
+  final refresh follows the remaining shared-renderer changes.
+
+The original development HEAD and all 14 captured file hashes are unchanged.
+No installed runtime, deployment, merge, signing or notarization occurred.
+
+## Increment 11 — final reading and decision recovery
+
+The exact cached-child/Back failure came from delayed execution evidence changing
+an existing execute row into a differently identified activity row. Keeping its
+canonical display ID fixes the original 20-switch/Forward criterion within 2px.
+Projects captured a null anchor from the virtualizer's previous visible range;
+using the existing complete bounded row offsets fixes actual scrolled recency
+reorder, retaining the same row and the original 2px assertion.
+
+Approval and question cards now retain exact attempted decisions across query
+cache eviction and same-owner client replacement. Authored question drafts are
+bounded to the four displayed cards. Lost replies require explicit read-check or
+retry of the original decision. Actual pre/post-publication socket faults pass
+in Chromium and Firefox. No broader permission authority was introduced.
+
+A failed observation also disabled an otherwise valid explicit history read.
+History paging now requires the current attached client and SDK-owned captured
+revision; mutations still require live observation. The regression fails before
+and passes after. Both browsers pass held/failed older-page recovery over 10,000
+real messages with DOM/selection/draft/anchor retention and canonical Latest.
+
+Final renderer is `a78d2ad301fe33eb545ff565b51b363fccb8aa68dbc9d6e28442c8ad3536c2ce`.
+Final A4 and A5/A6 fault suites, all six retained settings suites, actual response
+history actions, queue/turn-outcome/content checks and the refreshed unsigned
+packaged-desktop lifecycle checks pass. The desktop bundle is retained under
+`/private/tmp/whip-ux-desktop-final-acceptance`. The repeatable browser fault task
+is `check:product-ux-restoration`; the acceptance index records checkpoint-specific
+browser, source, native runtime and package identities.
+
+Fixture ports preserve product assertions: tab actions use reference context
+menus, Projects selectors include both host and session, stable display IDs
+replace retired prefixes, and hover/wheel tests use actual reference interactions.
+Observer checkpoint `fde8bd220` was reused, not recreated. Connection diagnostics
+retain bounded active/recent samples and exact aggregate counts; the transport's
+per-RPC sockets are not mistaken for multiple active session observers.
+
+The final [acceptance index](frontend-ux-restoration-acceptance.md) records the
+remaining parity limits and unattributed historical/intermittent test findings.
+Broader old Remember scopes remain a product decision; missing old reasoning
+cannot be reconstructed. The original development HEAD and all 14 overlay file
+hashes remain unchanged. No installed runtime, merge, deployment, signing or
+notarization was changed.
+
+## Increment 12 — provider onboarding decisions
+
+Implementation commit: `32157959b`.
+
+User review approved automatic host-startup import of supported environment
+providers while retaining explicit provider selection. Existing routes, including
+disabled routes, win; import stores environment variable names and does not choose
+a model default. The obsolete environment-candidate activation contract and its
+SDK/UI paths are removed; saved account candidates remain explicit.
+
+Selecting or completing connection to a canonical known provider applies its
+preset model and effort and opens the composer. Unknown presets/custom endpoints
+open the composer with a persistent provider-only draft; model selection stays
+in the composer and sending waits for a model. The onboarding model-confirmation
+panel and the Draft before connecting bypass/state are removed. Current
+credential status copy and source badges are accepted for now.
+
+Focused checks: 168 provider/onboarding/model/tab tests passed after the selection
+change; the later bypass removal passed all 58 affected welcome/sidebar/skill
+tests. App type checking and production builds passed. Provider/settings checks
+passed 12 groups in each of Chromium and Firefox at renderer
+`8c64f09ddbce2cd987fed41ded4653bc0e2dbcd30d993406bc03271673e4a98e`.
+The bypass removal then passed 14 native slash/composer groups in Chromium at
+renderer `228ea6fd74d294c624affd01a6e6dfa955216e7027f0e415359ce37be0dd71a7`.
+Reports are `/private/tmp/whip-provider-onboarding-browser/report.json` and
+`/private/tmp/whip-remove-draft-bypass-browser/report.json`. An initial browser
+selector failed because its model was beyond the picker's initial visible list;
+using the normal Search models control corrected the fixture. The passing
+provider report is a rerun, not the failed attempt.
+
+These checks cover the approved flows, not all desktop/web parity. No packaged
+desktop gate was rerun for this increment. UX-17 is the next approved change:
+preserve supported reasoning effort when changing the Settings default model,
+resetting to Default only when unsupported.
+
+## Increment 13 — preserve supported effort in Settings
+
+Implementation commit: `fb8e7e716`. The user approved preserving the selected
+reasoning effort when changing the Settings default model/provider, resetting
+only when the new model does not support it. The form reuses the existing
+catalog effort check and still saves model, effort and permissions atomically.
+Explicit Off is preserved when supported; session model editing is unchanged.
+
+The High and Off regression cases failed against the old unconditional reset.
+After the one-handler change, all 25 provider-default and model-selection tests,
+app type checking and the production renderer build/pack passed. Current renderer:
+`02487f5bf1ac3432d708dc2d510196f50816b28abddd4c107430ef4b2c334994`.
+The required `GOCACHE=/private/tmp/whip-env-import-go-cache task check:fast` gate
+passed before committing the unchanged backend, including the runtime suite.
+`npm run check -w @whip/protocol` passed all 18 interop tests, types and generated
+drift. The focused Settings change does not rerun or extend the earlier browser
+and packaged-desktop acceptance claims.
+
+## Increment 14 — hide unavailable Disconnect actions
+
+Implementation commit: `aed5ae24d`. The user chose to hide Disconnect for
+externally managed credentials. Provider inventory now reports
+`credential.can_disconnect` using the host authority's existing owned-key check
+and managed account source. Environment, external-file, command and
+unauthenticated routes hide Disconnect and retain Disable. Owned/shared Whip
+keys and managed accounts keep their current disconnect/cleanup flows. The host
+still checks revision, shared references and cleanup safety when acting; the
+renderer does not infer file ownership from paths.
+
+Validation: 80 focused provider/onboarding/settings tests, 223 SDK tests and SDK
+test types, app/desktop/mobile types, all 18 protocol interop tests and generated
+drift, `task check:fast`, and production renderer build/pack passed. Chromium and
+Firefox each passed all 12 native provider/settings groups, including absence
+of external Disconnect requests, untouched external key/command sources, owned
+key deletion, shared-key preservation and account cleanup. Exact renderer:
+`ee89b869ad9cfbafa09800b49a8fdbd589384702914aa5d6cca14a69668f94e6`;
+report: `/private/tmp/whip-disconnect-browser/report.json`.
+
+The SDK check exposed one retained fixture using the removed environment-candidate
+shape; it now uses the account-only candidate contract. An initial sandboxed SDK
+run could not open Unix socket fixtures; the authorized rerun passed all 223 tests.
+No new packaged-desktop or physical-device acceptance is claimed.

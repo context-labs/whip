@@ -25,7 +25,9 @@ cell ordinal, independently of opaque ID spelling. ExecutionView continues a
 partially retained turn before older turns; refresh keeps the selected older
 window. Exact call/result bodies absent from SessionView are read only for
 retained cells, deduplicated and charged to the same execution byte budget.
-The immutable `messages` field owns those bodies; disposal, history replacement
+Already-loaded bodies are retained by shared reference so independent transcript
+paging cannot erase code or output between reads. The immutable `messages` field
+owns these retained references; disposal, history replacement
 and process-epoch changes release them. Oversized or unavailable bodies are
 explicit in `unavailableMessageIDs`, without fabricating empty outputs.
 
@@ -185,8 +187,8 @@ and advance sequences. `context.snapshot` returns the same boundary fields.
 Message `group_id` and `opening_input` describe whole conversation exchanges;
 nullable execution IDs and `source` distinguish copied history from local work.
 
-To rewind, stop the session explicitly, wait for active cancellation to settle,
-and cancel any unclaimed inputs. Obtain a fresh snapshot and select zero or the
+To rewind, wait for the session to be idle, with no active turn or uncancelled
+queued inputs. Rewind does not stop the session or cancel work. Obtain a fresh snapshot and select zero or the
 last sequence of a whole terminal group. Keep the edit ID and exact request before
 sending:
 

@@ -54,7 +54,7 @@ async function scenario(engine, mode, run) {
     const tab = id => page.locator(`[id="whip-workspace-tab-${encodeURIComponent(id)}"]`);
     const contentReads = () => httpReads + frames.filter(frame => frame.method === 'content.read').length;
     const action = async (id, label) => {
-      await page.locator(`[data-workspace-tab="${id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
+      await tab(id).click({ button: 'right' });
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await page.getByRole('menu').waitFor({ state: 'hidden' });
     };

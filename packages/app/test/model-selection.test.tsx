@@ -174,3 +174,10 @@ it.each([['off', 'Off'], ['', 'Default']])('persists the selected session effort
   await waitFor(() => expect(f.count('sessions.configure')).toBe(1));
   expect(f.calls.find(call => call.method === 'sessions.configure')?.params).toMatchObject({ expected_revision: selected.config_revision, patch: { model: { effort } } });
 });
+
+
+it.each(['missing', 'unavailable', 'unchecked', 'refresh_required'] as const)('ordinary model choices use local availability evidence for %s credentials', state => {
+  const value = { ...catalog, inventory: { ...catalog.inventory, routes: catalog.inventory.routes.map(route => ({ ...route, credential: { ...route.credential, state } })) } };
+  expect(modelOptions(value).length).toBe(['unchecked', 'refresh_required'].includes(state) ? 2 : 0);
+  expect(modelSettings(value, 'openrouter', 'gpt-5.5')).not.toBeNull();
+});

@@ -38,6 +38,10 @@ try {
         await scope.getByRole('combobox', { name: label, exact: true }).click();
         await page.getByRole('option', { name: value, exact: true }).click();
       };
+      const advanced = async dialog => {
+        await dialog.getByRole('button', { name: 'Connection options', exact: true }).click();
+        await page.getByRole('menuitem', { name: 'Advanced configuration…', exact: true }).click();
+      };
       try {
         const baseURL = `http://127.0.0.1:${upstream.address().port}/v1`;
         let inventory = await client.listProviders(deadline());
@@ -58,13 +62,13 @@ try {
         await categories.getByRole('button', { name: 'Providers & models', exact: true }).click();
         await expect(page.getByRole('button', { name: 'Manage OpenRouter', exact: true })).toBeVisible();
         await expect(page.getByText('Environment', { exact: true })).toBeVisible();
-        await expect(page.getByText('Credential status is local evidence. Model access and inference have not been tested.', { exact: true })).toBeVisible();
         assert.equal(requests.length, requestStart, 'Opening Settings initiated provider discovery');
         checks.push('explicit environment route is visible; presets and opening Settings neither discover credentials nor perform provider network work');
 
         const custom = page.getByRole('button', { name: 'Manage custom', exact: true });
         await custom.focus(); await page.keyboard.press('Enter');
         const dialog = page.getByRole('dialog', { name: 'custom', exact: true });
+        await advanced(dialog);
         await select(dialog, 'Credential source', 'Paste API key');
         await dialog.getByLabel('API key', { exact: true }).fill('draft-key');
         await page.keyboard.press('Escape');
@@ -72,11 +76,12 @@ try {
         await expect(discard).toBeVisible();
         await discard.getByRole('button', { name: 'Discard credential', exact: true }).click();
         await expect(dialog).toHaveCount(0); await expect(custom).toBeFocused();
-        await custom.press('Enter'); await select(dialog, 'Credential source', 'Paste API key');
+        await custom.press('Enter'); await advanced(dialog); await select(dialog, 'Credential source', 'Paste API key');
         await expect(dialog.getByLabel('API key', { exact: true })).toHaveValue('');
         await dialog.getByLabel('API key', { exact: true }).fill('fixture-saved-key');
         await dialog.getByRole('button', { name: 'Save provider', exact: true }).click();
-        await expect(dialog.getByText('Provider saved. Your default model is unchanged.', { exact: true })).toBeVisible();
+        await expect(dialog).toHaveCount(0);
+        await expect(page.getByText('custom connected.', { exact: true })).toBeVisible();
         const saved = await client.listProviders(deadline());
         assert.deepEqual(saved.defaults, selectedDefault);
         const route = saved.routes.find(entry => entry.id === 'custom');
@@ -84,6 +89,7 @@ try {
         assert.equal((await readFile(route.credential.file, 'utf8')).trim(), 'fixture-saved-key');
         assert.ok(!JSON.stringify(saved).includes('fixture-saved-key'), 'Inventory exposed the key');
         assert.equal(requests.length, requestStart, 'Custom Save pretended to validate inference');
+        await custom.click(); await advanced(dialog);
         await dialog.getByRole('button', { name: 'Refresh model catalog', exact: true }).click();
         await expect(dialog.getByText('Catalog: catalog_response. Inference has not been tested.', { exact: true })).toBeVisible();
         assert.equal(requests.length, requestStart + 1); assert.equal(requests.at(-1).authorization, 'Bearer fixture-saved-key');
@@ -97,12 +103,12 @@ try {
         assert.ok((await client.listProviders(deadline())).routes.some(route => route.id === 'custom'), 'Removal allowed a dangling default');
         await remove.getByRole('button', { name: 'Cancel', exact: true }).click();
         await dialog.getByRole('button', { name: 'Done', exact: true }).click();
-        await page.getByRole('button', { name: 'Discard edits and load current defaults', exact: true }).click();
-        await page.getByLabel('Exact model ID', { exact: true }).fill(defaultSelection.name);
-        await page.getByLabel('Provider', { exact: true }).fill(defaultSelection.provider);
-        await page.getByRole('button', { name: 'Save model default', exact: true }).click();
-        await expect(page.getByText('Host defaults saved. Existing sessions are unchanged.', { exact: true })).toBeVisible();
-        await custom.click(); await dialog.getByRole('button', { name: 'Remove configured route', exact: true }).click();
+        await page.getByRole('button', { name: 'Default model', exact: true }).click();
+        await page.getByRole('option', { name: `${defaultSelection.name} · ${defaultSelection.provider}`, exact: true }).click();
+        await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+        await expect(page.getByText('Host defaults saved.', { exact: true })).toBeVisible();
+        assert.deepEqual((await client.listProviders(deadline())).defaults, defaultSelection);
+        await custom.click(); await advanced(dialog); await dialog.getByRole('button', { name: 'Remove configured route', exact: true }).click();
         await remove.getByRole('button', { name: 'Remove route', exact: true }).click();
         await expect(page.getByText('Provider route removed. Credential files are unchanged.', { exact: true })).toBeVisible();
         assert.equal((await readFile(route.credential.file, 'utf8')).trim(), 'fixture-saved-key');
@@ -116,18 +122,32 @@ try {
         await page.getByRole('button', { name: 'Manage OpenRouter', exact: true }).click();
         const environmentDialog = page.getByRole('dialog', { name: 'OpenRouter', exact: true });
         await expect(environmentDialog.getByText('WHIPCODE_HOME', { exact: true })).toBeVisible();
-        await expect(environmentDialog.getByRole('button', { name: /Disable on this host|Disconnect provider/ })).toHaveCount(0);
+        await environmentDialog.getByRole('button', { name: 'Connection options', exact: true }).click();
+        await page.getByRole('menuitem', { name: 'Disable on this host', exact: true }).click();
+        await expect(environmentDialog).toHaveCount(0);
+        assert.equal((await client.listProviders(deadline())).routes.find(route => route.id === 'openrouter').disabled, true);
+        await page.getByRole('button', { name: 'Manage OpenRouter', exact: true }).click();
+        await environmentDialog.getByRole('button', { name: 'Connection options', exact: true }).click();
+        await page.getByRole('menuitem', { name: 'Enable on this host', exact: true }).click();
+        await expect(environmentDialog).toHaveCount(0);
+        const enabledRoute = (await client.listProviders(deadline())).routes.find(route => route.id === 'openrouter');
+        assert.equal(enabledRoute.disabled, false); assert.equal(enabledRoute.credential.environment, 'WHIPCODE_HOME');
+        await page.getByRole('button', { name: 'Manage OpenRouter', exact: true }).click();
+        await advanced(environmentDialog);
         await environmentDialog.getByRole('button', { name: 'Remove configured route', exact: true }).click();
         await remove.getByRole('button', { name: 'Remove route', exact: true }).click();
         await page.getByRole('button', { name: 'Connect OpenRouter', exact: true }).click();
+        await expect(environmentDialog.getByLabel('API key', { exact: true })).toBeFocused();
+        await environmentDialog.getByRole('button', { name: 'Back', exact: true }).click();
+        await advanced(environmentDialog);
         await environmentDialog.getByLabel('Endpoint', { exact: true }).fill(baseURL);
         await select(environmentDialog, 'Credential source', 'Environment variable');
         await environmentDialog.getByLabel('Environment variable', { exact: true }).fill('WHIPCODE_HOME');
         await environmentDialog.getByRole('button', { name: 'Save provider', exact: true }).click();
-        await expect(environmentDialog.getByText('Provider saved. Your default model is unchanged.', { exact: true })).toBeVisible();
-        await environmentDialog.getByRole('button', { name: 'Done', exact: true }).click();
+        await expect(environmentDialog).toHaveCount(0);
+        await expect(page.getByText('OpenRouter connected.', { exact: true })).toBeVisible();
         assert.equal(requests.length, requestStart + 1, 'Environment editing initiated discovery');
-        checks.push('environment route removal/recreation is explicit and preserves its source; no misleading reversible-disable control or implicit discovery');
+        checks.push('environment route disable/enable persists reversible state without changing its source; advanced removal/recreation is explicit with no implicit discovery');
 
         for (const [label, theme, search] of [['light', 'light Light', 'light'], ['dark', 'Claude Code Dark', 'Claude']]) {
           await categories.getByRole('button', { name: 'Appearance', exact: true }).click();
@@ -149,6 +169,7 @@ try {
         await fontSize.fill('20'); await fontSize.press('Tab');
         await categories.getByRole('button', { name: 'Providers & models', exact: true }).click();
         await page.getByRole('button', { name: 'Manage OpenRouter' }).click();
+        await advanced(environmentDialog);
         await expect(environmentDialog).toHaveCSS('font-size', '20px');
         await page.setViewportSize({ width: 320, height: 640 });
         assert.equal(await environmentDialog.evaluate(element => element.scrollWidth > element.clientWidth), false, 'Provider dialog overflows at the largest text size');

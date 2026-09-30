@@ -119,8 +119,10 @@ it('shows writing code in the ordinary card flow and exact host-operation state 
   expect(screen.queryByText(/provisional|No execution cell|Incoming execute arguments/i)).toBeNull();
 });
 
-it('keeps uncertain cell metadata when exact transcript bodies are outside the window', async () => {
-  const f = await fixture(); f.state.cell.state = 'uncertain'; f.state.messages = [];
+it('keeps uncertain cell metadata when exact transcript bodies are unavailable', async () => {
+  const f = await fixture('', 'starlark', true);
+  f.state.hasCell = true; f.state.cell.state = 'uncertain'; f.state.cell.result_message_id = null;
+  f.state.turn.state = 'interrupted';
   await f.view.latest(); await f.execution.refresh(); render(f.app());
   expect(screen.getByText('Outcome uncertain')).toBeDefined();
   expect(screen.getByText('Code is unavailable in this record.')).toBeDefined();
@@ -171,6 +173,8 @@ it('keeps one selected card through partial ID, call commit, running cell and se
   f.state.hasCell = true; f.state.cell.state = 'running'; f.state.cell.finished_at = null; f.state.cell.result_message_id = null;
   await act(async () => { await f.execution.refresh(); });
   expect(screen.getByRole('article', { name: 'Execution 1' })).toBe(article); expect(selection.toString()).toBe('print(42)'); expect(screen.getByText('Running')).toBeDefined();
+  expect(screen.getByRole('region', { name: 'Cell 1 · Starlark' })).toBe(codeRegion);
+  expect(screen.getByRole('button', { name: 'Copy Starlark code' })).toBeDefined();
   f.state.cell.state = 'succeeded'; f.state.cell.result_message_id = 'message_result'; f.state.cell.finished_at = '2026-09-27T12:00:01Z';
   f.state.messages.push({ ...f.state.messages[0]!, id: 'message_result', presentation: undefined, sequence: '9007199254740994', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call_fixture', output: result(), is_error: false } }] });
   await act(async () => { await f.view.latest(); await f.execution.refresh(); });

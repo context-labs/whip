@@ -6623,8 +6623,7 @@ export interface ProviderCandidates {
    */
   items: {
     provider: string;
-    source: "env" | "inference-net" | "openai-codex";
-    environment: string;
+    source: "inference-net" | "openai-codex";
     credential_state: "available" | "refresh_required";
   }[];
 }
@@ -6707,6 +6706,7 @@ export interface ProviderDisconnectResult {
       kind: "openai-chat" | "openai-responses" | "openai-codex";
       base_url: string;
       credential: {
+        can_disconnect: boolean;
         source: "env" | "file" | "command" | "none" | "inference-net" | "openai-codex";
         state: "unavailable" | "unchecked" | "not_required" | "missing" | "available" | "refresh_required";
         environment: string;
@@ -6759,6 +6759,7 @@ export interface ProviderInventory {
     kind: "openai-chat" | "openai-responses" | "openai-codex";
     base_url: string;
     credential: {
+      can_disconnect: boolean;
       source: "env" | "file" | "command" | "none" | "inference-net" | "openai-codex";
       state: "unavailable" | "unchecked" | "not_required" | "missing" | "available" | "refresh_required";
       environment: string;
@@ -11887,8 +11888,7 @@ export interface UseBundledComputerParams {
 export interface UseProviderCandidateParams {
   revision: string;
   provider: string;
-  source: "env" | "inference-net" | "openai-codex";
-  environment: string;
+  source: "inference-net" | "openai-codex";
 }
 export interface WorkspaceAction {
   id: string;
