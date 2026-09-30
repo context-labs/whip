@@ -1223,8 +1223,32 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 
 // finalAnswer makes one last completion with tools disabled, so a run that hit
 // the tool-turn cap still returns the model's best answer instead of an error.
-// A system nudge tells the model to stop calling tools and answer now.
+// The capped answer goes through the same final-message check the loop runs
+// on a no-tools reply: a definition's output contract is a property of the
+// turn, not of how it ended. One correction round is allowed, as in the loop;
+// a second miss fails the turn.
 func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
+	text, err := a.cappedAnswer(ctx, ev)
+	if err != nil || ev.CheckFinal == nil {
+		return text, err
+	}
+	retry, err := ev.CheckFinal(text)
+	if err != nil || !retry {
+		return text, err
+	}
+	if text, err = a.cappedAnswer(ctx, ev); err != nil {
+		return text, err
+	}
+	if _, err := ev.CheckFinal(text); err != nil {
+		return "", err
+	}
+	return text, nil
+}
+
+// cappedAnswer is one tools-disabled completion. A system nudge tells the
+// model to stop calling tools and answer now; the turn's ephemeral notices
+// (an output-contract correction among them) ride along as usual.
+func (a *Agent) cappedAnswer(ctx context.Context, ev Events) (string, error) {
 	msgs := append(slices.Clone(withEphemeralSystem(a.Messages, ev.ephemeral())),
 		llm.Message{Role: "system", Content: "You have reached the tool-call limit. Do NOT request any more tools. Give your final answer now using only what you have already gathered."})
 	client := *a.Client
