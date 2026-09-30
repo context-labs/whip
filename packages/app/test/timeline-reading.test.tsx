@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
@@ -783,3 +784,108 @@ it.each(['ctrl-wheel', 'prevented-wheel', 'pinch', 'prevented-touch'] as const)(
     expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull();
   },
 );
+
+function responseFixture(overrides: Partial<React.ComponentProps<typeof Timeline>> = {}) {
+  const f = fixture();
+  const action = vi.fn();
+  const answer = '**First paragraph.**\n\nSecond paragraph with *emphasis*.';
+  const visible: TimelineRow[] = [
+    { id: 'prompt', seq: 1, role: 'user', text: 'Start' },
+    { id: 'answer', seq: 2, role: 'assistant', text: answer, sentAt: '2026-09-27T20:00:00Z' },
+    { id: 'next', seq: 3, role: 'user', text: 'Next' },
+  ];
+  const app = (props = overrides) => <RuntimeContext.Provider value={f.runtime}><UIProvider>
+    <Timeline rows={visible} hasMore={false} loadOlder={f.loadOlder} readBody={() => {}} historyThroughSeq={3} responseHistoryAction={action} {...props} />
+  </UIProvider></RuntimeContext.Provider>;
+  return { ...f, action, answer, visible, app };
+}
+
+it('renders one menu/copy/time footer after the final Markdown block with a shared hover owner', async () => {
+  const f = responseFixture();
+  const mounted = render(f.app());
+  const footer = mounted.container.querySelector<HTMLElement>('[data-response-actions]')!;
+  expect(mounted.container.querySelectorAll('[data-response-actions]')).toHaveLength(1);
+  expect(Array.from(footer.querySelectorAll('button, time'), item =>
+    item.tagName === 'TIME' ? 'time' : item.getAttribute('aria-label'),
+  )).toEqual(['Response history actions', 'Copy response', 'time']);
+  expect(mounted.container.querySelectorAll('[data-message-role="assistant"]')).toHaveLength(2);
+  expect(footer.closest('[data-response-end]')?.textContent).toContain('Second paragraph');
+  expect(footer.closest('[data-response-end]')?.textContent).not.toContain('First paragraph');
+  expect(footer.querySelector('time')?.getAttribute('datetime')).toBe('2026-09-27T20:00:00Z');
+  expect(footer.querySelector('time')?.getAttribute('aria-label')).toBe(new Date('2026-09-27T20:00:00Z').toLocaleString());
+  await act(async () => fireEvent.click(within(footer).getByRole('button', { name: 'Copy response' })));
+  expect(f.runtime.platform.copy).toHaveBeenCalledWith(f.answer);
+  expect(within(footer).getByRole('button', { name: 'Copied' })).toBeTruthy();
+  const trigger = within(footer).getByRole('button', { name: 'Response history actions' });
+  act(() => trigger.focus());
+  fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  await act(async () => vi.advanceTimersByTime(100));
+  expect(screen.getByRole('menuitem', { name: 'Fork from here' })).toBeTruthy();
+  expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+  await act(async () => vi.advanceTimersByTime(100));
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Fork from here' }));
+  expect(f.action).toHaveBeenCalledWith(2, 'fork');
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Rewind to here…' }));
+  expect(f.action).toHaveBeenCalledWith(2, 'rewind');
+});
+
+it('shows clipboard failures only beside the response and permits retry', async () => {
+  const f = responseFixture();
+  vi.mocked(f.runtime.platform.copy).mockRejectedValueOnce(new Error('Clipboard denied')).mockResolvedValueOnce(undefined);
+  const mounted = render(f.app());
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Copy response' })));
+  const footer = mounted.container.querySelector('[data-response-actions]')!;
+  expect(footer.querySelector('[data-error-type="action"]')?.textContent).toContain('Clipboard denied');
+  expect(f.report).not.toHaveBeenCalled();
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Could not copy. Try again.' })));
+  expect(footer.querySelector('[data-error-type="action"]')).toBeNull();
+});
+
+it('keeps one footer after expanded activity details and disables active/latest rewind', () => {
+  const f = responseFixture();
+  const activity = { id: 'activity', seq: 3, role: 'activity', text: '', cells: [], memberIds: ['thought'], memberSeqs: [3, 4],
+    items: [{ id: 'thought', kind: 'reasoning' as const, row: { id: 'thought', seq: 3, role: 'reasoning', text: 'Reasoning, not copied.' } }] };
+  const visible = [...f.visible.slice(0, -1), activity];
+  const mounted = render(f.app({ rows: visible, historyThroughSeq: 4 }));
+  fireEvent.click(screen.getByRole('button', { name: 'Thought' }));
+  expect(mounted.container.querySelectorAll('[data-response-actions]')).toHaveLength(1);
+  fireEvent.click(screen.getAllByRole('button', { name: /Thought/ }).at(-1)!);
+  expect(mounted.container.querySelector('[data-response-actions]')?.closest('[data-response-end]')?.textContent).toContain('Reasoning');
+  fireEvent.click(screen.getByRole('button', { name: 'Response history actions' }));
+  expect(screen.getByRole('menuitem', { name: 'Rewind to here…' }).getAttribute('aria-disabled')).toBe('true');
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Fork from here' }));
+  expect(f.action).toHaveBeenCalledWith(4, 'fork');
+  mounted.rerender(f.app({ active: true, rewindDisabled: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Response history actions' }));
+  expect(screen.getByRole('menuitem', { name: 'Rewind to here…' }).getAttribute('aria-disabled')).toBe('true');
+});
+
+it('omits dead menus offline, in child transcripts, and for uncertain boundaries, but keeps copy/date', () => {
+  const f = responseFixture();
+  const mounted = render(f.app({ connected: false }));
+  for (const props of [{ connected: false }, { responseHistoryAction: undefined }, { hasMore: true, rows: f.visible.slice(1) }, { historyReady: false }]) {
+    mounted.rerender(f.app(props));
+    expect(screen.queryByRole('button', { name: 'Response history actions' })).toBeNull();
+    expect(screen.getByRole('button', { name: /Copy (visible )?response/ })).toBeTruthy();
+  }
+  mounted.rerender(f.app({ rows: [f.visible[1]!], historyThroughSeq: undefined }));
+  expect(screen.queryByRole('button', { name: 'Response history actions' })).toBeNull();
+});
+
+it('allows image-only response date/history with no empty copy and omits invalid old times', () => {
+  const f = responseFixture();
+  const image = { ...f.visible[1]!, text: '', images: [{ url: 'data:image/png;base64,AAAA' }] };
+  const mounted = render(f.app({ rows: [image], historyThroughSeq: 2 }));
+  expect(screen.queryByRole('button', { name: 'Copy response' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Response history actions' })).toBeTruthy();
+  expect(mounted.container.querySelector('[data-response-actions] time')).toBeTruthy();
+  mounted.rerender(f.app({ rows: [{ ...f.visible[1]!, sentAt: 'invalid' }], historyThroughSeq: 2 }));
+  expect(mounted.container.querySelector('[data-response-actions] time')).toBeNull();
+  mounted.rerender(f.app({ rows: [{ ...f.visible[1]!, live: true }], active: true }));
+  expect(mounted.container.querySelector('[data-response-actions]')).toBeNull();
+});

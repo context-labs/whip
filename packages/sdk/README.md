@@ -15,9 +15,11 @@ the daemon and clients together; older majors fail during initialization.
 
 ## Install and check in this repository
 
+Use Node 24, the Go toolchain in `go.mod`, and Task from the repository root:
+
 ```sh
 npm ci
-npm run build
+task generate
 npm run check
 npm run acceptance
 npm run test:package
@@ -28,6 +30,14 @@ validators. `@whip/sdk` is browser-safe; `/node` adds Unix sockets, `/state` add
 optional synchronized views, and `/react` adds optional React subscriptions.
 Core and state do not import React or Node built-ins. React consumers supply
 React 19. Both packages remain private; package-archive installation is tested.
+
+`task generate` creates the ignored protocol schemas and generated code from Go,
+then builds the SDK. Rerun it after pulling, switching branches, or editing
+protocol definitions/generators; rerun `npm ci` first when dependencies change.
+For SDK-only source edits, `npm run build` recompiles the SDK. Ordinary builds do
+not generate the protocol; freshness checks reject stale or missing artifacts.
+Prepared package archives include the JavaScript and declarations consumers need
+and work without Go or install scripts.
 
 ## Attach and submit
 
@@ -741,10 +751,9 @@ Host/Origin checks remain exact, not authentication; remote access requires a
 trusted network or authenticated proxy. The whipcode distribution uses
 `WHIPCODE_*`. See [web setup](../../docs/web-app.md).
 
-Start the example with:
+After initializing the workspace above, start the example with:
 
 ```sh
-npm run build
 npm start -w @whip/client-example
 ```
 

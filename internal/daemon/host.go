@@ -37,6 +37,12 @@ func (s *Server) handleHost(ctx context.Context, request rpcMessage) (any, *RPCE
 			return nil, rpcFailure(-32602, err.Error()), true
 		}
 		result, err = hostDirectories(ctx, p)
+	case "host.directory.create":
+		var p protocol.HostDirectoryCreateParams
+		if err := decodeProviderParams(request.Params, &p); err != nil {
+			return nil, rpcFailure(-32602, "invalid directory creation parameters"), true
+		}
+		result, err = hostDirectoryCreate(ctx, p)
 	case "host.directory.pick":
 		var p protocol.HostDirectoryPickParams
 		if err := decodeProviderParams(request.Params, &p); err != nil {
@@ -172,6 +178,33 @@ func hostDirectories(ctx context.Context, p protocol.HostDirectoryParams) (proto
 	if result.HasMore && len(result.Entries) > 0 {
 		result.NextAfter = result.Entries[len(result.Entries)-1].Name
 	}
+	return result, nil
+}
+
+func hostDirectoryCreate(ctx context.Context, p protocol.HostDirectoryCreateParams) (protocol.HostDirectoryCreateResult, error) {
+	result := protocol.HostDirectoryCreateResult{}
+	if len(p.Parent) > 4096 || strings.ContainsRune(p.Parent, 0) || !filepath.IsAbs(p.Parent) {
+		return result, rpcFailure(-32602, "parent must be an absolute directory path of at most 4096 bytes")
+	}
+	if strings.TrimSpace(p.Name) == "" || len(p.Name) > 255 || p.Name == "." || p.Name == ".." ||
+		strings.ContainsAny(p.Name, "/\\\x00") || !filepath.IsLocal(p.Name) {
+		return result, rpcFailure(-32602, "folder name must be one nonblank component of at most 255 bytes, without separators, NUL, dot or dot-dot")
+	}
+	// Windows otherwise normalizes trailing dots/spaces and accepts alternate streams.
+	if runtime.GOOS == "windows" && (strings.ContainsAny(p.Name, `<>:"|?*`) ||
+		strings.HasSuffix(p.Name, ".") || strings.HasSuffix(p.Name, " ") ||
+		strings.ContainsFunc(p.Name, func(r rune) bool { return r < 32 })) {
+		return result, rpcFailure(-32602, "folder name contains characters or aliases that are invalid on Windows")
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	path := filepath.Join(p.Parent, p.Name)
+	// The trusted host picker intentionally creates only one user-requested directory.
+	if err := os.Mkdir(path, 0o700); err != nil {
+		return result, fmt.Errorf("create folder: %w", err)
+	}
+	result.Path = path
 	return result, nil
 }
 

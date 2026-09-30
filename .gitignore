@@ -12,7 +12,9 @@
 driver/.build/
 internal/tui/whip-transcript-*.md
 
-# TypeScript clients: generated contracts are tracked, build output is not.
+# Protocol artifacts and client build output are prepared with task generate.
+/packages/protocol/schema/
+/packages/protocol/generated/
 node_modules/
 packages/sdk/dist/
 packages/sdk/build/

@@ -91,7 +91,7 @@ func TestDirectPermissionControlsStayRootScoped(t *testing.T) {
 	_, err = dispatcher.Dispatch(t.Context(), capability.Request{
 		RootID: rootID, AgentID: root.AgentID(), CapabilityID: root.authority.Files.ID,
 		CapabilityGeneration: root.authority.Files.Generation, OperationID: "direct-permission", Operation: "write",
-		Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+		Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 	})
 	var pending *capability.PermissionPendingError
 	if !errors.As(err, &pending) {
@@ -141,7 +141,7 @@ func TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes(t *testing.T) {
 			RootID: rootID, AgentID: root.AgentID(), CapabilityID: root.authority.Shell.ID,
 			CapabilityGeneration: root.authority.Shell.Generation, WriterCapabilityID: root.authority.Files.ID,
 			WriterCapabilityGeneration: root.authority.Files.Generation, OperationID: operationID, Operation: "bash",
-			Arguments: json.RawMessage(`{"command":"` + command + `"}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+			Arguments: json.RawMessage(`{"command":"` + command + `"}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 		})
 		return response.Output, err
 	}
@@ -255,7 +255,7 @@ func TestPermissionRuleInExternalModeSkipsThePrimaryPrompt(t *testing.T) {
 			RootID: rootID, AgentID: root.AgentID(), CapabilityID: root.authority.Shell.ID,
 			CapabilityGeneration: root.authority.Shell.Generation, WriterCapabilityID: root.authority.Files.ID,
 			WriterCapabilityGeneration: root.authority.Files.Generation, OperationID: operationID, Operation: "bash",
-			Arguments: json.RawMessage(`{"command":"` + command + `"}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+			Arguments: json.RawMessage(`{"command":"` + command + `"}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 		})
 		var pending *capability.PermissionPendingError
 		if !errors.As(err, &pending) {

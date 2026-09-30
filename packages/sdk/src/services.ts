@@ -1,14 +1,19 @@
-import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type MCPBrandIconsParams, type MCPImportApplyParams, type MCPImportCandidatesParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/protocol';
+import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryCreateParams, type HostDirectoryParams, type HostDirectoryPickParams, type MCPBrandIconsParams, type MCPImportApplyParams, type MCPImportCandidatesParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { WhipError } from './errors.js';
 
-/** Host reads do not construct session actors or change client preferences. */
+/** Host services do not construct session actors or change client preferences. */
 export class Host {
   constructor(private readonly client: WhipClient) {}
   directories(params: Partial<HostDirectoryParams> = {}, options: CallOptions = {}) {
     return this.client.call('host.directories.list', { limit: 64, ...params }, options);
   }
+  /** Creates one folder without starting a session or retrying the mutation. */
+  createDirectory(params: HostDirectoryCreateParams, options: CallOptions = {}) {
+    return this.client.call('host.directory.create', params, options);
+  }
+
   /** Opens the OS folder chooser on the execution host; rejects where the host has no desktop picker. */
   pickDirectory(params: HostDirectoryPickParams = {}, options: CallOptions = {}) {
     return this.client.call('host.directory.pick', params, options);

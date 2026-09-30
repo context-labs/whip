@@ -14,7 +14,7 @@ func (s *Session) SnapshotView(ctx context.Context) (session.RootSnapshot, error
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (session.RootSnapshot, error) {
 		s.questions.mu.Lock()
 		defer s.questions.mu.Unlock()
-		snapshot, err := s.store.SnapshotRootView(actorCtx, s.meta.ID, session.SnapshotViewOptions{RecentMessages: 64, CollectionLimit: 128, MaxBytes: 384 << 10})
+		snapshot, err := s.store.SnapshotRootView(actorCtx, s.id, session.SnapshotViewOptions{RecentMessages: 64, CollectionLimit: 128, MaxBytes: 384 << 10})
 		if err != nil {
 			return snapshot, err
 		}

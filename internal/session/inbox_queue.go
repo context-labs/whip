@@ -70,6 +70,7 @@ func inboxPreviewJSON(item InboxEnqueue) []byte {
 			preview.Attachments = append(preview.Attachments, file)
 		}
 	}
+	preview.Text = strings.TrimSpace(preview.Text)
 	preview.Truncated = len(preview.Text) > 2048 || preview.AttachmentCount > len(preview.Attachments)
 	preview.Text = boundedUTF8(preview.Text, 2048)
 	body, _ := json.Marshal(preview)

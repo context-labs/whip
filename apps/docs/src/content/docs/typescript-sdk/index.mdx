@@ -12,12 +12,14 @@ Use the SDK to run tasks, observe sessions, or serve agents with your own tools.
 
 `@whip/sdk` is currently a private ESM workspace package in the [whip repository](https://github.com/context-labs/whip/tree/main/packages/sdk). It is not a public npm package. Use Node.js 24 and a matching whip daemon; keep the SDK and host versions together.
 
-From a source checkout:
+From a source checkout, install the Go toolchain specified in `go.mod` and [Task](https://taskfile.dev/), then run:
 
 ```bash
 npm ci
-npm run build -w @whip/sdk
+task generate
 ```
+
+`task generate` creates the protocol artifacts from Go and builds the SDK. These outputs are ignored by Git. Rerun it after pulling, switching branches, or changing protocol source; rerun `npm ci` first when dependencies change.
 
 Place the `.mts` examples below in the checkout so Node can resolve its workspace packages. Node 24 runs these examples directly; for example, `node run.mts`.
 

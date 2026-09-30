@@ -39,9 +39,18 @@ Or build the packaged CLI from source with Go 1.27+, Node 24, and Task:
 git clone --branch main https://github.com/context-labs/whip.git
 cd whip
 npm ci
+task generate    # protocol artifacts and SDK used by the app
 task build       # ./whipcode, including the embedded renderer/native helper
 task install     # install into GOBIN or GOPATH/bin
 ```
+
+`task generate` prepares the client workspace from the authored Go protocol
+definitions. Its schemas, manifest, test fixtures, validators and declarations
+are generated locally and ignored by Git. Run it again after pulling, switching
+branches, or editing protocol definitions/generators; run `npm ci` first when npm
+dependencies change. Ordinary builds use those prepared artifacts. Validation
+and packaging reject missing or stale protocol output with refresh instructions.
+The independent docs site does not need this generation step or Go.
 
 On macOS, the native helper also requires Xcode command-line tools. Bare
 `go install .../cmd/whip@latest` is not the supported product build: it names the
@@ -281,8 +290,9 @@ npm run update:local
 ```
 
 This updates the existing `/Applications/Whip.app` and its saved `whipcode`
-executable (falling back to `/usr/local/bin/whipcode`). It runs `npm ci`, builds
-the web UI, Swift helper, Go backend and desktop app from the **current working
+executable (falling back to `/usr/local/bin/whipcode`). It runs `npm ci`, generates
+the protocol artifacts and SDK, then builds the web UI, Swift helper, Go backend
+and desktop app from the **current working
 tree, including uncommitted changes**, then signs and verifies the package.
 It does not pull Git changes. Run `git pull` yourself first if desired.
 Signing failures stop packaging immediately and report the signer error, before
@@ -394,4 +404,3 @@ docker stop <container-name>
 Run `task test:onboarding-docker` for the launcher and renderer provenance tests.
 Container source metadata is explicitly marked local; release builds retain their
 normal Git provenance checks and reject artifacts using that local override.
-

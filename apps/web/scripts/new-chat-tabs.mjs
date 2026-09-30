@@ -109,8 +109,9 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await command('Reopen closed tab'); await ready();
     assert.equal(id(), second); assert.equal(await draft().inputValue(), 'Second independent unsent task.');
     checks.push('closing and reopening a draft preserves identity and text');
-    await tabRow(second).getByRole('button', { name: 'Tab actions for New Chat', exact: true }).click();
+    await tabRow(second).getByRole('tab').click({ button: 'right' });
     assert.equal(await page.getByRole('menuitem', { name: 'Copy session link', exact: true }).count(), 0);
+    assert.deepEqual((await page.getByRole('menuitem').allTextContents()).slice(-3), ['Close tab', 'Close other tabs', 'Close tabs to the right']);
     await page.getByRole('menuitem', { name: 'Move to split right', exact: true }).click();
     await eventually(async () => (await draft().count()) === 2);
     await page.screenshot({ path: join(directory, `${name}-split.png`) });

@@ -315,6 +315,138 @@ func TestHostReadsDoNotOpenRootsAndQuestionsDisappear(t *testing.T) {
 	}
 }
 
+func TestHostDirectoryCreateRPC(t *testing.T) {
+	parent := t.TempDir()
+	// A server without a daemon or session proves host creation needs neither.
+	server := &Server{}
+	listParams, err := json.Marshal(protocol.HostDirectoryParams{Path: parent, Limit: 64, ShowHidden: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"project", ".hidden", " spaced name", "café", strings.Repeat("a", 255)} {
+		params, err := json.Marshal(protocol.HostDirectoryCreateParams{Parent: parent, Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, rpcErr, handled := server.handleHost(t.Context(), rpcMessage{Method: "host.directory.create", Params: params})
+		result, ok := value.(protocol.HostDirectoryCreateResult)
+		if !handled || !ok || rpcErr != nil || result.Path != filepath.Join(parent, name) {
+			t.Fatalf("create %q: %+v %v handled=%v", name, value, rpcErr, handled)
+		}
+		info, err := os.Stat(result.Path)
+		if err != nil || !info.IsDir() {
+			t.Fatalf("created folder: %v %v", info, err)
+		}
+		value, rpcErr, handled = server.handleHost(t.Context(), rpcMessage{Method: "host.directories.list", Params: listParams})
+		listing, ok := value.(protocol.HostDirectoryResult)
+		if !handled || !ok || rpcErr != nil || !slices.ContainsFunc(listing.Entries, func(entry protocol.HostDirectoryEntry) bool {
+			return entry.Name == name && entry.Path == result.Path
+		}) {
+			t.Fatalf("list created folder %q: %+v %v", name, value, rpcErr)
+		}
+		if _, err := hostDirectories(t.Context(), protocol.HostDirectoryParams{Path: result.Path, Limit: 1}); err != nil {
+			t.Fatalf("browse created folder: %v", err)
+		}
+	}
+}
+
+func TestHostDirectoryCreateInvalidParams(t *testing.T) {
+	parent := t.TempDir()
+	for _, raw := range []string{
+		"", "null", "[]", "{", "{}", `{"parent":1,"name":"x"}`, `{"parent":"/tmp","name":false}`,
+		`{"parent":"/tmp","name":"x","extra":true}`, `{"parent":"/tmp","name":"x"} {}`,
+	} {
+		_, rpcErr, handled := (&Server{}).handleHost(t.Context(), rpcMessage{Method: "host.directory.create", Params: json.RawMessage(raw)})
+		if !handled || rpcErr == nil || rpcErr.Code != -32602 {
+			t.Fatalf("malformed params %q: %v handled=%v", raw, rpcErr, handled)
+		}
+	}
+	for _, name := range []string{"", " ", "\t\n", "\u2003", ".", "..", "../escape", "nested/child", "/absolute", `nested\child`, "bad\x00name", strings.Repeat("a", 256), strings.Repeat("é", 128)} {
+		_, err := hostDirectoryCreate(t.Context(), protocol.HostDirectoryCreateParams{Parent: parent, Name: name})
+		var rpcErr *RPCError
+		if !errors.As(err, &rpcErr) || rpcErr.Code != -32602 {
+			t.Fatalf("invalid name %q: %v", name, err)
+		}
+	}
+	for _, invalidParent := range []string{"", ".", "relative", "~/folder", parent + "\x00", "/" + strings.Repeat("a", 4096)} {
+		_, err := hostDirectoryCreate(t.Context(), protocol.HostDirectoryCreateParams{Parent: invalidParent, Name: "child"})
+		var rpcErr *RPCError
+		if !errors.As(err, &rpcErr) || rpcErr.Code != -32602 {
+			t.Fatalf("invalid parent %q: %v", invalidParent, err)
+		}
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("invalid requests changed parent: %v %v", entries, err)
+	}
+}
+
+func TestHostDirectoryCreateFilesystemErrors(t *testing.T) {
+	parent := t.TempDir()
+	file := filepath.Join(parent, "file")
+	if err := os.WriteFile(file, []byte("preserve me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(parent, "directory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"file", "directory"} {
+		result, err := hostDirectoryCreate(t.Context(), protocol.HostDirectoryCreateParams{Parent: parent, Name: name})
+		if !errors.Is(err, os.ErrExist) || result.Path != "" {
+			t.Fatalf("conflict %q: %+v %v", name, result, err)
+		}
+	}
+	if content, err := os.ReadFile(file); err != nil || string(content) != "preserve me" {
+		t.Fatalf("existing file changed: %q %v", content, err)
+	}
+	missing := filepath.Join(parent, "missing")
+	if _, err := hostDirectoryCreate(t.Context(), protocol.HostDirectoryCreateParams{Parent: missing, Name: "child"}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing parent: %v", err)
+	}
+	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("created missing parent recursively: %v", err)
+	}
+	if _, err := hostDirectoryCreate(t.Context(), protocol.HostDirectoryCreateParams{Parent: file, Name: "child"}); err == nil {
+		t.Fatal("accepted file as parent")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := hostDirectoryCreate(ctx, protocol.HostDirectoryCreateParams{Parent: parent, Name: "cancelled"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled create: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(parent, "cancelled")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cancelled request created folder: %v", err)
+	}
+}
+
+func TestHostDirectoryCreateUnwritableParent(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("requires POSIX permissions and an unprivileged process")
+	}
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+	if _, err := hostDirectoryCreate(t.Context(), protocol.HostDirectoryCreateParams{Parent: parent, Name: "child"}); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("unwritable parent: %v", err)
+	}
+}
+
+func TestHostDirectoryCreateWindowsNames(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows naming rules")
+	}
+	parent := t.TempDir()
+	for _, name := range []string{"CON", "NUL", "COM1", "LPT1", "CONOUT$", "COM¹", "trailing.", "trailing ", ".. ", "stream:ads", "wild*card", "what?", "a<b", "a>b", `a"b`, "a|b", "control\x01"} {
+		_, err := hostDirectoryCreate(t.Context(), protocol.HostDirectoryCreateParams{Parent: parent, Name: name})
+		var rpcErr *RPCError
+		if !errors.As(err, &rpcErr) || rpcErr.Code != -32602 {
+			t.Fatalf("invalid Windows name %q: %v", name, err)
+		}
+	}
+}
+
 func TestHostDirectoryBoundsAndFilters(t *testing.T) {
 	directory := t.TempDir()
 	for _, name := range []string{"alpha", "beta", ".hidden"} {

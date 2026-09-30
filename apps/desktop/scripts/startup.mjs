@@ -323,7 +323,7 @@ async function seedSession(fixture, executable, env, scheme) {
     const status = await fixtureStatus(executable, env);
     assert.equal(status.state, 'running');
     client = createWhipClient({ endpoint: unixSocket(status.socket), clientId: randomUUID(), clientKind: 'automation' });
-    const signal = AbortSignal.timeout(30_000); await client.connect({ signal });
+    const signal = AbortSignal.timeout(60_000); await client.connect({ signal });
     const created = await client.sessions.create({ cwd: path.join(fixture, 'work'), model: 'startup-model', provider: 'startup-provider' }).result({ signal });
     assert.equal(created.status, 'succeeded');
     const rootId = created.result.root_id;

@@ -1,10 +1,12 @@
 // Copy only the built browser output into go:embed's input. Never reads host data.
 import { cp, mkdir, readFile, readdir, rm, lstat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { readRendererManifest, verifyRenderer, verifyRendererProvenance } from './renderer-artifact.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+execFileSync(process.execPath, [path.join(root, 'packages/protocol/scripts/check.mjs')], { stdio: 'inherit' });
 const source = path.join(root, 'apps/web/dist');
 const target = path.join(root, 'internal/webassets/dist');
 const manifest = await readRendererManifest(path.join(root, 'apps/web/renderer-manifest.json'));

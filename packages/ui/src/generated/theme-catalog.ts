@@ -6045,6 +6045,160 @@ export const themeCatalog: readonly ThemeDefinition[] = [
   },
   {
     "code": {
+      "background": "#141a30",
+      "foreground": "#f8f8f2",
+      "tokens": {
+        "Background": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#f8f8f2",
+          "italic": false,
+          "underline": false
+        },
+        "Comment": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#69738f",
+          "italic": true,
+          "underline": false
+        },
+        "Error": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#ff5370",
+          "italic": false,
+          "underline": false
+        },
+        "GenericDeleted": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#ff5370",
+          "italic": false,
+          "underline": false
+        },
+        "GenericInserted": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#5cff9d",
+          "italic": false,
+          "underline": false
+        },
+        "Keyword": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#ff4ecd",
+          "italic": false,
+          "underline": false
+        },
+        "KeywordType": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#ffe66d",
+          "italic": false,
+          "underline": false
+        },
+        "LiteralNumber": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#ff9f43",
+          "italic": false,
+          "underline": false
+        },
+        "LiteralString": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#5cff9d",
+          "italic": false,
+          "underline": false
+        },
+        "NameBuiltin": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#00e5ff",
+          "italic": false,
+          "underline": false
+        },
+        "NameClass": {
+          "background": "#141a30",
+          "bold": true,
+          "color": "#ffe66d",
+          "italic": false,
+          "underline": false
+        },
+        "NameFunction": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#00e5ff",
+          "italic": false,
+          "underline": false
+        },
+        "Operator": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#7c8cff",
+          "italic": false,
+          "underline": false
+        },
+        "Punctuation": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#f8f8f2",
+          "italic": false,
+          "underline": false
+        },
+        "Text": {
+          "background": "#141a30",
+          "bold": false,
+          "color": "#f8f8f2",
+          "italic": false,
+          "underline": false
+        }
+      }
+    },
+    "colors": {
+      "accent": "#ff4ecd",
+      "background": "#090b18",
+      "border": "#303854",
+      "borderFocus": "#00e5ff",
+      "diffAdd": "#123829",
+      "diffDel": "#3d1628",
+      "element": "#141a30",
+      "emphasis": "#ff9f43",
+      "error": "#ff5370",
+      "faint": "#566078",
+      "foreground": "#f8f8f2",
+      "hover": "#202844",
+      "info": "#7c8cff",
+      "link": "#00e5ff",
+      "muted": "#9aa7bd",
+      "onPrimary": "#090b18",
+      "panel": "#0e1224",
+      "primary": "#00e5ff",
+      "success": "#5cff9d",
+      "warning": "#ffe66d"
+    },
+    "dark": true,
+    "id": "neon-city-dark",
+    "markdown": {
+      "code": "#5cff9d",
+      "heading": "#ff4ecd",
+      "quote": "#9aa7bd",
+      "strong": "#ffe66d"
+    },
+    "name": "Neon City Dark",
+    "syntax": {
+      "comment": "#69738f",
+      "function": "#00e5ff",
+      "keyword": "#ff4ecd",
+      "number": "#ff9f43",
+      "operator": "#7c8cff",
+      "punctuation": "#f8f8f2",
+      "string": "#5cff9d",
+      "type": "#ffe66d"
+    }
+  },
+  {
+    "code": {
       "background": "#0b253a",
       "foreground": "#d6deeb",
       "tokens": {
@@ -8509,6 +8663,160 @@ export const themeCatalog: readonly ThemeDefinition[] = [
   },
   {
     "code": {
+      "background": "#202526",
+      "foreground": "#d4d7d6",
+      "tokens": {
+        "Background": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#d4d7d6",
+          "italic": false,
+          "underline": false
+        },
+        "Comment": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#6d7a7b",
+          "italic": true,
+          "underline": false
+        },
+        "Error": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#cd3f45",
+          "italic": false,
+          "underline": false
+        },
+        "GenericDeleted": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#cd3f45",
+          "italic": false,
+          "underline": false
+        },
+        "GenericInserted": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#9fca56",
+          "italic": false,
+          "underline": false
+        },
+        "Keyword": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#a074c4",
+          "italic": false,
+          "underline": false
+        },
+        "KeywordType": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#db7b55",
+          "italic": false,
+          "underline": false
+        },
+        "LiteralNumber": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#e6cd69",
+          "italic": false,
+          "underline": false
+        },
+        "LiteralString": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#9fca56",
+          "italic": false,
+          "underline": false
+        },
+        "NameBuiltin": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#55b5db",
+          "italic": false,
+          "underline": false
+        },
+        "NameClass": {
+          "background": "#202526",
+          "bold": true,
+          "color": "#db7b55",
+          "italic": false,
+          "underline": false
+        },
+        "NameFunction": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#55b5db",
+          "italic": false,
+          "underline": false
+        },
+        "Operator": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#d4d7d6",
+          "italic": false,
+          "underline": false
+        },
+        "Punctuation": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#8b9494",
+          "italic": false,
+          "underline": false
+        },
+        "Text": {
+          "background": "#202526",
+          "bold": false,
+          "color": "#d4d7d6",
+          "italic": false,
+          "underline": false
+        }
+      }
+    },
+    "colors": {
+      "accent": "#a074c4",
+      "background": "#151718",
+      "border": "#3b4446",
+      "borderFocus": "#55b5db",
+      "diffAdd": "#263829",
+      "diffDel": "#3d2428",
+      "element": "#202526",
+      "emphasis": "#e6cd69",
+      "error": "#cd3f45",
+      "faint": "#596364",
+      "foreground": "#d4d7d6",
+      "hover": "#293032",
+      "info": "#55b5db",
+      "link": "#55b5db",
+      "muted": "#8b9494",
+      "onPrimary": "#151718",
+      "panel": "#1b1f20",
+      "primary": "#55b5db",
+      "success": "#9fca56",
+      "warning": "#e6cd69"
+    },
+    "dark": true,
+    "id": "seti",
+    "markdown": {
+      "code": "#9fca56",
+      "heading": "#55b5db",
+      "quote": "#8b9494",
+      "strong": "#e6cd69"
+    },
+    "name": "Seti",
+    "syntax": {
+      "comment": "#6d7a7b",
+      "function": "#55b5db",
+      "keyword": "#a074c4",
+      "number": "#e6cd69",
+      "operator": "#d4d7d6",
+      "punctuation": "#8b9494",
+      "string": "#9fca56",
+      "type": "#db7b55"
+    }
+  },
+  {
+    "code": {
       "background": "#073642",
       "foreground": "#839496",
       "tokens": {
@@ -10203,5 +10511,5 @@ export const themeCatalog: readonly ThemeDefinition[] = [
   },
 ];
 
-export const themeIds = ["light","dark","aura","aura-light","ayu","ayu-light","carbonfox","carbonfox-light","catppuccin","catppuccin-frappe","catppuccin-frappe-light","catppuccin-light","catppuccin-macchiato","catppuccin-macchiato-light","claude-code","cobalt2","cobalt2-light","cursor","cursor-light","dracula","dracula-light","everforest","everforest-light","flexoki","flexoki-light","github","github-light","gruvbox","gruvbox-light","kanagawa","kanagawa-light","material","material-light","matrix","matrix-light","mercury","mercury-light","monokai","monokai-light","nightowl","nightowl-light","nord","nord-light","one-dark","one-dark-light","opencode","opencode-light","orng","orng-light","osaka-jade","osaka-jade-light","palenight","palenight-light","rosepine","rosepine-light","solarized","solarized-light","synthwave84","synthwave84-light","tokyonight","tokyonight-light","vercel","vercel-light","vesper","zenburn","zenburn-light"] as const;
+export const themeIds = ["light","dark","aura","aura-light","ayu","ayu-light","carbonfox","carbonfox-light","catppuccin","catppuccin-frappe","catppuccin-frappe-light","catppuccin-light","catppuccin-macchiato","catppuccin-macchiato-light","claude-code","cobalt2","cobalt2-light","cursor","cursor-light","dracula","dracula-light","everforest","everforest-light","flexoki","flexoki-light","github","github-light","gruvbox","gruvbox-light","kanagawa","kanagawa-light","material","material-light","matrix","matrix-light","mercury","mercury-light","monokai","monokai-light","neon-city-dark","nightowl","nightowl-light","nord","nord-light","one-dark","one-dark-light","opencode","opencode-light","orng","orng-light","osaka-jade","osaka-jade-light","palenight","palenight-light","rosepine","rosepine-light","seti","solarized","solarized-light","synthwave84","synthwave84-light","tokyonight","tokyonight-light","vercel","vercel-light","vesper","zenburn","zenburn-light"] as const;
 export type BuiltinThemeID = (typeof themeIds)[number];

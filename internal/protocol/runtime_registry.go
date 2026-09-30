@@ -40,7 +40,6 @@ var runtimeOperations = []Operation{
 	action[ArchiveParams, ArchiveResult]("session.archive", Command, "root-association", false),
 	action[TitleParams, TitleResult]("session.rename", Command, "root-association", false),
 	action[EmptyParams, ModelResult]("session.reload", Command, "root-idle", false),
-	action[EmptyParams, Empty]("session.autotitle", Command, "root-association", false),
 	action[RunConfigureParams, Empty]("run.configure", Command, "root-idle", false),
 	action[ClearHistoryParams, Empty]("history.clear", Command, "root-idle", false),
 	action[RewindParams, RewindResult]("history.rewind", Command, "root-idle", false),

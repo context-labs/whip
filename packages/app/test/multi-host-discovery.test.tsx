@@ -88,7 +88,7 @@ it('observes catalogs and loads all-status pages only while search is open, rout
   expect(f.local.client.session).not.toHaveBeenCalled(); expect(f.remote.client.session).not.toHaveBeenCalled();
 });
 
-it('keeps pagination and search failures independent, and filters hosts without hydrating roots', async () => {
+it('keeps pagination and search failures independent across hosts without hydrating roots', async () => {
   const f = fixture();
   f.render(<SessionSearchDialog open onOpenChange={() => {}} finalFocus={false} />);
   await screen.findByRole('link', { name: 'Kuzco landing · Kuzco · /repo' });
@@ -103,10 +103,6 @@ it('keeps pagination and search failures independent, and filters hosts without 
   expect(screen.getByRole('link', { name: 'Kuzco match · Kuzco · /repo' })).toBeTruthy();
   expect(f.remote.search).toHaveBeenCalledTimes(3);
   expect(f.local.search.mock.lastCall?.[0]).toEqual({ search: 'match', status: 'all', cursor: { revision: '1', offset: 'local-runtime-cursor' }, limit: 64, max_bytes: 256 << 10 });
-  fireEvent.click(screen.getByRole('combobox', { name: 'Search host' }));
-  const option = await screen.findByRole('option', { name: 'Kuzco' }); fireEvent.pointerDown(option); fireEvent.click(option);
-  await waitFor(() => expect(screen.queryByRole('region', { name: 'Local search results' })).toBeNull());
-  expect(screen.getByRole('link', { name: 'Kuzco match · Kuzco · /repo' })).toBeTruthy();
   expect(f.local.client.session).not.toHaveBeenCalled(); expect(f.remote.client.session).not.toHaveBeenCalled();
 });
 

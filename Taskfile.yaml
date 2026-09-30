@@ -10,6 +10,12 @@ tasks:
     cmds: [task --list]
     silent: true
 
+  generate:
+    desc: Generate local protocol artifacts and build the SDK (run npm ci first; rerun after protocol changes)
+    cmds:
+      - npm run generate
+      - npm run build
+
   run:
     desc: "Run whipcode locally from source (pass flags via CLI_ARGS: task run -- -m glm-5.2-fast)"
     interactive: true
@@ -112,7 +118,7 @@ tasks:
       - go test -race ./internal/llm ./internal/session ./internal/agent ./internal/daemon ./internal/tui -run '^(TestModel|TestPricing|TestUsage|TestStreamPreserves|TestStreamUnterminated|TestCompletePreserves|TestMalformedUsage)'
 
   contract:
-    desc: "Validate generated Node 24 contracts and deterministic generation (run npm ci first)"
+    desc: "Validate local protocol artifacts and deterministic generation (run task generate first)"
     cmds:
       - npm run check -w @whip/protocol
 

@@ -473,7 +473,7 @@ func TestProviderDisableBlocksRetainedRootChildAndHelperClients(t *testing.T) {
 	if _, _, err := runtime.rootNode.complete(t.Context(), "helper", 128); !llm.IsPermanentRequestError(err) {
 		t.Fatalf("helper bypassed disable: %v", err)
 	}
-	if _, _, err := runtime.rootNode.GenerateTitle(t.Context()); !llm.IsPermanentRequestError(err) {
+	if _, _, err := runtime.rootNode.GenerateTitle(t.Context(), "Inspect model accounting"); !llm.IsPermanentRequestError(err) {
 		t.Fatalf("compact/title route bypassed disable: %v", err)
 	}
 	if requests.Load() != 1 || runTurnCount(runs, id) != 1 {

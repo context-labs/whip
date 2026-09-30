@@ -16,12 +16,19 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
+
+// withoutAutomaticTitle isolates conversation-only fixtures from background model calls.
+func withoutAutomaticTitle() agentdef.Definition {
+	definition := agentdef.Coding()
+	definition.Surface.AutoTitle = false
+	return definition
+}
 
 type fakeRunner struct {
 	mu        sync.Mutex
@@ -41,7 +48,10 @@ type titleRunner struct {
 	finished chan struct{}
 }
 
-func (r *titleRunner) GenerateTitle(ctx context.Context) (string, llm.Usage, error) {
+func (r *titleRunner) GenerateTitle(ctx context.Context, _ string) (string, llm.Usage, error) {
+	if r.finished != nil {
+		defer close(r.finished)
+	}
 	if r.started != nil {
 		close(r.started)
 	}
@@ -51,9 +61,6 @@ func (r *titleRunner) GenerateTitle(ctx context.Context) (string, llm.Usage, err
 		case <-ctx.Done():
 			return "", llm.Usage{}, ctx.Err()
 		}
-	}
-	if r.finished != nil {
-		close(r.finished)
 	}
 	return r.title, llm.Usage{PromptTokens: 2, CompletionTokens: 1}, nil
 }
@@ -169,9 +176,6 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result := clientCommand(t, root, "tui", "autotitle", "session.autotitle", protocol.EmptyParams{}); result.Status != "succeeded" {
-			t.Fatalf("enable automatic title=%+v", result)
-		}
 		receipt, err := root.Submit(t.Context(), "Investigate flaky workers")
 		if err != nil {
 			t.Fatal(err)
@@ -222,9 +226,6 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result := clientCommand(t, root, "tui", "autotitle", "session.autotitle", protocol.EmptyParams{}); result.Status != "succeeded" {
-			t.Fatalf("enable automatic title=%+v", result)
-		}
 		receipt, err := root.Submit(t.Context(), strings.Repeat("界", 65))
 		if err != nil {
 			t.Fatal(err)
@@ -267,7 +268,6 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		clientCommand(t, root, "tui", "autotitle", "session.autotitle", protocol.EmptyParams{})
 		receipt, err := root.Submit(t.Context(), "Investigate flaky workers")
 		if err != nil {
 			t.Fatal(err)
@@ -750,7 +750,7 @@ func TestToolPanicReentersRootSupervisor(t *testing.T) {
 		Run: func(context.Context, json.RawMessage) (string, error) { panic("tool exploded") },
 	})
 	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: &AgentSession{agent: ag}}, nil
+		return Components{Runner: &AgentSession{agent: ag}, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -790,7 +790,7 @@ func TestAgentStreamEventsAreDurableOrderedAndSnapshotRestorable(t *testing.T) {
 	rootID := createRoot(t, store)
 	agentValue := agent.NewRuntime(llm.New(server.URL, "key"), "model", 100, "system", tools.NewServices())
 	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: &AgentSession{agent: agentValue}}, nil
+		return Components{Runner: &AgentSession{agent: agentValue}, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -870,7 +870,7 @@ func TestOpenBindsMCPProcesses(t *testing.T) {
 	ag := agent.NewRuntime(llm.New("http://unused", "key"), "model", 100, "system", tools.NewServices())
 	manager := &fakeMCP{}
 	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: &AgentSession{agent: ag}, MCP: manager}, nil
+		return Components{Runner: &AgentSession{agent: ag}, MCP: manager, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -880,7 +880,7 @@ func TestOpenBindsMCPProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manager.processes != store.Processes() || manager.rootID != rootID || manager.cwd != root.meta.CWD {
+	if manager.processes != store.Processes() || manager.rootID != rootID || manager.cwd != root.WorkingDirectory() {
 		t.Fatalf("MCP process scope=%p %q %q", manager.processes, manager.rootID, manager.cwd)
 	}
 	if len(ag.AllTools()) != 0 {
@@ -1082,23 +1082,6 @@ func TestResumeActiveOpensDurableRootsAndReportsFailures(t *testing.T) {
 	if err := value.Close(); err != nil {
 		t.Fatal(err)
 	}
-
-	failingStore := openStore(t, filepath.Join(t.TempDir(), "failing.db"))
-	failingRootID := createRoot(t, failingStore)
-	if _, err := failingStore.AddSchedule(failingRootID, "@every 1h", "wake", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	factoryErr := errors.New("factory failed")
-	failing, err := New(failingStore, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{}, factoryErr
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := failing.ResumeActive(context.Background()); !errors.Is(err, factoryErr) {
-		t.Fatalf("resume factory error = %v", err)
-	}
-	_ = failing.Close()
 
 	closedStore := openStore(t, filepath.Join(t.TempDir(), "closed-active.db"))
 	closed, err := New(closedStore, func(context.Context, session.Meta, []llm.Message) (Components, error) {

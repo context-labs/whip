@@ -112,6 +112,7 @@ export class AppRuntime {
   private state: RuntimeSnapshot;
   private readonly listeners = new Set<() => void>();
   private readonly views = new Map<string, ViewLease>();
+  private readonly titleListeners = new Map<WhipClient, () => void>();
   private readonly drafts = new Map<string, string>();
   private readonly draftRevisions = new Map<string, string>();
   private readonly draftListeners = new Map<string, Set<() => void>>();
@@ -204,6 +205,7 @@ export class AppRuntime {
     } catch (error) { this.report(error); }
     this.connections = new HostConnections(platform, this.recoveryStorage(), {
       connected: (runtimeId, client) => {
+        this.observeSessionTitles(runtimeId, client);
         void this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
         void this.primeProviders(runtimeId, client);
         void this.queries.prefetchQuery({ queryKey: ['runtime-configuration', runtimeId],
@@ -218,6 +220,8 @@ export class AppRuntime {
         });
       },
       detached: (client, runtimeId) => {
+        this.titleListeners.get(client)?.();
+        this.titleListeners.delete(client);
         if (runtimeId) this.compositions.invalidateRuntime(runtimeId);
         for (const [id, pending] of this.pending) if (pending.client === client) this.pending.delete(id);
         for (const [id, lease] of this.views) if (lease.client === client) this.dropView(id, lease);
@@ -287,6 +291,29 @@ export class AppRuntime {
       typeof saved.rootId === 'string'
     )
       return { runtimeId: saved.runtimeId, rootId: saved.rootId };
+  }
+  private observeSessionTitles(runtimeId: string, client: WhipClient) {
+    this.titleListeners.get(client)?.();
+    this.titleListeners.delete(client);
+    if (!client.getSnapshot().info?.negotiated_capabilities?.includes('session_title_notifications')) return;
+    let retired = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attached = () => !retired && !this.closed && this.connections.isAttached(client)
+      && client.getSnapshot().state === 'connected';
+    const filters = { predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[1] === runtimeId
+      && ['session-tab-summaries', 'session-sidebar-summaries', 'session-search', 'host-attention'].includes(query.queryKey[0] as string) };
+    const off = client.onNotification('sessions.title.changed', () => {
+      if (!attached() || timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        if (!attached()) return;
+        // Explicit cancellation also covers first loads (invalidate alone can reuse their stale result).
+        void this.queries.cancelQueries(filters).then(() => {
+          if (attached()) return this.queries.invalidateQueries(filters);
+        });
+      }, 250);
+    });
+    this.titleListeners.set(client, () => { retired = true; clearTimeout(timer); off(); });
   }
   /** Warm provider readiness using the verified client, even before its host snapshot is published. */
   primeProviders(runtimeId?: string, client = runtimeId ? this.connections.host(runtimeId)?.client : undefined): Promise<void> {

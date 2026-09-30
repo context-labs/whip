@@ -3,9 +3,11 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/terminal"
@@ -33,6 +35,9 @@ type Daemon struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 
+	titleMu        sync.Mutex
+	titleListeners map[*titleListener]struct{}
+
 	mu      sync.Mutex
 	wg      sync.WaitGroup
 	roots   map[string]*rootEntry
@@ -59,6 +64,7 @@ func New(store *session.Store, factory Factory, providers ...*ProviderService) (
 		daemon.providers = providers[0]
 	}
 	daemon.control = newControl(ctx, store)
+	daemon.control.daemon = daemon
 	return daemon, nil
 }
 
@@ -83,12 +89,14 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 		}
 		return d.opened(entry)
 	}
-	meta, history, err := d.store.Load(rootID)
+	meta, err := d.store.LoadMeta(rootID)
 	if err != nil {
 		return nil, err
 	}
-	rootID = meta.ID
+	return d.openResolved(meta.ID)
+}
 
+func (d *Daemon) openResolved(rootID string) (*Session, error) {
 	d.mu.Lock()
 	if d.closing {
 		d.mu.Unlock()
@@ -104,7 +112,7 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 		}
 		return d.opened(entry)
 	}
-	entry = &rootEntry{ready: make(chan struct{})}
+	entry := &rootEntry{ready: make(chan struct{})}
 	d.roots[rootID] = entry
 	d.mu.Unlock()
 
@@ -114,6 +122,14 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 				entry.err = panicError("root construction", value)
 			}
 		}()
+		// Cold metadata mutations hold the registry lock. Reload after
+		// publication so construction cannot use a pre-rename snapshot;
+		// later metadata commands now route to this root instead.
+		meta, history, err := d.store.Load(rootID)
+		if err != nil {
+			entry.err = err
+			return
+		}
 		entry.root, entry.err = d.open(meta, history)
 	}()
 	d.mu.Lock()
@@ -136,17 +152,28 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 
 // ResumeActive reconstructs detached roots that own durable schedules or
 // subscriptions. It is called after the protocol server owns the process.
+// A root that cannot initialize remains available for a later Open retry;
+// only enumeration failure or shutdown prevents the host from starting.
 func (d *Daemon) ResumeActive(ctx context.Context) error {
 	rootIDs, err := d.store.ActiveRootIDs(ctx)
 	if err != nil {
 		return err
 	}
 	for _, rootID := range rootIDs {
-		if _, err := d.Open(rootID); err != nil {
+		if err := errors.Join(ctx.Err(), d.ctx.Err()); err != nil {
 			return err
 		}
+		_, openErr := d.Open(rootID)
+		if err := errors.Join(ctx.Err(), d.ctx.Err()); err != nil {
+			return err
+		}
+		if openErr != nil {
+			meta, metaErr := d.store.LoadMeta(rootID)
+			config.LogEvent("session.resume", fmt.Sprintf("root=%q model=%q provider=%q error=%q",
+				rootID, meta.Model, meta.Provider, errors.Join(openErr, metaErr)))
+		}
 	}
-	return nil
+	return errors.Join(ctx.Err(), d.ctx.Err())
 }
 
 // DeleteSession stops an opened root before removing its durable ownership
@@ -184,6 +211,34 @@ func (d *Daemon) tombstone(rootID string, entry *rootEntry, root *Session) {
 	d.mu.Unlock()
 }
 
+// Live returns the already-open root without reconstructing it. Metadata-only
+// commands use it to skip opening a cold root whose workspace may be gone.
+func (d *Daemon) Live(rootID string) *Session {
+	d.mu.Lock()
+	entry := d.roots[rootID]
+	d.mu.Unlock()
+	if entry == nil {
+		return nil
+	}
+	select {
+	case <-entry.ready:
+	case <-d.ctx.Done():
+		return nil
+	}
+	d.mu.Lock()
+	root := entry.root
+	d.mu.Unlock()
+	if root == nil {
+		return nil
+	}
+	select {
+	case <-root.Done():
+		return nil
+	default:
+		return root
+	}
+}
+
 func (d *Daemon) opened(entry *rootEntry) (*Session, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -209,6 +264,15 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	if err != nil {
 		return nil, err
 	}
+	if meta.Kind == session.SessionKindAgent && meta.Effort == "" {
+		// Rows saved before efforts were resolved at creation follow the same
+		// rule once, so the runner and every reader share one concrete value.
+		cfg, err := config.Load()
+		if err != nil {
+			cfg = config.Default()
+		}
+		meta.Effort = resolveEffort(cfg, meta.Model, meta.Provider, "", definition.Model.Effort)
+	}
 	authority, err := d.store.EnsureRootAuthority(d.ctx, meta.ID, rootGrants(definition, hasDefinition))
 	if err != nil {
 		return nil, err
@@ -216,6 +280,13 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	components, err := d.factory(d.ctx, meta, history)
 	if err != nil {
 		return nil, err
+	}
+	// Persist the resolved effort only after the factory succeeds, so a
+	// failed restore does not mutate the saved session.
+	if meta.Kind == session.SessionKindAgent && meta.Effort != "" {
+		if err := d.store.SetEffort(meta.ID, meta.Effort); err != nil {
+			return nil, err
+		}
 	}
 	started := false
 	var root *Session
@@ -251,6 +322,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	}
 	root = newSession(d.store, meta, authority, components, d.factory)
 	root.providers = d.providers
+	root.titleChanged = d.notifyTitleChanged
 	root.executors = d.executors
 	root.browserProviders = d.browserProviders
 	// Bind hooks may reconstruct durable child agents through actor-owned
@@ -277,7 +349,7 @@ func configureMCP(root *Session, components Components) {
 	if manager, ok := components.MCP.(interface {
 		SetProcessOptions(*capability.ProcessManager, string, string, map[string]string)
 	}); ok {
-		manager.SetProcessOptions(root.store.Processes(), root.meta.ID, root.meta.CWD, nil)
+		manager.SetProcessOptions(root.store.Processes(), root.id, root.WorkingDirectory(), nil)
 	}
 	if supervised, ok := components.MCP.(interface {
 		SetLauncher(func(string, func()) bool)

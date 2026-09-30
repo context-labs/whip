@@ -33,7 +33,7 @@ func (node *AgentSession) hookInvocation(ctx context.Context, hook *agentdef.Hoo
 	turnID := node.turn.TurnID
 	node.mu.Unlock()
 	return hookInvocation{
-		Definition: root.definition.ID, Revision: root.meta.DefinitionRevision, RootID: root.ID(), AgentID: node.id, TurnID: turnID,
+		Definition: root.definition.ID, Revision: root.definitionRevision, RootID: root.ID(), AgentID: node.id, TurnID: turnID,
 		Hook: name, PermissionMode: mode, Timeout: hook.Timeout(),
 	}, nil
 }

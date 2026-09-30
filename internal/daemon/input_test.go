@@ -177,7 +177,7 @@ func storeBackedInputSession(t *testing.T, workspace string) *AgentSession {
 	}
 	node := inputTestSession(t, workspace)
 	node.agent.Vision = true
-	node.root = &Session{store: store, meta: sessionstore.Meta{ID: rootID}}
+	node.root = &Session{store: store, id: rootID}
 	node.id = rootID
 	node.authority = authority
 	return node

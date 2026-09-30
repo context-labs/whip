@@ -253,8 +253,8 @@ func (s *Session) modelCallSpanStart(agentID, callID string, attempt llm.ModelAt
 		maps.Copy(attrs, runtime.PromptAttrs(agentID, attempt.Purpose))
 	}
 	s.recordSpanStart(sessionstore.SpanRecord{
-		ID: sessionstore.ModelCallSpanID(s.meta.ID, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
-		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
+		ID: sessionstore.ModelCallSpanID(s.id, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
+		RootID: s.id, AgentID: agentID, TurnID: turnID,
 		Kind: sessionstore.SpanKindLLM, Name: modelCallSpanName(attempt), Status: sessionstore.SpanStatusRunning, StartNS: startedAt.UnixNano(),
 		Attrs: sessionstore.SpanAttrs(attrs),
 	})
@@ -407,7 +407,7 @@ func (node *AgentSession) beginCommandTrace(ctx context.Context, name, command, 
 // returned, so it is the agent's most recently settled call, and its span has
 // already ended; hence the patch. The compactions table keeps the summary for
 // recovery exactly as before.
-func (node *AgentSession) recordCompactionOutput(ctx context.Context, callID, summary string, rawCutoff int) {
+func (node *AgentSession) recordCompactionOutput(ctx context.Context, callID, summary string, rawCutoff int, fallback string) {
 	if node.root == nil || callID == "" || summary == "" {
 		return
 	}
@@ -415,9 +415,11 @@ func (node *AgentSession) recordCompactionOutput(ctx context.Context, callID, su
 	defer cancel()
 	value, err := node.root.store.InternContent(ctx, node.root.ID(), "prompt.summary", []byte(summary))
 	if err == nil {
-		err = node.root.store.PatchSpanAttrs(ctx, node.root.ID(), sessionstore.ModelCallSpanID(node.root.ID(), callID), map[string]any{
-			"output_ref": value.ReferenceID, "output_bytes": int(value.Size), "raw_cutoff": rawCutoff,
-		})
+		attrs := map[string]any{"output_ref": value.ReferenceID, "output_bytes": int(value.Size), "raw_cutoff": rawCutoff}
+		if fallback != "" {
+			attrs["compaction_fallback"] = fallback
+		}
+		err = node.root.store.PatchSpanAttrs(ctx, node.root.ID(), sessionstore.ModelCallSpanID(node.root.ID(), callID), attrs)
 	}
 	if err != nil {
 		config.LogEvent("trace", fmt.Sprintf("compaction output of call %s: %v", callID, err))
@@ -451,8 +453,8 @@ func (s *Session) modelCallSpanEnd(agentID, callID string, attempt llm.ModelAtte
 		status = sessionstore.SpanStatusInterrupted
 	}
 	s.recordSpanEnd(sessionstore.SpanRecord{
-		ID: sessionstore.ModelCallSpanID(s.meta.ID, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
-		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
+		ID: sessionstore.ModelCallSpanID(s.id, callID), TraceID: turn.TraceID, ParentID: turn.SpanID,
+		RootID: s.id, AgentID: agentID, TurnID: turnID,
 		Kind: sessionstore.SpanKindLLM, Name: modelCallSpanName(attempt), Status: status, EndNS: time.Now().UnixNano(), Attrs: sessionstore.SpanAttrs(attrs),
 	})
 	if runtime, has := s.runtime.(interface{ NoteModelCall(string, string) }); has {
@@ -468,8 +470,8 @@ func (s *Session) questionSpanStart(agentID, questionID, question string) {
 		return
 	}
 	s.recordSpanStart(sessionstore.SpanRecord{
-		ID: sessionstore.WaitSpanID(s.meta.ID, questionID), TraceID: turn.TraceID, ParentID: turn.SpanID,
-		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
+		ID: sessionstore.WaitSpanID(s.id, questionID), TraceID: turn.TraceID, ParentID: turn.SpanID,
+		RootID: s.id, AgentID: agentID, TurnID: turnID,
 		Kind: sessionstore.SpanKindWait, Name: "question", Status: sessionstore.SpanStatusRunning, StartNS: time.Now().UnixNano(),
 		Attrs: sessionstore.SpanAttrs(map[string]any{"question_id": questionID, "input": sessionstore.SpanExcerpt(question)}),
 	})
@@ -485,8 +487,8 @@ func (s *Session) questionSpanEnd(agentID, questionID, outcome string, closed bo
 		status = sessionstore.SpanStatusCancelled
 	}
 	s.recordSpanEnd(sessionstore.SpanRecord{
-		ID: sessionstore.WaitSpanID(s.meta.ID, questionID), TraceID: turn.TraceID, ParentID: turn.SpanID,
-		RootID: s.meta.ID, AgentID: agentID, TurnID: turnID,
+		ID: sessionstore.WaitSpanID(s.id, questionID), TraceID: turn.TraceID, ParentID: turn.SpanID,
+		RootID: s.id, AgentID: agentID, TurnID: turnID,
 		Kind: sessionstore.SpanKindWait, Name: "question", Status: status, EndNS: time.Now().UnixNano(),
 		Attrs: sessionstore.SpanAttrs(map[string]any{"output": sessionstore.SpanExcerpt(outcome)}),
 	})

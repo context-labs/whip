@@ -168,7 +168,7 @@ func TestChildCommitFailureInterruptsRootWithoutFalseSuccess(t *testing.T) {
 			return Components{}, err
 		}
 		runtimes[meta.ID] = runtime
-		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
 		t.Fatal(err)

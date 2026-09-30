@@ -387,7 +387,7 @@ const frame = () =>
     }, { description: 'settled pre-switch reading anchor' });
   };
   const rootAnchor = await stableAnchor();
-  await page.locator(`[data-workspace-tab="${fixture.info.root_id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
+  await page.locator(`[data-workspace-tab="${fixture.info.root_id}"]`).getByRole('tab').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
   await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
   await ready();

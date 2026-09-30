@@ -7,14 +7,16 @@ import type { SessionViewSnapshot } from '@whip/sdk/state';
 import { SessionTopBar } from '../src/session-top-bar';
 import { activityStatus, CurrentActivity } from '../src/chat-activity';
 
-it('keeps full host/path identity accessible and opens scoped actions', () => {
+it('keeps full host/path identity accessible and opens scoped actions', async () => {
   const onRepl = vi.fn(), onAgents = vi.fn(), onDetails = vi.fn();
   render(<ThemeProvider><UIProvider><SessionTopBar host="Remote" cwd="/workspace/whip" agentName="reviewer" kind="chat"
     onRepl={onRepl} onAgents={onAgents} onDetails={onDetails} /></UIProvider></ThemeProvider>);
   expect(screen.getByLabelText('Remote / /workspace/whip')).toBeDefined();
   fireEvent.click(screen.getByRole('button', { name: 'REPL' }));
   fireEvent.click(screen.getByRole('button', { name: 'Agent: reviewer' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Session details' }));
+  expect(screen.queryByRole('button', { name: 'Session details' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Session actions' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Session details' }));
   expect(onRepl).toHaveBeenCalledOnce(); expect(onAgents).toHaveBeenCalledOnce(); expect(onDetails).toHaveBeenCalledOnce();
 });
 
@@ -29,7 +31,6 @@ it.each(['chat', 'repl', 'trace'] as const)('uses the same top bar and action de
     { label: 'Chat', enabled: kind !== 'chat', callback: onChat },
     { label: 'REPL', enabled: kind !== 'repl', callback: onRepl },
     { label: 'Trace', enabled: kind !== 'trace', callback: onTrace },
-    { label: 'Session details', enabled: true, callback: onDetails },
   ];
   for (const control of controls) {
     if (control.enabled) {
@@ -45,7 +46,7 @@ it.each(['chat', 'repl', 'trace'] as const)('uses the same top bar and action de
   for (const control of controls) {
     fireEvent.click(screen.getByRole('button', { name: 'Session actions' }));
     await screen.findByRole('menu');
-    if (control.enabled) {
+    if (control.enabled && control.label === 'Chat') {
       fireEvent.click(screen.getByRole('menuitem', { name: control.label }));
       expect(control.callback).toHaveBeenCalledTimes(2);
     } else {
@@ -53,6 +54,10 @@ it.each(['chat', 'repl', 'trace'] as const)('uses the same top bar and action de
       fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     }
   }
+  fireEvent.click(screen.getByRole('button', { name: 'Session actions' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Session details' }));
+  expect(onDetails).toHaveBeenCalledOnce();
+  expect(screen.queryByRole('button', { name: 'Session details' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Session actions' }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Root conversation' }));
   expect(onRoot).toHaveBeenCalledOnce();
@@ -83,9 +88,13 @@ it('switches views with the keyboard, keeps exactly one selected, and toggles de
   await user.click(group.getByRole('button', { name: 'Chat' }));
   expect(group.getAllByRole('button', { pressed: true })).toHaveLength(1);
   expect(group.getByRole('button', { name: 'Chat', pressed: true })).toBeDefined();
-  await user.click(screen.getByRole('button', { name: 'Session details', expanded: false }));
-  await user.click(screen.getByRole('button', { name: 'Hide session details', expanded: true }));
-  expect(screen.getByRole('button', { name: 'Session details', expanded: false })).toBeDefined();
+  await user.click(screen.getByRole('button', { name: 'Session actions' }));
+  await user.click(await screen.findByRole('menuitem', { name: 'Session details' }));
+  await user.click(screen.getByRole('button', { name: 'Session actions' }));
+  await user.click(await screen.findByRole('menuitem', { name: 'Hide session details' }));
+  await user.click(screen.getByRole('button', { name: 'Session actions' }));
+  expect(await screen.findByRole('menuitem', { name: 'Session details' })).toBeDefined();
+  await user.keyboard('{Escape}');
   expect(group.getByRole('button', { name: 'Chat', pressed: true })).toBeDefined();
 });
 
@@ -111,11 +120,9 @@ it('shows one current status in the bar without a duplicate agent dock', () => {
   expect(screen.getByRole('status').textContent).toBe('Reconnecting · activity updates paused');
 });
 
-it('preserves the activity motion control and hides session-only controls for New Chat', () => {
+it('hides session-only controls for New Chat', () => {
   const view = render(<ThemeProvider><UIProvider><SessionTopBar host="Local" cwd="/whip" agentName="Root" kind="repl"
     activity={<CurrentActivity status={{ text: 'Working', active: true }} connected onDetails={vi.fn()} />} /></UIProvider></ThemeProvider>);
-  fireEvent.click(screen.getByRole('button', { name: 'Pause activity animation' }));
-  expect(screen.getByRole('button', { name: 'Use system motion setting' })).toBeDefined();
   view.rerender(<ThemeProvider><UIProvider><SessionTopBar host="Choose a host" kind="new" /></UIProvider></ThemeProvider>);
   expect(screen.getByText('Not started')).toBeDefined();
   expect(screen.queryByRole('group', { name: 'Session view' })).toBeNull();

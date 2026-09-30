@@ -80,7 +80,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await eventually(async () => (await workspace()).focusedPaneId === 'main', { description: 'Back focuses original duplicate URL' });
     await page.goForward();
     await tab(root).click();
-    await page.locator(`[data-workspace-tab="${duplicate}"]`).getByRole('button', { name: /^Tab actions for / }).click();
+    await page.locator(`[data-workspace-tab="${duplicate}"]`).getByRole('tab').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
     await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
     await panel(duplicate).getByLabel('Message this agent', { exact: true }).waitFor();

@@ -17,7 +17,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "npm run build && npm test",
-    "test": "tsc -p tsconfig.test.json && node --test build/test/*.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test build/test/*.test.js",
+    "prepack": "npm run check:drift -w @whip/protocol"
   },
   "dependencies": { "@whip/protocol": "3.0.0" },
   "peerDependencies": { "react": "^19.0.0" },

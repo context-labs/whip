@@ -62,6 +62,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await eventually(async () => await sidebar().locator(`[data-sidebar-session][data-sidebar-cwd="${paths[0]}"]`).count() === 14);
     const header = sidebar().locator('[data-sidebar-header]');
     const edge = sidebar().locator('[data-sidebar-scroll-edge]');
+    // The shell's entrance transition can still be settling after its first catalog.
+    await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {}))); });
     const headerBefore = await header.boundingBox();
     const searchBefore = await sidebar().getByRole('button', { name: 'Search sessions', exact: true }).boundingBox();
     assert.equal(await edge.evaluate(node => getComputedStyle(node).opacity), '0');
@@ -85,11 +87,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await less.click();
     await saved().evaluate(node => { node.scrollTop = 0; });
     await more().waitFor();
+    await eventually(async () => (await sidebar().locator('[data-sidebar-session]').count()) === 17, { description: 'virtual rows settle after Less and scroll reset' });
     assert.equal(await sidebar().locator(`[data-sidebar-session][data-sidebar-cwd="${paths[0]}"]`).count(), 7);
     assert.equal(await sidebar().locator('[data-sidebar-session]').count(), 17);
     checks.push('seven sessions per directory, keyboard More, and Less');
 
-    const action = id => page.locator(`[data-sidebar-session="${id}"]`).getByRole('button');
+    const action = id => page.locator(`[data-sidebar-session="${id}"]`).getByRole('button', { name: /^Actions for / });
     const caret = path => group(path).locator('[data-directory-caret]');
     const opacity = locator => locator.evaluate(node => getComputedStyle(node).opacity);
     const rowFill = id => page.locator(`[data-sidebar-session="${id}"] a`).evaluate(node => getComputedStyle(node.parentElement).backgroundColor);
@@ -220,8 +223,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const after = await page.locator(`[data-sidebar-session="${anchor.id}"]`).evaluate(node => node.getBoundingClientRect().top - node.closest('[aria-label="Saved sessions"]').getBoundingClientRect().top);
     assert.ok(Math.abs(after - anchor.y) < 2, `Reading anchor moved: ${anchor.y} -> ${after}`);
     await saved().evaluate(node => { node.scrollTop = node.scrollHeight; });
-    await saved().getByRole('button', { name: 'Load more sessions' }).click();
-    await eventually(async () => await saved().getByRole('button', { name: 'Load more sessions' }).count() === 0);
+    await saved().getByRole('button', { name: 'Load more sessions · Local' }).click();
+    await eventually(async () => await saved().getByRole('button', { name: 'Load more sessions · Local' }).count() === 0);
     console.log(`${name}: completed workflow ${checks.length + 1}`);
     checks.push('catalog reorder preserves visible anchor; explicit load-more reaches later pages');
 

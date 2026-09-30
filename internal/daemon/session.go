@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
@@ -96,6 +98,7 @@ const (
 	workerControl       = "control"
 	workerClientCommand = "client.command"
 	workerStream        = "stream"
+	workerTitle         = "title"
 )
 
 type workerCompletion struct {
@@ -172,6 +175,7 @@ type workerEnvelope struct {
 	at         time.Time
 	client     *clientCommandCompletion
 	stream     *streamEnvelope
+	title      *titleWork
 }
 
 type streamEnvelope struct {
@@ -278,24 +282,34 @@ func (s *supervisor) wait() {
 }
 
 type Session struct {
-	providers        *ProviderService
-	store            *sessionstore.Store
-	meta             sessionstore.Meta
-	authority        capability.Authority
-	definition       agentdef.Definition
-	executors        *executorRegistry // custom tool executors; nil when no daemon owns the root
-	browserProviders *browserProviders
-	runner           Runner
-	mcpMu            sync.RWMutex
-	mcp              Closeable
-	loadMCP          func(context.Context) (mcp.Filtered, error) // guarded by mcpMu
-	mcpServers       []string                                    // definition filter, guarded by mcpMu
-	mcpGeneration    uint64                                      // changes when the runtime/loader is replaced
-	runtime          Closeable
-	factory          Factory
-	supervisor       *supervisor
-	mailbox          chan inboxReady
-	done             chan struct{}
+	titleChanged func(string)
+	providers    *ProviderService
+	store        *sessionstore.Store
+	// Identity is fixed for the root's lifetime. Saved facts (title, goal,
+	// archive state, directory) are read from the store when a decision needs
+	// them; nothing here mirrors the sessions row.
+	id                 string
+	kind               sessionstore.SessionKind
+	engine             string
+	definitionRevision string
+	// model, provider and effort are the installed runner's selection, assigned
+	// only when a runner is installed or its effort changes.
+	model, provider, effort string
+	authority               capability.Authority
+	definition              agentdef.Definition
+	executors               *executorRegistry // custom tool executors; nil when no daemon owns the root
+	browserProviders        *browserProviders
+	runner                  Runner
+	mcpMu                   sync.RWMutex
+	mcp                     Closeable
+	loadMCP                 func(context.Context) (mcp.Filtered, error) // guarded by mcpMu
+	mcpServers              []string                                    // definition filter, guarded by mcpMu
+	mcpGeneration           uint64                                      // changes when the runtime/loader is replaced
+	runtime                 Closeable
+	factory                 Factory
+	supervisor              *supervisor
+	mailbox                 chan inboxReady
+	done                    chan struct{}
 
 	admitMu  sync.RWMutex
 	stopping bool
@@ -314,8 +328,7 @@ type Session struct {
 	clientIntegrations int
 	clientPreparing    bool
 	reloadPending      bool
-	titleAttempted     bool
-	autoTitle          bool
+	titleWork          *titleWork
 	deferredWake       time.Time
 
 	accountingMu      sync.Mutex
@@ -348,7 +361,8 @@ func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority cap
 		goalMax = config.DefaultGoalMaxRounds
 	}
 	root := &Session{
-		store: store, meta: meta, authority: authority, definition: effectiveDefinition(components), runner: components.Runner, mcp: components.MCP, loadMCP: components.LoadMCP, mcpServers: slices.Clone(effectiveDefinition(components).MCP.Servers), runtime: components.Runtime,
+		store: store, id: meta.ID, kind: meta.Kind, engine: meta.ExecutionEngine, definitionRevision: meta.DefinitionRevision,
+		model: meta.Model, provider: meta.Provider, effort: meta.Effort, authority: authority, definition: effectiveDefinition(components), runner: components.Runner, mcp: components.MCP, loadMCP: components.LoadMCP, mcpServers: slices.Clone(effectiveDefinition(components).MCP.Servers), runtime: components.Runtime,
 		supervisor: newSupervisor(), mailbox: make(chan inboxReady, 1), done: make(chan struct{}),
 		receipts: make(map[int64][]*Receipt), goalMax: goalMax,
 	}
@@ -358,10 +372,19 @@ func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority cap
 	return root
 }
 
-func (s *Session) ID() string               { return s.meta.ID }
-func (s *Session) AgentID() string          { return s.authority.AgentID }
-func (s *Session) WorkingDirectory() string { return s.meta.CWD }
-func (s *Session) Done() <-chan struct{}    { return s.done }
+func (s *Session) ID() string      { return s.id }
+func (s *Session) AgentID() string { return s.authority.AgentID }
+
+// WorkingDirectory is the saved directory from the sessions row. The
+// installed runner owns the directory that commands actually run in.
+func (s *Session) WorkingDirectory() string {
+	meta, err := s.store.LoadMeta(s.id)
+	if err != nil {
+		return ""
+	}
+	return meta.CWD
+}
+func (s *Session) Done() <-chan struct{} { return s.done }
 
 func (s *Session) Err() error {
 	s.waitMu.Lock()
@@ -371,21 +394,25 @@ func (s *Session) Err() error {
 
 // History reads only committed reconstruction state, never the live runner.
 func (s *Session) History() (sessionstore.Meta, []llm.Message, error) {
-	return s.store.Load(s.meta.ID)
+	return s.store.Load(s.id)
 }
 
 func (s *Session) Submit(ctx context.Context, text string) (*Receipt, error) {
-	if s.meta.Kind != sessionstore.SessionKindAgent {
+	if s.kind != sessionstore.SessionKindAgent {
 		return nil, errors.New("tool-host sessions cannot submit model turns")
 	}
-	return s.enqueue(ctx, "submit", text, true)
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (*Receipt, error) {
+		return s.enqueue(actorCtx, "submit", text, true)
+	})
 }
 
 func (s *Session) Steer(ctx context.Context, text string) (*Receipt, error) {
-	if s.meta.Kind != sessionstore.SessionKindAgent {
+	if s.kind != sessionstore.SessionKindAgent {
 		return nil, errors.New("tool-host sessions cannot steer model turns")
 	}
-	return s.enqueue(ctx, "steer", text, true)
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (*Receipt, error) {
+		return s.enqueue(actorCtx, "steer", text, true)
+	})
 }
 
 // AdmitCommand binds one stable protocol command to the root actor's durable
@@ -402,7 +429,7 @@ func (s *Session) AcceptCommand(ctx context.Context, admission sessionstore.Comm
 
 func (s *Session) admitCommand(ctx context.Context, admission sessionstore.CommandAdmission, wait bool) (sessionstore.CommandAdmissionResult, *Receipt, error) {
 	admission.Scope = sessionstore.CommandScopeRoot
-	admission.RootID = s.meta.ID
+	admission.RootID = s.id
 	admission.AgentID = s.authority.AgentID
 	admission.Payload.Data = slices.Clone(admission.Payload.Data)
 	type admittedCommand struct {
@@ -415,6 +442,7 @@ func (s *Session) admitCommand(ctx context.Context, admission sessionstore.Comma
 			return admittedCommand{}, err
 		}
 		if result.New {
+			s.initializeTitle(result.TitleInitialization)
 			s.notify()
 		}
 		if !wait {
@@ -425,7 +453,7 @@ func (s *Session) admitCommand(ctx context.Context, admission sessionstore.Comma
 		case "queued", "running", "waiting":
 			s.register(receipt)
 		case "succeeded", "failed", "cancelled", "interrupted":
-			output, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.meta.ID, result.Command.Outcome)
+			output, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.id, result.Command.Outcome)
 			if resolveErr != nil {
 				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Err: resolveErr})
 			} else if result.Command.Status == "succeeded" {
@@ -453,7 +481,7 @@ func (s *Session) Snapshot(ctx context.Context) (sessionstore.RootSnapshot, erro
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.RootSnapshot, error) {
 		s.questions.mu.Lock()
 		defer s.questions.mu.Unlock()
-		snapshot, err := s.store.SnapshotRoot(actorCtx, s.meta.ID)
+		snapshot, err := s.store.SnapshotRoot(actorCtx, s.id)
 		if err == nil {
 			snapshot.Questions = s.questions.openLocked() // in memory, not in the store: a mid-question client has no question.pending to replay
 		}
@@ -481,13 +509,20 @@ func (s *Session) enqueue(ctx context.Context, kind, text string, receipt bool) 
 		s.admitMu.RUnlock()
 		return nil, ErrStopped
 	}
+	origin := "internal"
+	if receipt {
+		origin = "client"
+	}
 	sequence, err := s.store.EnqueueInbox(ctx, sessionstore.InboxEnqueue{
-		RootID: s.meta.ID, AgentID: s.authority.AgentID, Kind: kind,
+		RootID: s.id, AgentID: s.authority.AgentID, Kind: kind, Origin: origin,
 		Payload: sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: kind},
 	})
 	if err != nil {
 		s.admitMu.RUnlock()
 		return nil, err
+	}
+	if receipt {
+		s.initializeTitle(sequence.TitleInitialization)
 	}
 	var result *Receipt
 	if receipt {
@@ -631,7 +666,7 @@ func (s *Session) run() {
 	if s.runtime != nil {
 		cleanupErr = errors.Join(cleanupErr, safeClose("runtime", s.runtime.Close))
 	}
-	cleanupErr = errors.Join(cleanupErr, s.store.Processes().StopRoot(s.meta.ID))
+	cleanupErr = errors.Join(cleanupErr, s.store.Processes().StopRoot(s.id))
 	// Settle control calls that were admitted before stopping. Some of those
 	// callers are supervised workers, so waiting for workers first would leave
 	// each side waiting on the other.
@@ -641,13 +676,13 @@ func (s *Session) run() {
 	// terminal recovery substitutes estimates for unresolved attempts.
 	cleanupErr = errors.Join(cleanupErr, s.flushPendingAccounting())
 	if failed {
-		_, err := s.store.FailRoot(context.Background(), s.meta.ID, actorErr.Error())
+		_, err := s.store.FailRoot(context.Background(), s.id, actorErr.Error())
 		cleanupErr = errors.Join(cleanupErr, err)
 	} else if s.isTerminal() {
-		_, err := s.store.StopRoot(context.Background(), s.meta.ID, ErrStopped.Error())
+		_, err := s.store.StopRoot(context.Background(), s.id, ErrStopped.Error())
 		cleanupErr = errors.Join(cleanupErr, err)
 	} else {
-		_, err := s.store.InterruptRoot(context.Background(), s.meta.ID, ErrStopped.Error())
+		_, err := s.store.InterruptRoot(context.Background(), s.id, ErrStopped.Error())
 		cleanupErr = errors.Join(cleanupErr, err)
 	}
 	if failed {
@@ -758,6 +793,8 @@ func (s *Session) handleWorkerEvent(event *workerEnvelope) error {
 		return s.recordStreamEvent(event.stream)
 	case workerScheduleTick:
 		return s.fireDueSchedules(event.at)
+	case workerTitle:
+		s.completeTitle(event.title)
 	case workerTurn:
 		return s.completeTurn(event.completion)
 	}
@@ -808,7 +845,7 @@ func (s *Session) recordStreamEvent(stream *streamEnvelope) error {
 	}
 	if len(payload) > sessionstore.InlineValueLimit {
 		value, err := s.store.StoreContent(s.supervisor.ctx, sessionstore.ContentGrant{
-			RootID: s.meta.ID, Scope: sessionstore.ContentGrantRoot,
+			RootID: s.id, Scope: sessionstore.ContentGrantRoot,
 		}, sessionstore.RuntimePayload{Data: payload, MediaType: "application/json", Source: stream.kind})
 		if err != nil {
 			return err
@@ -840,7 +877,7 @@ func (s *Session) recordStreamEvent(stream *streamEnvelope) error {
 			return err
 		}
 	}
-	_, err = s.store.AppendRootEvent(s.supervisor.ctx, s.meta.ID, stream.kind, sessionstore.RuntimePayload{
+	_, err = s.store.AppendRootEvent(s.supervisor.ctx, s.id, stream.kind, sessionstore.RuntimePayload{
 		Data: payload, MediaType: "application/json", Source: stream.kind,
 	})
 	return err
@@ -858,7 +895,7 @@ func (s *Session) dispatch() error {
 	// The write lock excludes enqueue's read-locked publication window, so a
 	// row is never claimed before its receipt is registered.
 	s.admitMu.Lock()
-	items, err := s.store.LoadQueuedInbox(ctx, s.meta.ID, s.authority.AgentID, 0, 1)
+	items, err := s.store.LoadQueuedInbox(ctx, s.id, s.authority.AgentID, 0, 1)
 	s.admitMu.Unlock()
 	if err != nil {
 		return err
@@ -870,12 +907,12 @@ func (s *Session) dispatch() error {
 		item := items[0]
 		input = &item
 		authored = item.Kind == "submit" || item.Kind == "submit.parts" || item.Kind == "steer" || item.Kind == "steer.parts"
-		if err := s.store.StartRootTurn(ctx, s.meta.ID, s.authority.AgentID, item.Seq); err != nil {
+		if err := s.store.StartRootTurn(ctx, s.id, s.authority.AgentID, item.Seq); err != nil {
 			return err
 		}
 		current.seq = item.Seq
 	} else {
-		work, err := s.store.AgentWorkStatus(ctx, s.meta.ID, s.authority.AgentID, time.Now())
+		work, err := s.store.AgentWorkStatus(ctx, s.id, s.authority.AgentID, time.Now())
 		if err != nil {
 			return err
 		}
@@ -883,10 +920,10 @@ func (s *Session) dispatch() error {
 			s.scheduleDeferredWake(work.NextDeferredAt)
 			return nil
 		}
-		if blocked, err := s.store.RootMailboxNeedsInput(ctx, s.meta.ID, s.authority.AgentID); err != nil || blocked {
+		if blocked, err := s.store.RootMailboxNeedsInput(ctx, s.id, s.authority.AgentID); err != nil || blocked {
 			return err
 		}
-		turnID, err := s.store.StartRootMailboxTurn(ctx, s.meta.ID, s.authority.AgentID)
+		turnID, err := s.store.StartRootMailboxTurn(ctx, s.id, s.authority.AgentID)
 		if err != nil {
 			return err
 		}
@@ -1012,11 +1049,19 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	}
 	clearGoal := false
 	goalContinuation := ""
-	if completion.err == nil && s.meta.Goal != "" && s.definition.Surface.GoalLoop {
-		if agent.GoalMet(completion.output) {
-			clearGoal = true
-		} else if s.goalRounds < s.goalMax {
-			goalContinuation = agent.GoalContinuePrompt(s.meta.Goal)
+	if completion.err == nil && s.definition.Surface.GoalLoop {
+		// The goal is a saved fact: goal.set, goal.run and goal.from-context
+		// write it to the store, so read it there at the decision boundary.
+		saved, err := s.store.LoadMeta(s.id)
+		if err != nil {
+			return err
+		}
+		if saved.Goal != "" {
+			if agent.GoalMet(completion.output) {
+				clearGoal = true
+			} else if s.goalRounds < s.goalMax {
+				goalContinuation = agent.GoalContinuePrompt(saved.Goal)
+			}
 		}
 	}
 	outcome := completion.output
@@ -1024,18 +1069,16 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 		outcome = completion.err.Error()
 	}
 	if err := s.store.CommitRootTurn(s.supervisor.ctx, sessionstore.RootTurnCommit{
-		RootID: s.meta.ID, AgentID: s.authority.AgentID, InboxSeq: current.seq, TurnID: current.turnID,
+		RootID: s.id, AgentID: s.authority.AgentID, InboxSeq: current.seq, TurnID: current.turnID,
 		AcknowledgedInbox: acknowledged, DeliveredMessages: completion.journal.DeliveredMessages,
 		Messages: completion.journal.Messages, Compactions: journalCompactions(completion.journal),
 		WorkspaceSeq: completion.workspaceSeq, WorkspaceRef: completion.workspaceRef,
-		ClearGoal: clearGoal, GoalContinuation: goalContinuation,
-		Model: s.meta.Model, Provider: s.meta.Provider, Status: status, Error: errorText,
+		ClearGoal: clearGoal, GoalContinuation: goalContinuation, Status: status, Error: errorText,
 		Outcome: sessionstore.RuntimePayload{Data: encodeTurnOutcome(outcome, completion.journal.Output, completion.err), MediaType: "application/json", Source: "command outcome"},
 	}); err != nil {
 		return err
 	}
 	if clearGoal {
-		s.meta.Goal = ""
 		s.goalRounds = 0
 	} else if goalContinuation != "" {
 		s.goalRounds++
@@ -1058,9 +1101,6 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	if current.seq > 0 {
 		s.settle(current.seq, Completion{Sequence: current.seq, Output: completion.output, Err: completion.err})
 	}
-	if completion.err == nil {
-		s.maybeGenerateTitle()
-	}
 	s.startPendingReload()
 	return nil
 }
@@ -1072,36 +1112,91 @@ func (s *Session) applyPendingReloadAfterAgent() {
 	})
 }
 
-func (s *Session) maybeGenerateTitle() {
-	if !s.autoTitle || s.titleAttempted || s.meta.Kind != sessionstore.SessionKindAgent || !s.definition.Surface.AutoTitle {
+type titleWork struct {
+	cancel      context.CancelFunc
+	placeholder string
+	title       string
+	err         error
+}
+
+// initializeTitle runs only for the admission that committed the fallback.
+func (s *Session) initializeTitle(initial *sessionstore.TitleInitialization) {
+	if initial == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.supervisor.ctx, 5*time.Second)
+	defer cancel()
+	if err := s.publishTitle(ctx, initial.Title); err != nil {
+		slog.Warn("publish initial session title", "root_id", s.id, "error", err)
+	}
+	if !s.definition.Surface.AutoTitle || utf8.RuneCountInString(initial.Title) < 20 {
 		return
 	}
 	runner, ok := s.runner.(interface {
-		GenerateTitle(context.Context) (string, llm.Usage, error)
+		GenerateTitle(context.Context, string) (string, llm.Usage, error)
 	})
 	if !ok {
 		return
 	}
-	meta, history, err := s.store.Load(s.meta.ID)
-	if err != nil {
-		return
+	generate := func(ctx context.Context) (string, llm.Usage, error) {
+		return runner.GenerateTitle(ctx, initial.Prompt)
 	}
-	placeholder := sessionstore.ProvisionalTitle(history)
-	if placeholder == "" || meta.Title != placeholder {
-		s.titleAttempted = true
-		return
+	if prepared, ok := s.runner.(interface {
+		prepareTitle(string) func(context.Context) (string, llm.Usage, error)
+	}); ok {
+		generate = prepared.prepareTitle(initial.Prompt)
 	}
-	s.titleAttempted = true
-	s.supervisor.launchWorker("automatic session title", func() {
-		ctx, cancel := context.WithTimeout(s.supervisor.ctx, 20*time.Second)
-		defer cancel()
-		title, _, titleErr := runner.GenerateTitle(ctx)
-		if titleErr == nil {
-			if changed, _ := s.store.SetTitleIf(s.meta.ID, placeholder, title); changed {
-				s.emitSessionUpdate(ctx, "session.title.updated", SessionUpdateEvent{Title: title})
+	modelCtx, stop := context.WithTimeout(s.supervisor.ctx, 20*time.Second)
+	work := &titleWork{cancel: stop, placeholder: initial.Title}
+	s.titleWork = work
+	if !s.supervisor.launchWorker("automatic session title", func() {
+		defer stop()
+		defer func() {
+			if value := recover(); value != nil {
+				work.err = panicError("automatic session title", value)
 			}
-		}
+			s.supervisor.post(workerEnvelope{kind: workerTitle, title: work})
+		}()
+		work.title, _, work.err = generate(modelCtx)
+	}) {
+		stop()
+		s.titleWork = nil
+	}
+}
+
+func (s *Session) completeTitle(work *titleWork) {
+	if work == nil || s.titleWork != work {
+		return // An explicit rename invalidates even a same-value title.
+	}
+	s.titleWork = nil
+	work.cancel()
+	if work.err != nil {
+		slog.Warn("generate session title", "root_id", s.id, "error", work.err)
+		return
+	}
+	// Persistence has its own deadline, not the spent model-call deadline.
+	ctx, cancel := context.WithTimeout(s.supervisor.ctx, 5*time.Second)
+	defer cancel()
+	changed, err := s.store.SetTitleIfContext(ctx, s.id, work.placeholder, work.title)
+	if err == nil && changed {
+		err = s.publishTitle(ctx, work.title)
+	}
+	if err != nil {
+		slog.Warn("save generated session title", "root_id", s.id, "error", err)
+	}
+}
+
+// publishTitle is shared with manual rename; callers commit before publishing.
+func (s *Session) publishTitle(ctx context.Context, title string) error {
+	s.notifyTitleChanged(s.id)
+	payload, err := json.Marshal(SessionUpdateEvent{Title: title})
+	if err != nil {
+		return err
+	}
+	_, err = s.store.AppendRootEvent(ctx, s.id, "session.title.updated", sessionstore.RuntimePayload{
+		Data: payload, MediaType: "application/json", Source: "session.title.updated",
 	})
+	return err
 }
 
 func (s *Session) finish(err error) {

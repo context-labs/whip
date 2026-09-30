@@ -615,6 +615,42 @@ test('pausing from a connection subscriber cannot leave a heartbeat scheduled', 
   assert.equal(server.connections.length, 1);
 });
 
+test('title notifications negotiate support, validate the wire payload, and survive reconnect without root streams', async t => {
+  const fixture = harness((request, connection) => {
+    if (request.method !== 'initialize') throw new Error('Unexpected request: ' + request.method);
+    assert.ok((request.params.capabilities as string[]).includes('session_title_notifications'));
+    connection.reply(request, { ...initialize(), capabilities: ['session_title_notifications'], negotiated_capabilities: ['session_title_notifications'] });
+  });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client' });
+  t.after(() => client.close());
+  const titles: string[] = [];
+  const off = client.onNotification('sessions.title.changed', params => titles.push(params.root_id));
+  await client.connect();
+  fixture.connections[0]!.notify('sessions.title.changed', { root_id: 'unopened' });
+  assert.deepEqual(titles, ['unopened']);
+  fixture.connections[0]!.fail();
+  await client.connect(); assert.equal(fixture.connections.length, 2);
+  fixture.connections[1]!.notify('sessions.title.changed', { root_id: 'other' });
+  assert.deepEqual(titles, ['unopened', 'other']);
+  off();
+  fixture.connections[1]!.notify('sessions.title.changed', { root_id: 'ignored' });
+  assert.equal(titles.length, 2);
+  assert.ok(fixture.connections.every(connection => connection.requests.every(request => request.method === 'initialize')));
+  fixture.connections[1]!.notify('sessions.title.changed', { root_id: 42 });
+  assert.notEqual(client.getSnapshot().state, 'connected');
+});
+
+test('new SDK connects to an older host without title notification support', async t => {
+  const fixture = harness();
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client' });
+  t.after(() => client.close());
+  const off = client.onNotification('sessions.title.changed', () => assert.fail('No title notifications from an older host'));
+  await client.connect();
+  assert.equal(client.getSnapshot().state, 'connected');
+  assert.deepEqual(client.getSnapshot().info?.negotiated_capabilities, []);
+  off();
+});
+
 test('initialization requests host and catalog skill capabilities and preserves negotiated support', async t => {
   const skills = ['workspace_completion', 'host_skill_completion', 'host_global_skill_completion', 'skill_catalog_completion'];
   const server = harness((request, connection) => {

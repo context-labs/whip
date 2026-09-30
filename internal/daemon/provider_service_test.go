@@ -267,3 +267,174 @@ func TestProviderLoginChangesWorkspaceBeforeProvisioning(t *testing.T) {
 		t.Fatal("resumed a cancelled login")
 	}
 }
+
+func compactionConfigurationFixture(t *testing.T) (*ProviderService, *config.Config) {
+	t.Helper()
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
+	t.Setenv("WHIP_TEST_MISSING_COMPACTION_KEY", "")
+	cfg := &config.Config{
+		DefaultModel: "main",
+		Providers: map[string]config.Provider{
+			"ready":    {BaseURL: "https://ready.test/v1", Auth: "none"},
+			"other":    {BaseURL: "https://other.test/v1", Auth: "none"},
+			"offline":  {BaseURL: "https://offline.test/v1", APIKeyEnv: "WHIP_TEST_MISSING_COMPACTION_KEY"},
+			"disabled": {BaseURL: "https://disabled.test/v1", Auth: "none"},
+		},
+		Models: map[string]config.Model{
+			"main":             {Providers: []string{"ready"}},
+			"summary":          {Providers: []string{"ready"}},
+			"offline-summary":  {Providers: []string{"offline"}},
+			"disabled-summary": {Providers: []string{"disabled"}},
+		},
+		DisabledProviders: []string{"disabled"},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"ready": {BaseURL: "https://ready.test/v1", Models: []config.ModelInfoLite{
+			{ID: "catalog-only"}, {ID: "ambiguous"},
+		}},
+		"other": {BaseURL: "https://other.test/v1", Models: []config.ModelInfoLite{{ID: "ambiguous"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := NewProviderService(t.Context(), "compaction-settings")
+	t.Cleanup(s.Close)
+	return s, cfg
+}
+
+func TestProviderCompactionConfigurationSelections(t *testing.T) {
+	tests := []struct {
+		name         string
+		model        string
+		provider     string
+		wantProvider string
+		wantErr      bool
+	}{
+		{name: "alias resolves provider", model: "summary", wantProvider: "ready"},
+		{name: "catalog resolves provider", model: "catalog-only", wantProvider: "ready"},
+		{name: "explicit route", model: "summary", provider: "ready", wantProvider: "ready"},
+		{name: "automatic clears provider", provider: "stale"},
+		{name: "unknown model", model: "missing", provider: "ready", wantErr: true},
+		{name: "unknown provider", model: "summary", provider: "missing", wantErr: true},
+		{name: "missing credentials", model: "offline-summary", wantErr: true},
+		{name: "disabled provider", model: "disabled-summary", wantErr: true},
+		{name: "wrong provider", model: "summary", provider: "other", wantErr: true},
+		{name: "ambiguous route", model: "ambiguous", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s, _ := compactionConfigurationFixture(t)
+			before, err := s.ReadConfiguration()
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := s.UpdateConfiguration(ConfigurationUpdate{
+				Revision: before.Revision, CompactModel: &test.model, CompactProvider: &test.provider,
+				CompactPercent: new(60), MaxRetries: new(3),
+			})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("update error = %v, wantErr %t", err, test.wantErr)
+			}
+			persisted, readErr := s.ReadConfiguration()
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if test.wantErr {
+				if persisted.Revision != before.Revision {
+					t.Fatal("invalid route partially saved configuration")
+				}
+				return
+			}
+			if after.CompactModel != test.model || after.CompactProvider != test.wantProvider {
+				t.Fatalf("compaction selection = %q %q; want %q %q",
+					after.CompactModel, after.CompactProvider, test.model, test.wantProvider)
+			}
+			if persisted.CompactModel != after.CompactModel || persisted.CompactProvider != after.CompactProvider {
+				t.Fatal("resolved model and provider were not persisted together")
+			}
+			if after.CompactPercent != 60 || after.MaxRetries != 3 {
+				t.Fatal("valid settings were not saved atomically")
+			}
+		})
+	}
+}
+
+func TestProviderCompactionConfigurationPreservesUnchangedLegacyOverrides(t *testing.T) {
+	for _, model := range []string{"deepseek-v4-flash-0731", "missing-summary"} {
+		t.Run(model, func(t *testing.T) {
+			s, cfg := compactionConfigurationFixture(t)
+			cfg.CompactModel, cfg.CompactProvider, cfg.CompactPct = model, "missing-provider", 95
+			if err := cfg.Save(); err != nil {
+				t.Fatal(err)
+			}
+			before, err := s.ReadConfiguration()
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := s.UpdateConfiguration(ConfigurationUpdate{
+				Revision: before.Revision, CompactModel: &before.CompactModel,
+				CompactProvider: &before.CompactProvider, CompactPercent: &before.CompactPercent,
+				DefaultModel: &before.DefaultModel, DefaultProvider: &before.DefaultProvider, MaxRetries: new(4),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.CompactModel != model || after.CompactProvider != "missing-provider" || after.CompactPercent != 95 || after.MaxRetries != 4 {
+				t.Fatalf("legacy override was changed: %+v", after)
+			}
+			if _, err := s.UpdateConfiguration(ConfigurationUpdate{
+				Revision: after.Revision, CompactProvider: new("different-missing-provider"),
+			}); err == nil {
+				t.Fatal("changed legacy route was not validated")
+			}
+			cleared, err := s.UpdateConfiguration(ConfigurationUpdate{
+				Revision: after.Revision, CompactModel: new(""), CompactProvider: &after.CompactProvider,
+			})
+			if err != nil || cleared.CompactModel != "" || cleared.CompactProvider != "" {
+				t.Fatalf("automatic did not clear override: %+v %v", cleared, err)
+			}
+		})
+	}
+}
+
+func TestProviderCompactionConfigurationThresholdValidation(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		percent int
+		wantErr bool
+	}{
+		{name: "automatic"},
+		{name: "minimum", percent: 10},
+		{name: "maximum", percent: 90},
+		{name: "negative", percent: -1, wantErr: true},
+		{name: "below minimum", percent: 9, wantErr: true},
+		{name: "above maximum", percent: 91, wantErr: true},
+		{name: "over 100", percent: 101, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, _ := compactionConfigurationFixture(t)
+			before, err := s.ReadConfiguration()
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := s.UpdateConfiguration(ConfigurationUpdate{
+				Revision: before.Revision, CompactPercent: &test.percent, MaxRetries: new(5),
+			})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("threshold error = %v, wantErr %t", err, test.wantErr)
+			}
+			if !test.wantErr && after.CompactPercent != test.percent {
+				t.Fatalf("threshold = %d, want %d", after.CompactPercent, test.percent)
+			}
+			persisted, err := s.ReadConfiguration()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.wantErr && persisted.Revision != before.Revision {
+				t.Fatal("invalid threshold partially saved configuration")
+			}
+		})
+	}
+}

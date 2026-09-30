@@ -182,7 +182,7 @@ func TestRootTurnCommitWriteFailuresPreserveHumanInputAndHistory(t *testing.T) {
 		{"raw history", "INSERT", "messages", "", false},
 		{"compaction", "INSERT", "compactions", "", false},
 		{"workspace snapshot", "INSERT", "snapshots", "", false},
-		{"session metadata", "UPDATE", "sessions", "NEW.model='new-model'", false},
+		{"session metadata", "UPDATE", "sessions", "", false},
 		{"goal continuation", "INSERT", "inbox", "NEW.kind='goal'", false},
 		{"goal event", "INSERT", "events", "NEW.kind='goal.continued'", false},
 		{"clear goal", "UPDATE", "sessions", "NEW.goal='' AND OLD.goal<>''", true},
@@ -202,7 +202,7 @@ func TestRootTurnCommitWriteFailuresPreserveHumanInputAndHistory(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := inputRootSnapshot(t, store, root)
-			commit := RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq, Status: "succeeded", Model: "new-model", Provider: "new-provider", Messages: []llm.Message{{Role: "assistant", Content: "research result"}}, Compactions: []RootCompaction{{Summary: "summary", RawCutoff: new(1)}}, WorkspaceRef: "workspace-snapshot", WorkspaceSeq: 1, GoalContinuation: "continue research"}
+			commit := RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq, Status: "succeeded", Messages: []llm.Message{{Role: "assistant", Content: "research result"}}, Compactions: []RootCompaction{{Summary: "summary", RawCutoff: new(1)}}, WorkspaceRef: "workspace-snapshot", WorkspaceSeq: 1, GoalContinuation: "continue research"}
 			if failure.clearGoal {
 				commit.ClearGoal = true
 				commit.GoalContinuation = ""
@@ -341,7 +341,7 @@ func TestArtifactDirectoryFailureCannotPublishUnrecoverableWork(t *testing.T) {
 					_, err := store.ClaimScheduleFire(t.Context(), ScheduleFireClaim{RootID: root, AgentID: root, ScheduleID: scheduleID, Slot: anchor})
 					return err
 				default:
-					commit := RootTurnCommit{RootID: root, AgentID: root, InboxSeq: command.Command.IngressSeq, Status: "succeeded", Model: "model", Provider: "provider"}
+					commit := RootTurnCommit{RootID: root, AgentID: root, InboxSeq: command.Command.IngressSeq, Status: "succeeded"}
 					if action == "commit root outcome" {
 						commit.Outcome = big
 					} else {
