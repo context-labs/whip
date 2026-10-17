@@ -345,3 +345,93 @@ it('missing raw records split activity, prevent cross-gap call binding, and mark
   history.gaps[0]!.fromSeq = 4;
   expect(timelineRows(history, [], true).find(row => row.historyGap)?.id).toBe('history-gap:1:4');
 });
+
+it('keeps the full raw response endpoint through rich parts, folded results, and activity groups', () => {
+  const first = '2026-09-27T19:00:00Z';
+  const last = '2026-09-27T19:02:00Z';
+  const history = { revision: '1', throughSeq: 7, nextSeq: 0, hasMore: false, loading: false, truncated: false, messages: [
+    { seq: 1, message: { role: 'user', authored: true, content: 'Start' } },
+    { seq: 2, message: { role: 'assistant', sent_at: first, content: 'Before.', tool_calls: [{ id: 'a', type: 'function', function: { name: 'rlm_exec', arguments: '{}' } }],
+      presentation: { version: 1, parts: [{ id: 'text-a', kind: 'text', start: 0, end: 7 }, { id: 'tool-a', kind: 'tool', call_id: 'a', tool_name: 'rlm_exec' }] } } },
+    { seq: 3, message: { role: 'tool', tool_call_id: 'a', content: 'Not copied' } },
+    { seq: 4, message: { role: 'user', content: 'Internal image delivery' } },
+    { seq: 5, message: { role: 'assistant', sent_at: last, content: 'After.', tool_calls: [{ id: 'b', type: 'function', function: { name: 'rlm_exec', arguments: '{}' } }],
+      presentation: { version: 1, parts: [{ id: 'text-b', kind: 'text', start: 0, end: 6 }, { id: 'tool-b', kind: 'tool', call_id: 'b', tool_name: 'rlm_exec' }] } } },
+    { seq: 6, message: { role: 'tool', tool_call_id: 'b', content: 'Trailing result' } },
+    { seq: 7, message: { role: 'user', authored: true, content: 'Next' } },
+  ] } as Parameters<typeof timelineRows>[0];
+  const raw = timelineRows(history, [], true);
+  expect(raw.find(row => row.callId === 'b')).toMatchObject({ seq: 5, memberSeqs: [6] });
+  const grouped = conversationActivityRows(raw, [cell('a', 2), cell('b', 5)]);
+  const end = grouped.at(-2)!;
+  expect(end).toMatchObject({ memberSeqs: [5, 6] });
+  expect([...responseCopies(grouped, false, false, 7)]).toEqual([[end.id, { text: 'Before.\n\nAfter.', label: 'Copy response', sentAt: last, endpoint: 6 }]]);
+  expect(responseCopies(grouped.slice(0, -1), false, false, 6).get(end.id)?.endpoint).toBe(6);
+});
+
+it('carries rich text/image/stored-body timestamps and the last assistant tool-only time without inventing dates', () => {
+  const stamp = '2026-09-27T20:00:00Z';
+  const history = { revision: '1', throughSeq: 2, nextSeq: 0, hasMore: false, loading: false, truncated: false, messages: [
+    { seq: 1, message: { role: 'assistant', sent_at: stamp, content: [{ type: 'text', text: 'Hello' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }], presentation: { version: 1, parts: [{ id: 'text', kind: 'text', start: 0, end: 5 }] } } },
+    { seq: 2, role: 'assistant', sent_at: stamp, body: { reference_id: 'stored', size: '999', digest: 'a', media_type: 'application/json' }, presentation: { version: 1, parts: [{ id: 'partial', kind: 'text', text: 'Partial' }] } },
+  ] } as Parameters<typeof timelineRows>[0];
+  const rows = timelineRows(history, [], true);
+  expect(rows.filter(row => row.role === 'assistant').every(row => row.sentAt === stamp)).toBe(true);
+  const later = { ...tool('later', 3), assistantSeq: 3, sentAt: '2026-09-27T20:01:00Z' };
+  const projected = conversationActivityRows([...rows, later], [cell('later', 3)]);
+  expect([...responseCopies(projected, false, false, 3).values()][0]).toMatchObject({ sentAt: later.sentAt, label: 'Copy visible response', endpoint: 3 });
+  for (const sentAt of [undefined, 'invalid']) {
+    const response = responseCopies([{ id: 'one', role: 'assistant', text: 'Answer', seq: 1, sentAt: stamp }, { ...later, sentAt }], false, false, 3).get(later.id);
+    expect(response?.sentAt).toBeUndefined();
+  }
+});
+
+it('offers no uncertain history endpoint across gaps, partial prefixes, live members, or an unloaded suffix', () => {
+  const answer: TimelineRow = { id: 'answer', role: 'assistant', text: '**Answer**', seq: 2 };
+  for (const rows of [
+    [answer, { ...tool('tail', 4) }],
+    [answer, { ...tool('tail', 3), historyUncertain: true }],
+    [answer, { ...tool('tail', 3), live: true }],
+    [answer, { id: 'unknown', role: 'notice', text: 'Interrupted' }],
+  ]) expect([...responseCopies(rows, false, false, 4).values()][0]?.endpoint).toBeUndefined();
+  expect(responseCopies([answer], false, true, 2).get(answer.id)).toMatchObject({ label: 'Copy visible response' });
+  expect(responseCopies([answer], false, true, 2).get(answer.id)?.endpoint).toBeUndefined();
+  expect(responseCopies([answer], false).get(answer.id)?.endpoint).toBeUndefined();
+  expect(responseCopies([answer], true, false, 2).size).toBe(0);
+  const gap: TimelineRow = { id: 'gap', role: 'history-gap', text: '', historyGap: { fromSeq: 3, toSeq: 4, status: 'paused' } };
+  expect(responseCopies([answer, gap], false, false, 4).get(answer.id)?.endpoint).toBeUndefined();
+  const groupWithLive = conversationActivityRows([answer, { ...tool('x', 3), memberSeqs: [4] }, tool('y')], [cell('x', 3), cell('y')]);
+  expect([...responseCopies(groupWithLive, false, false, 4).values()][0]?.endpoint).toBeUndefined();
+});
+
+it('supports image-only controls but no tool-only footer and bounds Markdown copy including separators', () => {
+  const image: TimelineRow = { id: 'image', role: 'assistant', seq: 1, text: '', images: [{ url: 'data:image/png;base64,AAAA' }], sentAt: '2026-09-27T20:00:00Z' };
+  expect(responseCopies([image], false, false, 1).get(image.id)).toMatchObject({ text: '', endpoint: 1, sentAt: image.sentAt });
+  expect(responseCopies([{ ...tool('only', 1), assistantSeq: 1, sentAt: image.sentAt }], false, false, 1).size).toBe(0);
+  const large: TimelineRow = { id: 'large', role: 'assistant', text: 'x'.repeat(256 * 1024 - 1), seq: 1 };
+  const response = responseCopies([large, { id: 'tail', role: 'assistant', text: 'y', seq: 2 }], false, false, 2).get('tail')!;
+  expect(response.text.length).toBe(256 * 1024 - 1);
+  expect(response.label).toBe('Copy visible response');
+  expect(response.endpoint).toBe(2);
+});
+
+it.each([false, true])('keeps the last assistant timestamp when interrupted prose is recorded on a tool result (stored=%s)', stored => {
+  const stamp = '2026-09-27T20:00:00Z';
+  const presentation = { version: 1, turn_id: 'turn', parts: [
+    { id: 'result', kind: 'result', call_id: 'call' },
+    { id: 'pending', kind: 'text', text: 'Interrupted partial answer' },
+  ] };
+  const history = { revision: '1', throughSeq: 3, nextSeq: 0, hasMore: false, loading: false, truncated: false, messages: [
+    { seq: 1, message: { role: 'user', authored: true, content: 'Start' } },
+    { seq: 2, message: { role: 'assistant', sent_at: stamp, content: 'Working.', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{}' } }] } },
+    stored
+      ? { seq: 3, role: 'tool', presentation, body: { reference_id: 'result', size: '999', digest: 'a', media_type: 'application/json' } }
+      : { seq: 3, message: { role: 'tool', tool_call_id: 'call', content: 'Tool result', presentation } },
+  ] } as Parameters<typeof timelineRows>[0];
+  const raw = timelineRows(history, [], true);
+  expect(raw.find(row => row.partId === 'pending')).toMatchObject({ role: 'assistant', sourceRole: 'tool', seq: 3 });
+  const rows = conversationActivityRows(raw, [cell('call', 2)]);
+  expect([...responseCopies(rows, false, false, 3).values()]).toEqual([
+    { text: 'Working.\n\nInterrupted partial answer', label: 'Copy visible response', sentAt: stamp, endpoint: 3 },
+  ]);
+});

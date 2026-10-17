@@ -3,15 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
 import type { WhipClient } from '@whip/sdk';
 import { defineAgent, type Definition } from '@whip/sdk/agents';
-import { Button, Checkbox, Input, Switch, Textarea } from '@whip/ui';
+import { Button, Checkbox, Collapsible, Dialog, Field, Fieldset, Input, Switch, Textarea } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { surface, typography, scale } from '@whip/ui/tokens.stylex';
 import { useRuntime } from '../context';
 import { ErrorNotice } from '../error-feedback';
-import { layout } from '../styles';
 import { definitionIdPattern } from '../session-tabs';
 import { definitionsQueryKey, useDefinitions, type DefinitionSummary } from '../definitions';
-import { SettingsGroup, SettingRow, settingsSection } from './section-layout';
+import { SettingsGroup } from './section-layout';
 import { useSettingsEdits } from './unsaved';
 
 /** The editable, data-only part of a definition. Tools and hooks need code and stay with the SDK. */
@@ -59,6 +58,7 @@ export function AgentsSettings({ client, enabled }: { client: WhipClient; enable
     enabled: definitions.supported,
   });
   const [editing, setEditing] = useState<{ key: string; values: AgentValues }>({ key: 'new', values: blank });
+  const [editorOpen, setEditorOpen] = useState(false);
   const [loadError, setLoadError] = useState<unknown>();
   if (!definitions.supported) {
     return enabled ? <SettingsGroup title="Agents"><p role="status" {...stylex.props(styles.note)}>This host does not support agent definitions. Update it to author agents here.</p></SettingsGroup> : null;
@@ -69,10 +69,11 @@ export function AgentsSettings({ client, enabled }: { client: WhipClient; enable
     try {
       const record = await client.agents.get(item.id, item.built_in ? undefined : item.revision);
       setEditing({ key: `${item.id}:${item.revision}`, values: agentValues(record.definition, record.built_in) });
+      setEditorOpen(true);
     } catch (error) { setLoadError(error); }
   }
   return <>
-    <SettingsGroup title="Agents on this host" action={<Button variant="ghost" disabled={!enabled} onClick={() => setEditing({ key: `new:${Date.now()}`, values: blank })}>New agent</Button>}>
+    <SettingsGroup title="Agents on this host" action={<Button id="agents" variant="ghost" disabled={!enabled} onClick={() => { setEditing({ key: `new:${Date.now()}`, values: blank }); setEditorOpen(true); }}>New agent</Button>}>
       {definitions.query.isPending && <p role="status" {...stylex.props(styles.note)}>Loading agents…</p>}
       {definitions.query.error && <ErrorNotice type="resource" owner={`${runtimeId}:definitions`} title="Could not load agents" error={definitions.query.error} />}
       <ul {...stylex.props(styles.list)} aria-label="Agent definitions">
@@ -86,16 +87,17 @@ export function AgentsSettings({ client, enabled }: { client: WhipClient; enable
       </ul>
       <ErrorNotice type="action" owner={`${runtimeId}:definition-open`} title="Could not open the agent" error={loadError} />
     </SettingsGroup>
-    <AgentEditor key={editing.key} client={client} enabled={enabled} initial={editing.values}
+    <AgentEditor key={editing.key} client={client} enabled={enabled} initial={editing.values} open={editorOpen} onOpenChange={setEditorOpen}
       modules={catalog.data?.definition.modules ?? []} capabilities={catalog.data?.definition.capabilities ?? []} />
   </>;
 }
 
-function AgentEditor({ client, enabled, initial, modules, capabilities }: { client: WhipClient; enabled: boolean; initial: AgentValues; modules: readonly string[]; capabilities: readonly string[] }) {
+function AgentEditor({ client, enabled, initial, open, onOpenChange, modules, capabilities }: { client: WhipClient; enabled: boolean; initial: AgentValues; open: boolean; onOpenChange: (open: boolean) => void; modules: readonly string[]; capabilities: readonly string[] }) {
   const runtime = useRuntime();
   const [error, setError] = useState('');
   const [errorType, setErrorType] = useState<'validation' | 'action'>('action');
   const [notice, setNotice] = useState('');
+  const nameInput = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
   const saved = useRef(false);
   useEffect(() => () => { request.current?.abort(); request.current = null; }, [client]);
@@ -104,7 +106,7 @@ function AgentEditor({ client, enabled, initial, modules, capabilities }: { clie
     onSubmit: async ({ value }) => {
       if (!enabled || request.current) return;
       setError(''); setNotice(''); setErrorType('action');
-      if (!definitionIdPattern.test(value.id.trim())) { setErrorType('validation'); setError('Use a lowercase id of letters, digits, and hyphens, 2 to 64 characters, starting with a letter.'); return; }
+      if (!definitionIdPattern.test(value.id.trim())) { setErrorType('validation'); setError('Use a lowercase name of letters, digits, and hyphens, 2 to 64 characters, starting with a letter.'); return; }
       if (!value.modules.length) { setErrorType('validation'); setError('Select at least one host module.'); return; }
       const controller = new AbortController();
       request.current = controller;
@@ -129,54 +131,50 @@ function AgentEditor({ client, enabled, initial, modules, capabilities }: { clie
   });
   const toggle = (list: string[], name: string, checked: boolean) => checked ? [...list.filter(item => item !== name), name] : list.filter(item => item !== name);
   const text = (name: 'id' | 'projectFiles', label: string, description: string, placeholder?: string) => <form.Field key={name} name={name}>{field =>
-    <SettingRow id={name === 'id' ? 'agents' : `agent_${name}`} label={label} description={description}>
-      <Input aria-label={label} xstyle={settingsSection.control} disabled={!enabled || submitting} placeholder={placeholder} value={field.state.value}
+    <Field label={label} description={description}>
+      <Input ref={name === 'id' ? nameInput : undefined} xstyle={name === 'projectFiles' ? styles.identifier : undefined} disabled={!enabled || submitting} placeholder={placeholder} value={field.state.value}
         onBlur={field.handleBlur} onChange={event => field.handleChange(event.target.value)} />
-    </SettingRow>}
+    </Field>}
   </form.Field>;
-  const prose = (name: 'persona' | 'rules', label: string, description: string, placeholder: string) => <form.Field key={name} name={name}>{field =>
-    <SettingRow id={`agent_${name}`} label={label} description={description}>
-      <Textarea aria-label={label} xstyle={styles.prose} rows={name === 'rules' ? 5 : 2} disabled={!enabled || submitting} placeholder={placeholder}
+  const prose = (name: 'persona' | 'rules', label: string, placeholder: string) => <form.Field key={name} name={name}>{field =>
+    <Field label={label}>
+      <Textarea xstyle={styles.prose} rows={name === 'rules' ? 3 : 2} disabled={!enabled || submitting} placeholder={placeholder}
         value={field.state.value} onBlur={field.handleBlur} onChange={event => field.handleChange(event.target.value)} />
-    </SettingRow>}
+    </Field>}
   </form.Field>;
   const flag = (name: 'skillDiscovery' | 'standingInstructions' | 'autoTitle' | 'goalLoop', label: string, description: string) => <form.Field key={name} name={name}>{field =>
-    <SettingRow id={`agent_${name}`} label={label} description={description}>
-      <Switch aria-label={label} checked={field.state.value} disabled={!enabled || submitting} onCheckedChange={field.handleChange} />
-    </SettingRow>}
+    <Switch aria-labelledby={`agent-${name}-label`} label={<span id={`agent-${name}-label`}>{label}</span>} description={description} checked={field.state.value} disabled={!enabled || submitting} onCheckedChange={field.handleChange} />}
   </form.Field>;
   const choices = (name: 'modules' | 'capabilities', label: string, description: string, options: readonly string[]) => <form.Field key={name} name={name}>{field =>
-    <SettingRow id={`agent_${name}`} label={label} description={description}>
-      <div role="group" aria-label={label} {...stylex.props(styles.choices)}>
+    <Fieldset legend={label} description={description} xstyle={styles.choiceField}>
+      <div {...stylex.props(styles.choices)}>
         {options.map(option => <Checkbox key={option} label={option} checked={field.state.value.includes(option)} disabled={!enabled || submitting}
           onCheckedChange={checked => field.handleChange(toggle(field.state.value, option, checked === true))} />)}
         {!options.length && <span {...stylex.props(styles.note)}>Loading the host's catalog…</span>}
       </div>
-    </SettingRow>}
+    </Fieldset>}
   </form.Field>;
-  return <form {...stylex.props(layout.column)} aria-label="Agent editor" onSubmit={event => { event.preventDefault(); void form.handleSubmit(); }}>
-    <SettingsGroup title={initial.id ? `Edit ${initial.id}` : 'New agent'}>
-      {text('id', 'Agent id', 'Lowercase letters, digits, and hyphens. Registering an existing id adds a revision; running sessions keep theirs.', 'support-triage')}
-      {prose('persona', 'Persona', 'The first sentence of the system prompt: who the agent is.', 'You triage support tickets for a small engineering team.')}
-      {prose('rules', 'Rules', 'Operating rules that follow the runtime guide. One per line.', 'Operating rules:\n- Look tickets up before describing them.')}
-      {text('projectFiles', 'Project files', 'Instruction files read along the project directory chain, comma separated. Empty disables discovery.', 'CLAUDE.md, AGENTS.md')}
-      {flag('skillDiscovery', 'Skill discovery', 'Offer the project and user skill catalogs.')}
-      {flag('standingInstructions', 'Standing instructions', 'Append the user’s me.md rules.')}
-    </SettingsGroup>
-    <SettingsGroup title="Reach">
-      {choices('modules', 'Host modules', 'What the model is told about and may call. The kernel installs only these.', modules)}
-      {choices('capabilities', 'Capabilities', 'Authority the agent receives at session start. Children can only narrow it.', capabilities)}
-    </SettingsGroup>
-    <SettingsGroup title="Surface">
-      {flag('autoTitle', 'Automatic title', 'Name the session after its first turn.')}
-      {flag('goalLoop', 'Goal loop', 'Allow goal commands that continue the agent until it reports done.')}
-    </SettingsGroup>
-    <div {...stylex.props(layout.row)}>
-      <Button type="submit" variant="primary" loading={submitting} disabled={!enabled || submitting || !dirty && !!notice}>Register agent</Button>
-      {notice && <span role="status" {...stylex.props(styles.note)}>{notice}</span>}
-    </div>
-    {error && <ErrorNotice type={errorType} owner="agent-editor" title="Could not register the agent" error={error} />}
-  </form>;
+  return <Dialog open={open} onOpenChange={onOpenChange} initialFocus={nameInput} title={initial.id ? `Edit ${initial.id}` : 'New agent'} xstyle={styles.editor}
+    footer={<Button type="submit" form="agent-editor" variant="primary" loading={submitting} disabled={!enabled || submitting || !dirty && !!notice}>Register agent</Button>}>
+    <form id="agent-editor" aria-label="Agent editor" {...stylex.props(styles.form)} onSubmit={event => { event.preventDefault(); void form.handleSubmit(); }}>
+      {text('id', 'Agent Name', 'Lowercase letters, digits, and hyphens. Reuse a name to add a revision.', 'support-triage')}
+      {prose('persona', 'Persona', 'Who is this agent, and what does it do?')}
+      {prose('rules', 'Rules', 'Operating instructions, one per line.')}
+      {choices('modules', 'Host modules', 'Functions the agent can call. Select at least one.', modules)}
+      {choices('capabilities', 'Capabilities', 'Authority granted at session start. Children can only narrow it.', capabilities)}
+      <Collapsible title="More options">
+        <div {...stylex.props(styles.options)}>
+          {text('projectFiles', 'Project files', 'Comma-separated instruction files. Leave empty to skip discovery.', 'CLAUDE.md, AGENTS.md')}
+          {flag('skillDiscovery', 'Skill discovery', 'Offer project and user skill catalogs.')}
+          {flag('standingInstructions', 'Standing instructions', 'Include your me.md rules.')}
+          {flag('autoTitle', 'Automatic title', 'Name sessions from their first message.')}
+          {flag('goalLoop', 'Goal loop', 'Continue until the agent reports done.')}
+        </div>
+      </Collapsible>
+      {error && <ErrorNotice type={errorType} owner="agent-editor" title="Could not register the agent" error={error} />}
+      {notice && <p role="status" {...stylex.props(styles.note)}>{notice}</p>}
+    </form>
+  </Dialog>;
 }
 
 const styles = stylex.create({
@@ -185,6 +183,11 @@ const styles = stylex.create({
   identity: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 },
   name: { fontWeight: 500 },
   note: { fontSize: typography.size12, color: surface.secondaryText, margin: 0, lineHeight: 1.5 },
-  prose: { width: '100%', minHeight: 60, resize: 'vertical', fontSize: typography.size13 },
-  choices: { display: 'flex', flexWrap: 'wrap', gap: scale.space2, maxWidth: 420 },
+  editor: { width: 'min(800px, calc(100vw - 32px))', padding: scale.space5, gap: scale.space4 },
+  form: { display: 'flex', flexDirection: 'column', gap: scale.space4, minWidth: 0 },
+  identifier: { fontFamily: typography.mono },
+  prose: { minHeight: 60 },
+  choiceField: { gap: scale.space2 },
+  choices: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 9em), 1fr))', columnGap: scale.space2, rowGap: scale.space1 },
+  options: { display: 'flex', flexDirection: 'column', gap: scale.space3, paddingTop: scale.space3 },
 });

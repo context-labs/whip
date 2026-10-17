@@ -211,14 +211,15 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     if (!isSessionTab(tab)) return [
       ...(tab.kind === 'browser' ? [{ id: 'browser-duplicate', label: 'Duplicate Browser tab', disabled: !runtime.platform.browser || !runtime.tabs.canOpenBrowser(), onSelect: () => { void openBrowserTab(runtime, navigate, { url: tab.url, environmentId: tab.environmentId, paneId: pane.id }); } }] : []),
       ...(tab.kind === 'terminal' ? [{ id: 'terminal-new', label: 'New terminal here', onSelect: () => void openTerminalTab(runtime, navigate, { runtimeId: tab.runtimeId, cwd: tab.cwd, paneId: pane.id }) }] : []),
-      { id: 'close', label: 'Close tab', onSelect: () => close([tab.id], true) },
-      { id: 'others', label: 'Close other tabs', disabled: pane.tabs.length < 2, onSelect: () => close(pane.tabs.filter(item => item.id !== tab.id).map(item => item.id), true) },
-      { id: 'right', label: 'Close tabs to the right', disabled: index === pane.tabs.length - 1, onSelect: () => close(pane.tabs.slice(index + 1).map(item => item.id), true) },
       ...panes.filter(p => p.id !== pane.id).map(p => ({ id: `move-${p.id}`, label: `Move to pane ${panes.indexOf(p) + 1}`, onSelect: () => transfer({ viewId: tab.id, paneId: p.id }) })),
       { id: 'split-right', label: 'Move to split right', disabled: pane.tabs.length < 2 || !canSplit(pane.id, 'right'), onSelect: () => transfer({ viewId: tab.id, paneId: pane.id, edge: 'right' }) },
       { id: 'split-down', label: 'Move to split below', disabled: pane.tabs.length < 2 || !canSplit(pane.id, 'bottom'), onSelect: () => transfer({ viewId: tab.id, paneId: pane.id, edge: 'bottom' }) },
       { id: 'left', label: 'Move left', disabled: index <= 0, onSelect: () => runtime.tabs.move(tab.id, -1) },
       { id: 'move-right', label: 'Move right', disabled: index >= pane.tabs.length - 1, onSelect: () => runtime.tabs.move(tab.id, 1) },
+      { id: 'close-separator', separator: true, label: '' },
+      { id: 'close', label: 'Close tab', onSelect: () => close([tab.id], true) },
+      { id: 'others', label: 'Close other tabs', disabled: pane.tabs.length < 2, onSelect: () => close(pane.tabs.filter(item => item.id !== tab.id).map(item => item.id), true) },
+      { id: 'right', label: 'Close tabs to the right', disabled: index === pane.tabs.length - 1, onSelect: () => close(pane.tabs.slice(index + 1).map(item => item.id), true) },
     ];
     const href = new URL(`/h/${encodeURIComponent(tab.runtimeId)}/s/${encodeURIComponent(tab.rootId)}`, 'https://whip.invalid');
     for (const [key, value] of Object.entries(sessionSearch(tab))) if (value) href.searchParams.set(key, value);
@@ -229,9 +230,6 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       } })),
       { id: 'details', label: 'Session details', onSelect: () => { setPicker(false); void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: { ...sessionSearch(tab), panel: 'agents' }, state: { whipViewId: tab.id } }); } },
       { id: 'terminal', label: 'Open terminal here', onSelect: () => { setPicker(false); void openTerminalTab(runtime, navigate, { runtimeId: tab.runtimeId, cwd: item(tab)?.cwd, rootId: tab.rootId, paneId: pane.id }); } },
-      { id: 'close', label: 'Close tab', onSelect: () => close([tab.id], true) },
-      { id: 'others', label: 'Close other tabs', disabled: pane.tabs.length < 2, onSelect: () => close(pane.tabs.filter(item => item.id !== tab.id).map(item => item.id), true) },
-      { id: 'right', label: 'Close tabs to the right', disabled: index === pane.tabs.length - 1, onSelect: () => close(pane.tabs.slice(index + 1).map(item => item.id), true) },
       { id: 'separator', separator: true, label: '' },
       { id: 'split-right', label: 'Split right', disabled: !canSplit(pane.id, 'right') || tabs.length >= 32, onSelect: () => split(tab, 'right') },
       { id: 'split-down', label: 'Split down', disabled: !canSplit(pane.id, 'bottom') || tabs.length >= 32, onSelect: () => split(tab, 'bottom') },
@@ -240,6 +238,10 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       { id: 'left', label: 'Move left', disabled: index <= 0, onSelect: () => runtime.tabs.move(tab.id, -1) },
       { id: 'move-right', label: 'Move right', disabled: index >= pane.tabs.length - 1, onSelect: () => runtime.tabs.move(tab.id, 1) },
       { id: 'link', label: 'Copy session link', onSelect: () => void runtime.platform.copy(runtime.platform.sessionLink ? runtime.platform.sessionLink(href.pathname + href.search, runtime.connections.host(tab.runtimeId)?.profile) : new URL(href.pathname + href.search, window.location.href).href).catch(error => runtime.reportWorkspace(error)) },
+      { id: 'close-separator', separator: true, label: '' },
+      { id: 'close', label: 'Close tab', onSelect: () => close([tab.id], true) },
+      { id: 'others', label: 'Close other tabs', disabled: pane.tabs.length < 2, onSelect: () => close(pane.tabs.filter(item => item.id !== tab.id).map(item => item.id), true) },
+      { id: 'right', label: 'Close tabs to the right', disabled: index === pane.tabs.length - 1, onSelect: () => close(pane.tabs.slice(index + 1).map(item => item.id), true) },
     ];
   };
   useImperativeHandle(ref, () => ({
@@ -265,7 +267,6 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     items={pane.tabs.map(tab => ({ value: tab.id, label: title(tab), accessibleLabel: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${panes.length > 1 ? ` · Pane ${panes.indexOf(pane) + 1}` : ''}${isSessionTab(tab) && tab.location.agent ? ` · Agent ${tab.location.agent}` : ''} · ${kindLabel(tab)}${hasDraft(tab) ? ' · Unsent draft' : ''}`,
       render: <Link {...tabDestination(tab)} />,
       status: icon(tab), metadata: <>{viewSuffix(tab.kind).replace(' · ', '')}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${project(tab) ? ` · ${project(tab)}` : ''}`,
-      menu: <Menu trigger={<IconButton variant="ghost" label={`Tab actions for ${title(tab)}`}><MoreHorizontal size={13}/></IconButton>} items={actions(tab)} />,
       wrap: (element: ReactElement) => <ContextMenu items={actions(tab)}>{element}</ContextMenu>,
     }))}/>;
   const visiblePanes = matched ? panes.filter(p => !(compact || small) || p.id === workspace.focusedPaneId) : [];

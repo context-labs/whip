@@ -17,7 +17,7 @@ import (
 
 func TestCapabilityLedgerBindsAgentOperationBudgetAndScope(t *testing.T) {
 	root := t.TempDir()
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestCapabilityLedgerBindsAgentOperationBudgetAndScope(t *testing.T) {
 
 func TestEnsureAuthorityIsIdempotent(t *testing.T) {
 	root := t.TempDir()
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestEnsureAuthorityIsIdempotent(t *testing.T) {
 
 func TestCapabilityPermissionSurvivesDispatcherAndRevalidates(t *testing.T) {
 	root := t.TempDir()
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestCapabilityPermissionSurvivesDispatcherAndRevalidates(t *testing.T) {
 
 func TestWorkspaceMutationRequiresDistinctRootWriter(t *testing.T) {
 	root := t.TempDir()
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestWorkspaceMutationRequiresDistinctRootWriter(t *testing.T) {
 func TestPendingPermissionResumesAfterStoreReopen(t *testing.T) {
 	root := t.TempDir()
 	database := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(database)
+	st, err := Open(database, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestPendingPermissionResumesAfterStoreReopen(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(database)
+	st, err = Open(database, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -549,9 +549,6 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 
 	t.Run("accessors and bootstrap", func(t *testing.T) {
 		st, rootID, agentID := actorFailureFixture(t)
-		if st.Processes() == nil {
-			t.Fatal("process manager is nil")
-		}
 		if _, err := st.WorkspaceRoot(ctx, "missing"); err == nil {
 			t.Fatal("missing workspace root was accepted")
 		}
@@ -923,7 +920,7 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 
 func capabilityRoot(t *testing.T, workspace string) (*Store, string) {
 	t.Helper()
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

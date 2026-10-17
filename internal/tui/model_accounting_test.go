@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -31,7 +31,7 @@ func TestModelAccountingUsesDurableTreeChargesAndShowsUncertainty(t *testing.T) 
 	m.agentOpen = "child"
 	a.ReportedCostMicros = 0
 	a.Revision = 10
-	payload, err := json.Marshal(daemon.StreamEvent{Accounting: &a})
+	payload, err := json.Marshal(protocol.StreamEvent{Accounting: &a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestModelAccountingUsesDurableTreeChargesAndShowsUncertainty(t *testing.T) 
 func TestModelAccountingIgnoresOlderQueuedSummary(t *testing.T) {
 	m := model{}
 	m.clientView.accounting = session.ModelAccounting{RootID: "root", Revision: 20, ReportedCostMicros: 300}
-	payload, err := json.Marshal(daemon.StreamEvent{Accounting: &session.ModelAccounting{RootID: "root", Revision: 19, ReportedCostMicros: 100}})
+	payload, err := json.Marshal(protocol.StreamEvent{Accounting: &session.ModelAccounting{RootID: "root", Revision: 19, ReportedCostMicros: 100}})
 	if err != nil {
 		t.Fatal(err)
 	}

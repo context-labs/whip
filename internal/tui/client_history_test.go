@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -88,10 +88,10 @@ func TestLargeHistoryMessageExplicitlyIdentifiesContentReference(t *testing.T) {
 
 type historyConnection struct {
 	*fakeDaemonConnection
-	requests chan daemon.HistoryPageParams
+	requests chan protocol.HistoryPageParams
 }
 
-func (c *historyConnection) HistoryPage(ctx context.Context, p daemon.HistoryPageParams) (session.BoundedTranscriptPage, error) {
+func (c *historyConnection) HistoryPage(ctx context.Context, p protocol.HistoryPageParams) (session.BoundedTranscriptPage, error) {
 	c.requests <- p
 	return session.BoundedTranscriptPage{HistoryRevision: *p.Revision, NextSeq: 1, Messages: []session.TranscriptPageEntry{}}, nil
 }
@@ -101,7 +101,7 @@ func TestScrollHistoryRequestsOneBoundedPage(t *testing.T) {
 		RootID: "root", HistoryRevision: 7, FirstMessageSeq: 100, MessageSeqs: []int{100},
 		Omitted: map[string]bool{"messages": true}, Meta: session.Meta{ID: "root"}, Messages: []llm.Message{{Role: "user", Content: "recent"}},
 	}
-	connection := &historyConnection{fakeDaemonConnection: newFakeDaemonConnection(snapshot), requests: make(chan daemon.HistoryPageParams, 1)}
+	connection := &historyConnection{fakeDaemonConnection: newFakeDaemonConnection(snapshot), requests: make(chan protocol.HistoryPageParams, 1)}
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
 		Connector: func(context.Context, map[string]int64) (daemonConnection, error) { return connection, nil },

@@ -58,9 +58,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const ready = async (id, mode) => {
     await (mode === 'repl' ? notebook(id) : mode === 'trace' ? panel(id).locator('[data-session-view="trace"]') : panel(id).getByLabel('Message WHIP', { exact: true })).waitFor();
     await expect(page.locator('html')).toHaveAttribute('data-theme', /claude-code|light|dark/);
+    await expect(page.locator('[data-startup-phase="visible"]')).toBeVisible();
   };
   const action = async (id, label) => {
-    await page.locator(`[data-workspace-tab="${id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
+    await page.locator(`[data-workspace-tab="${id}"]`).getByRole('tab').click({ button: 'right' });
     await page.getByRole('menuitem', { name: label, exact: true }).click();
     await page.getByRole('menu').waitFor({ state: 'hidden' });
   };
@@ -81,21 +82,24 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const backwardReads = agentId => frames.filter(frame => frame.method === 'history.page' && frame.params.agent_id === agentId && frame.params.before_seq > 0);
   const scrollPage = async (region, agentId) => {
     const count = backwardReads(agentId).length;
-    await region.dispatchEvent('wheel');
+    const threshold = await region.evaluate(element => element.getAttribute('aria-label') === 'Conversation' ? Math.min(2400, Math.max(800, 2 * element.clientHeight)) : 256);
+    const start = threshold + 100;
+    await region.dispatchEvent('wheel', { deltaY: -1 });
     await eventually(async () => {
-      // Newly prepended rows are measured lazily when this position is visited.
-      await region.evaluate(element => { element.scrollTop = 350; });
+      // Stay near the actual threshold so the next visible anchor is mounted.
+      await region.evaluate((element, offset) => { element.scrollTop = offset; }, start);
       await region.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      return Math.abs((await region.evaluate(element => element.scrollTop)) - 350) < 1 && await anchor(region);
+      return Math.abs((await region.evaluate(element => element.scrollTop)) - start) < 1 && await anchor(region);
     }, { description: 'settled position above pagination threshold' });
     // Scroll the real viewport through the threshold. Capture the visible row in
     // the same task, before the scroll handler can start its asynchronous read.
-    const before = await region.evaluate(element => {
-      element.scrollTop = 200;
+    const before = await region.evaluate((element, offset) => {
+      element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -1 }));
+      element.scrollTop = offset;
       const top = element.getBoundingClientRect().top;
       const row = [...element.querySelectorAll('[data-reading-id]')].find(item => item.getBoundingClientRect().bottom > top);
       return row ? { id: row.dataset.readingId, offset: row.getBoundingClientRect().top - top } : null;
-    });
+    }, threshold - 50);
     assert.ok(before, 'No visible row before pagination');
     await eventually(() => {
       const reads = backwardReads(agentId);
@@ -124,8 +128,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   };
   // The last cell's ordinal is the loaded count; the REPL has no summary toolbar.
   const loadedCells = async id => {
-    await latest(id);
     const last = notebook(id).locator('[data-repl-cell]').last();
+    await last.waitFor({ state: 'attached' });
+    // Loading a sparse page can remove Latest while a click is waiting for it.
+    // Count the loaded rows by scrolling the viewport after cells arrive.
+    await notebook(id).evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await notebook(id).evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(last).toBeVisible();
     return Number((await last.getAttribute('aria-label')).match(/^Execution (\d+)$/)[1]);
   };
@@ -142,8 +150,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.ok(chatAnchor, 'Chat has no readable anchor');
     const initialSnapshots = frames.filter(frame => frame.method === 'root.snapshot').length;
     const initialHistory = frames.filter(frame => frame.method === 'history.page').length;
-    await page.locator(`[data-workspace-tab="${root}"]`).getByRole('button', { name: /^Tab actions for / }).focus();
-    await page.keyboard.press('Enter');
+    await page.locator(`[data-workspace-tab="${root}"]`).getByRole('tab').focus();
+    await page.keyboard.press('Shift+F10');
     await page.getByRole('menuitem', { name: 'Open REPL', exact: true }).press('Enter');
     const repl = leaves((await workspace()).layout)[0].selected;
     assert.notEqual(repl, root);
@@ -350,6 +358,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await latest(moved);
     const live = notebook(moved).locator('[data-repl-cell]').filter({ hasText: 'live' }).last();
     await expect(live).toContainText('Writing');
+    await expect(live).toBeInViewport();
     await expect(live).toContainText('print("live');
     await step('progress');
     await expect(live).toContainText('Running');

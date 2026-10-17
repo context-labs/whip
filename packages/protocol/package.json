@@ -14,8 +14,9 @@
   },
   "scripts": {
     "generate": "go run ../../cmd/whip-contract -out schema && node scripts/generate.mjs",
-    "check:drift": "go run ../../cmd/whip-contract -out schema -check && node scripts/generate.mjs --check",
-    "check": "tsc --noEmit && node --disallow-code-generation-from-strings --test scripts/interop.test.mjs && npm run check:drift"
+    "check:drift": "node scripts/check.mjs",
+    "check": "npm run check:drift && tsc --noEmit && node --disallow-code-generation-from-strings --test scripts/interop.test.mjs && node --test scripts/initialization.test.mjs",
+    "prepack": "npm run check:drift"
   },
   "devDependencies": {
     "json-schema-to-typescript": "15.0.4",

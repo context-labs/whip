@@ -306,7 +306,7 @@ func TestBeforeToolGatesEveryHostOperation(t *testing.T) {
 		t.Fatalf("deny events = %+v", events)
 	}
 	// Rewrite: the rewritten path is what the files handler reads.
-	if err := os.WriteFile(filepath.Join(root.meta.CWD, "README.md"), []byte("hello readme"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root.WorkingDirectory(), "README.md"), []byte("hello readme"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	outcome = execCell(t.Context(), parent, `files.read(path="secret.env")`)

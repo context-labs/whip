@@ -23,6 +23,15 @@ func TestSessionMetadataReadsExactBoundedFields(t *testing.T) {
 	if err != nil || value.RootID != root || value.Title != title || value.CWD != cwd || value.HistoryRevision != 9007199254740993 || value.Archived {
 		t.Fatalf("metadata %+v %v", value, err)
 	}
+	for _, id := range []string{root, root[:4]} {
+		meta, err := store.LoadMeta(id)
+		if err != nil || meta.ID != root || meta.Title != title {
+			t.Fatalf("metadata-only prefix read: %+v %v", meta, err)
+		}
+	}
+	if _, _, err := store.Load(root); err == nil {
+		t.Fatal("full load should still validate corrupt transcript")
+	}
 	for _, invalid := range []string{"", strings.Repeat("x", 257), "missing", root[:4]} {
 		if _, err := store.SessionMetadata(t.Context(), invalid); err == nil {
 			t.Fatalf("invalid root accepted: %q", invalid)

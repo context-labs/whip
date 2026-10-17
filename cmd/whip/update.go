@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/update"
 )
 
@@ -82,28 +83,28 @@ var restartDaemonAfterUpdate = func() error {
 	if err != nil {
 		return err
 	}
-	paths, err := daemon.Paths(dir)
+	paths, err := daemonconn.Paths(dir)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	client, err := daemon.DialClient(ctx, paths, daemon.InitializeParams{
-		ProtocolMajor: daemon.ProtocolMajor, ClientID: fmt.Sprintf("update-%d", os.Getpid()), ClientKind: "automation",
+	client, err := daemonclient.DialClient(ctx, paths, protocol.InitializeParams{
+		ProtocolMajor: protocol.Major, ClientID: fmt.Sprintf("update-%d", os.Getpid()), ClientKind: "automation",
 	})
 	if err != nil {
 		return nil // no responsive daemon means the next client starts the installed build
 	}
 	defer func() { _ = client.Close() }()
 	payload, _ := json.Marshal(map[string]string{"reason": "binary updated"})
-	result, err := client.Command(ctx, daemon.CommandParams{
+	result, err := client.Command(ctx, protocol.CommandParams{
 		CommandID: fmt.Sprintf("update-%d", time.Now().UnixNano()), Scope: "daemon",
 		Operation: "daemon.checkpoint", Payload: payload,
 	})
 	if err != nil {
 		return err
 	}
-	var notice daemon.RestartNotice
+	var notice protocol.RestartNotice
 	if err := json.Unmarshal([]byte(result.Output), &notice); err != nil {
 		return err
 	}

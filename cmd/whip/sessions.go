@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -32,7 +32,7 @@ func sessionsCLI() error {
 	if err != nil {
 		return err
 	}
-	result, err := connection.Command(ctx, daemon.CommandParams{
+	result, err := connection.Command(ctx, protocol.CommandParams{
 		CommandID: daemonCommandID(clientID, "list"), Scope: string(session.CommandScopeDaemon),
 		Operation: "session.list", Payload: payload,
 	})

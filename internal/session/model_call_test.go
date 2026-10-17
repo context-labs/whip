@@ -485,7 +485,7 @@ func TestModelSubtreeInterruptionIsScopedAndIdempotent(t *testing.T) {
 
 func TestModelRecoveryAfterReopenSettlesOnlyOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +508,7 @@ func TestModelRecoveryAfterReopenSettlesOnlyOnce(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

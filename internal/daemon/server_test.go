@@ -18,10 +18,91 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
+
+func TestServerServesWithUnresumableSessionAndRecoversAfterRepair(t *testing.T) {
+	providers := providerConnectionsFixture(t)
+	cfg := config.Default()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	if err := store.Save(rootID, 0, []llm.Message{{Role: "user", Content: "saved conversation"}}, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddSchedule(rootID, "@every 1h", "wake", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+		current, err := config.Load()
+		if err != nil {
+			return Components{}, err
+		}
+		if _, _, _, err := current.Resolve(meta.Model, meta.Provider); err != nil {
+			return Components{}, err
+		}
+		return Components{Runner: &fakeRunner{}}, nil
+	}, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		if err := <-served; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	})
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := daemonclient.NewClient(ctx, conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "restore-client", ClientKind: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	listed, err := client.Query(ctx, protocol.QueryParams{Operation: "session.list", Payload: json.RawMessage(`{"limit":10}`)})
+	if err != nil || !strings.Contains(string(listed.Result), rootID) {
+		t.Fatalf("list failed session: %s, %v", listed.Result, err)
+	}
+	if _, err := client.ReadConfiguration(ctx); err != nil {
+		t.Fatalf("configuration unavailable: %v", err)
+	}
+	if _, err := client.ListProviders(ctx); err != nil {
+		t.Fatalf("provider settings unavailable: %v", err)
+	}
+	query := protocol.QueryParams{RootID: rootID, Operation: "session.model.get", Payload: json.RawMessage(`{}`)}
+	if _, err := client.Query(ctx, query); err == nil || !strings.Contains(err.Error(), "unknown model") {
+		t.Fatalf("broken session error = %v", err)
+	}
+	cfg.Models["model"] = config.Model{Providers: []string{"provider"}}
+	cfg.Providers["provider"] = config.Provider{BaseURL: "http://unused", Auth: "none"}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Query(ctx, query); err != nil {
+		t.Fatalf("repaired session could not reopen: %v", err)
+	}
+}
 
 func TestProviderValidationIsEphemeralAndNeverCreatesACommand(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -35,7 +116,8 @@ func TestProviderValidationIsEphemeralAndNeverCreatesACommand(t *testing.T) {
 
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -71,7 +153,8 @@ func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &fakeRunner{}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -101,7 +184,7 @@ func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(context.Background(), conn, InitializeParams{
+	client, err := daemonclient.NewClient(context.Background(), conn, InitializeParams{
 		ProtocolMajor: ProtocolMajor, BuildID: "client-build", ClientKind: "test", ClientID: "client-1",
 		Cursors: map[string]int64{rootID: 0},
 	})
@@ -158,7 +241,8 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 		t.Fatal("nil daemon server was created")
 	}
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -170,7 +254,7 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 	}
 	firstServer, firstClient := net.Pipe()
 	go server.serveConn(firstServer)
-	first, err := NewClient(context.Background(), firstClient, InitializeParams{
+	first, err := daemonclient.NewClient(context.Background(), firstClient, InitializeParams{
 		ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "duplicate",
 	})
 	if err != nil {
@@ -182,7 +266,7 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 	}
 	secondServer, secondClient := net.Pipe()
 	go server.serveConn(secondServer)
-	second, err := NewClient(context.Background(), secondClient, InitializeParams{
+	second, err := daemonclient.NewClient(context.Background(), secondClient, InitializeParams{
 		ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "duplicate",
 	})
 	if err != nil {
@@ -196,7 +280,7 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 	}
 	wrongServer, wrongClient := net.Pipe()
 	go server.serveConn(wrongServer)
-	if _, err := NewClient(context.Background(), wrongClient, InitializeParams{ProtocolMajor: 99, ClientKind: "test", ClientID: "wrong"}); err == nil {
+	if _, err := daemonclient.NewClient(context.Background(), wrongClient, InitializeParams{ProtocolMajor: 99, ClientKind: "test", ClientID: "wrong"}); err == nil {
 		t.Fatal("wrong protocol major initialized")
 	}
 	if err := server.Serve(nil); err == nil {
@@ -206,7 +290,8 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 
 func TestProtocolRejectsMalformedInitialization(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -259,7 +344,8 @@ func (*failingListener) Addr() net.Addr              { return &net.TCPAddr{} }
 func TestServerServeReportsListenerFailureAndHonorsPreClose(t *testing.T) {
 	newValue := func(path string) *Daemon {
 		store := openStore(t, path)
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: &fakeRunner{}}, nil
 		})
 		if err != nil {
@@ -293,7 +379,8 @@ func TestServerServeReportsListenerFailureAndHonorsPreClose(t *testing.T) {
 
 func TestProtocolHandlersRejectMalformedParameters(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -321,7 +408,8 @@ func TestProtocolHandlersRejectMalformedParameters(t *testing.T) {
 
 func TestServerReportsClosedStoreAndEncodingFailures(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -329,6 +417,9 @@ func TestServerReportsClosedStoreAndEncodingFailures(t *testing.T) {
 	}
 	server, err := NewServer(value, ServerOptions{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := processes.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -351,7 +442,8 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	rootID := createRoot(t, store)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{turn: func(context.Context, string, bool) (string, error) {
 			close(started)
 			<-release
@@ -387,14 +479,14 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 
 	// EOF precedes the server goroutine releasing its connection slot.
 	// Retry admission until teardown completes instead of racing that release.
-	var client *Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(time.Second)
 	for {
 		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
 		if dialErr != nil {
 			t.Fatal(dialErr)
 		}
-		client, err = NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "first"})
+		client, err = daemonclient.NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "first"})
 		if err == nil {
 			break
 		}
@@ -416,7 +508,7 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "excess"}); err == nil {
+	if _, err := daemonclient.NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "excess"}); err == nil {
 		t.Fatal("connection above the configured maximum was initialized")
 	}
 	_ = extra.Close()
@@ -444,7 +536,8 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 
 func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -484,7 +577,7 @@ func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 	for {
 		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
 		if dialErr == nil {
-			client, clientErr := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "replacement"})
+			client, clientErr := daemonclient.NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "replacement"})
 			if clientErr == nil {
 				_ = client.Close()
 				break
@@ -500,7 +593,8 @@ func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 
 func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -543,7 +637,8 @@ func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
 
 func TestOutboundQueueOverflowClosesConnection(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -578,7 +673,8 @@ func TestSnapshotBoundsLargeHistoryAndPagesContentReferences(t *testing.T) {
 	if err := store.Save(rootID, 0, []llm.Message{{Role: "system", Content: "system"}, {Role: "user", Content: large}}, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -626,7 +722,8 @@ func TestSnapshotBoundsLargeHistoryAndPagesContentReferences(t *testing.T) {
 func TestServerCommandValidation(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {

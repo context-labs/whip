@@ -36,6 +36,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:history.page` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
 | `rpc:host.attention` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
 | `rpc:host.directories.list` | Web | Welcome host directory picker and composer host completions. |
+| `rpc:host.directory.create` | Web | New folder creates one child in the current directory on the selected execution host, without starting a session; Choose folder remains explicit. |
 | `rpc:host.directory.pick` | Web | Welcome native OS folder picker; falls back to the web directory browser where the host has no desktop picker. |
 | `rpc:host.skills.complete` | Web | Read-only New Chat slash skill suggestions for the selected host and agent definition before a session exists: negotiated global-only discovery without a folder, or the selected project's initial scope plus globals. |
 | `rpc:host.themes.list` | Web | Appearance settings: shared builtin/custom host themes and bounded JSON import. |
@@ -129,7 +130,6 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `runtime:schedule.create` | Web | Inspector → Goals & schedules: save/run/clear/form goal, create/delete schedules. |
 | `runtime:schedule.delete` | Web | Inspector → Goals & schedules: save/run/clear/form goal, create/delete schedules. |
 | `runtime:schedule.list` | Internal | Schedule inspection comes from bounded root snapshot/collection pages. |
-| `runtime:session.autotitle` | Web | Inspector context: enable automatic titles. The existing one-way operation has no disable or readback contract, so the UI does not invent a toggle. |
 | `runtime:session.create` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
 | `runtime:session.delete` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
 | `runtime:session.effort` | Web | Inspector → Context & model → Model & reasoning, with idle checks and explicit advanced runtime overrides. |
@@ -170,4 +170,4 @@ The operation list is checked against the generated manifest by `packages/app/te
 - Host, mailbox, directory/theme discovery, attachment grants/limits/integrity, clear revision checks, and generated contract behavior have Go tests; affected race suites run separately.
 - Built SDK acceptance exercises Unix/WebSocket equivalents, multimodal snapshot/history/SessionView, changed payloads and grants, clear revision invalidation, and queued attachment crash recovery.
 - `packages/app/test/inspector.test.tsx` covers actual agent control payloads, stale-target avoidance, goal/schedule commands, saved-rule deletion, bounded mailbox paging/revision recovery, and ephemeral MCP secret handling. It is a component workflow test using a fake SDK service, not a real provider/OS integration test.
-- Application lifetime/recovery, conversation/request workflows, theme accessibility, production packaging, and browser/mobile tests are tracked by their own suites and the main plan. Provider validation/rotation and the one-way automatic-title enable action have focused component tests, including secret disposal on host switch. Arbitrary manual execution, terminal/editor/review work, and runtime process management remain deferred; this inventory does not assert full TUI parity.
+- Application lifetime/recovery, conversation/request workflows, theme accessibility, production packaging, and browser/mobile tests are tracked by their own suites and the main plan. Provider validation/rotation has focused component tests, including secret disposal on host switch. Session titles are automatic by definition policy; there is no per-session enable action. Arbitrary manual execution, terminal/editor/review work, and runtime process management remain deferred; this inventory does not assert full TUI parity.

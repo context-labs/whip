@@ -1,8 +1,8 @@
 import { useContext, useEffect, useState } from 'react';
 import type { DeepReadonly, ExecutionCell, ExecutionRow, SessionViewSnapshot } from '@whip/sdk/state';
 import type { RootSnapshot } from '@whip/protocol';
-import { ActivityIndicator, Button, IconButton, Tooltip, useTheme } from '@whip/ui';
-import { Circle, Pause, Play, ShieldAlert } from 'lucide-react';
+import { ActivityIndicator, Button, Tooltip, useTheme } from '@whip/ui';
+import { Circle, ShieldAlert } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { surface, typography } from '@whip/ui/tokens.stylex';
 import { cellActivityLabel, executionActive } from './chat-activity-rows';
@@ -98,7 +98,7 @@ export function agentStatus(agent: Agent, active: boolean, connected: boolean, {
 export function CurrentActivity({ status, connected, onDetails }: {
   status: ReturnType<typeof activityStatus>; connected: boolean; onDetails(): void;
 }) {
-  const { display, setDisplay } = useTheme();
+  const { display } = useTheme();
   return <div aria-label="Current activity" data-current-activity {...stylex.props(styles.statusRow)}>
     <Tooltip label={status.text}>
       <Button variant="ghost" size="sm" xstyle={styles.statusButton} aria-label={`Activity: ${status.text}`} onClick={onDetails}>
@@ -107,10 +107,6 @@ export function CurrentActivity({ status, connected, onDetails }: {
       </Button>
     </Tooltip>
     {status.cell && <span {...stylex.props(styles.statusTime)}><ExecutionTime cell={status.cell} connected={connected} /></span>}
-    {status.active && <IconButton variant="ghost" size="sm" label={display.motion === 'reduce' ? 'Use system motion setting' : 'Pause activity animation'}
-      onClick={() => setDisplay({ motion: display.motion === 'reduce' ? 'system' : 'reduce' })}>
-      {display.motion === 'reduce' ? <Play size={12} /> : <Pause size={12} />}
-    </IconButton>}
   </div>;
 }
 

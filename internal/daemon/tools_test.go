@@ -386,7 +386,8 @@ func TestExecutorBindValidatesDefinitionAndHandlers(t *testing.T) {
 	if err != nil || len(tools) != 0 || !slices.Equal(hooks, []string{"before_tool", "turn_start"}) {
 		t.Fatalf("hook coverage = %v %v %v", tools, hooks, err)
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {

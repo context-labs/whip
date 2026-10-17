@@ -2,12 +2,209 @@ package llm
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestMessagesImageWireContract(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, url, mediaType, data string }{
+		{name: "jpeg", url: "data:image/jpeg;base64,aW1hZ2U=", mediaType: "image/jpeg", data: "aW1hZ2U="},
+		{name: "missing media type", url: "data:;base64,aW1hZ2U=", mediaType: "image/png", data: "aW1hZ2U="},
+		{name: "missing separator", url: "data:image/jpeg,aW1hZ2U=", mediaType: "image/png", data: "aW1hZ2U="},
+		{name: "malformed URL", url: "invalid", mediaType: "image/png"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			part := ImagePart("jpg", []byte("image"))
+			part.ImageURL.URL = tc.url
+			part.W, part.H = 100, 200
+			temperature, topP := 0.25, 0.9
+			body, err := encodeMessages(Request{
+				Model: "model", Temperature: &temperature, TopP: &topP,
+				Messages: []Message{
+					{Role: "user", Content: "Describe", Parts: []ContentPart{{Type: "text", Text: "details"}, part}},
+					{Role: "assistant", Content: "An image."},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire struct {
+				Messages []struct {
+					Role    string           `json:"role"`
+					Content []map[string]any `json:"content"`
+				} `json:"messages"`
+				Temperature float64 `json:"temperature"`
+				TopP        float64 `json:"top_p"`
+			}
+			if err := json.Unmarshal(body, &wire); err != nil {
+				t.Fatal(err)
+			}
+			want := []map[string]any{
+				{"type": "text", "text": "Describe"},
+				{"type": "text", "text": "details"},
+				{"type": "image", "source": map[string]any{
+					"type": "base64", "media_type": tc.mediaType, "data": tc.data,
+				}},
+			}
+			if len(wire.Messages) != 2 || !reflect.DeepEqual(wire.Messages[0].Content, want) {
+				t.Fatalf("multimodal payload changed: %s", body)
+			}
+			if wire.Messages[1].Content[0]["text"] != "An image." ||
+				wire.Temperature != temperature || wire.TopP != topP {
+				t.Fatalf("assistant text or sampling settings changed: %s", body)
+			}
+		})
+	}
+}
+
+func TestMessagesRejectMalformedInput(t *testing.T) {
+	t.Parallel()
+	call := ToolCall{ID: "call", Type: "function"}
+	call.Function.Name, call.Function.Arguments = "read", "{broken"
+	for _, tc := range []struct {
+		name    string
+		request Request
+		want    string
+	}{
+		{name: "role", request: Request{Messages: []Message{{Role: "unknown"}}}, want: "unsupported message role"},
+		{name: "empty user", request: Request{Messages: []Message{{Role: "user"}}}, want: "no content"},
+		{
+			name: "missing image", want: "no URL",
+			request: Request{Messages: []Message{{Role: "user", Parts: []ContentPart{{Type: "image_url"}}}}},
+		},
+		{
+			name: "unknown part", want: "unsupported content part",
+			request: Request{Messages: []Message{{Role: "user", Parts: []ContentPart{{Type: "audio"}}}}},
+		},
+		{
+			name: "invalid arguments", want: "arguments",
+			request: Request{Messages: []Message{{Role: "assistant", ToolCalls: []ToolCall{call}}}},
+		},
+		{name: "invalid schema", request: Request{Tools: []Tool{NewTool("read", "Read", "{broken")}}, want: "schema"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body, err := encodeMessages(tc.request)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || len(body) != 0 {
+				t.Fatalf("invalid input produced a request: body=%q err=%v", body, err)
+			}
+		})
+	}
+}
+
+func TestMessagesTransportFailuresPreserveErrors(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, url      string
+		status         int
+		transportError error
+	}{
+		{name: "invalid endpoint", url: "://invalid"},
+		{name: "transport failure", url: "https://example.test", transportError: io.ErrUnexpectedEOF},
+		{name: "provider rejection", url: "https://example.test", status: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			client := NewMessagesClient(tc.url, "")
+			client.HTTP = &http.Client{Transport: rtFunc(func(*http.Request) (*http.Response, error) {
+				if tc.transportError != nil {
+					return nil, tc.transportError
+				}
+				return &http.Response{
+					StatusCode: tc.status, Header: http.Header{},
+					Body: io.NopCloser(strings.NewReader(`{"error":{"message":"invalid request"}}`)),
+				}, nil
+			})}
+			message, _, err := client.messagesOnce(
+				t.Context(),
+				[]byte(`{}`),
+				nil,
+				nil,
+				nil,
+			)
+			if err == nil || message.Content != "" || len(message.ToolCalls) != 0 {
+				t.Fatalf("failed request published output: %+v %v", message, err)
+			}
+			if tc.transportError != nil && !errors.Is(err, tc.transportError) {
+				t.Fatalf("transport error identity lost: %v", err)
+			}
+		})
+	}
+}
+
+func TestMessagesTruncationDiscardsToolsAndRetainsThinking(t *testing.T) {
+	t.Parallel()
+	stream := ": keepalive\ndata: invalid JSON\n" + sse(
+		event("content_block_delta", map[string]any{
+			"index": 1, "delta": map[string]any{"type": "input_json_delta", "partial_json": "ignored"},
+		}),
+		event("content_block_delta", map[string]any{
+			"index": 2, "delta": map[string]any{"type": "thinking_delta", "thinking": "Plan"},
+		}),
+		event("content_block_delta", map[string]any{
+			"index": 3, "delta": map[string]any{"type": "signature_delta", "signature": "opaque"},
+		}),
+		event("content_block_start", map[string]any{
+			"index": 0, "content_block": map[string]any{"type": "tool_use", "id": "call", "name": "read"},
+		}),
+		event("content_block_delta", map[string]any{
+			"index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": "{}"},
+		}),
+		event("message_delta", map[string]any{"delta": map[string]any{"stop_reason": "max_tokens"}}),
+	)
+	var thinking string
+	message, _, err := parseMessagesSSE(
+		strings.NewReader(stream),
+		nil,
+		func(delta string) { thinking += delta },
+		nil,
+	)
+	if err != nil || len(message.ToolCalls) != 0 || thinking != "Plan" {
+		t.Fatalf("truncated tools or thinking changed: %+v %v", message, err)
+	}
+	if message.Content != "\n[response truncated by max_tokens; tool calls discarded]" ||
+		!reflect.DeepEqual(message.Thinking, []ThinkingBlock{{Thinking: "Plan"}, {Signature: "opaque"}}) {
+		t.Fatalf("truncation receipt or thinking order changed: %+v", message)
+	}
+}
+
+func TestMessagesStreamFailuresNeverLookComplete(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		reader io.Reader
+		want   string
+	}{
+		{name: "missing completion", reader: strings.NewReader(sse(event("message_start", nil))), want: "completion marker"},
+		{
+			name: "provider error", want: "rejected",
+			reader: strings.NewReader(sse(event("error", map[string]any{
+				"error": map[string]any{"message": "rejected"},
+			}))),
+		},
+		{name: "read failure", reader: accountingBrokenReader{}, want: io.ErrUnexpectedEOF.Error()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			message, _, err := parseMessagesSSE(
+				tc.reader,
+				nil,
+				nil,
+				nil,
+			)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || len(message.ToolCalls) != 0 {
+				t.Fatalf("incomplete stream accepted: %+v %v", message, err)
+			}
+		})
+	}
+}
 
 type rtFunc func(*http.Request) (*http.Response, error)
 

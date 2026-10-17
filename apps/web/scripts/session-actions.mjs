@@ -38,7 +38,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await page.locator('[data-whip-composer]').waitFor();
     await row(other).waitFor();
     // The shared dialog also stacks above Session details and returns focus.
-    await page.getByRole('button', { name: /^Tab actions for / }).click();
+    await page.getByRole('tab', { selected: true }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
     const details = page.getByRole('dialog', { name: 'Session details', exact: true });
     await details.getByRole('button', { name: 'Session actions', exact: true }).click();

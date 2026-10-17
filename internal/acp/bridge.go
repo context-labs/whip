@@ -13,9 +13,10 @@ import (
 	"sync"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/protocol"
 
-	"github.com/context-labs/whip/internal/daemon"
+	acp "github.com/coder/acp-go-sdk"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -34,8 +35,8 @@ var modes = []acp.SessionMode{
 // listing. Implementations may resolve config and credentials, but never hand
 // an agent, store, tool registry, or process to the ACP bridge.
 type Backend interface {
-	NewRoot(context.Context, string, map[string]mcp.ServerConfig) (*daemon.RootClient, error)
-	LoadRoot(context.Context, string, string, map[string]mcp.ServerConfig) (*daemon.RootClient, error)
+	NewRoot(context.Context, string, map[string]mcp.ServerConfig) (*daemonclient.RootClient, error)
+	LoadRoot(context.Context, string, string, map[string]mcp.ServerConfig) (*daemonclient.RootClient, error)
 	ListSessions(context.Context, int) ([]session.Meta, error)
 }
 
@@ -65,7 +66,7 @@ func (b *Bridge) SetAgentConnection(conn *acp.AgentSideConnection) { b.conn = co
 
 type acpSession struct {
 	id   acp.SessionId
-	root *daemon.RootClient
+	root *daemonclient.RootClient
 
 	lifecycle context.Context
 	stop      context.CancelFunc
@@ -84,7 +85,7 @@ type acpSession struct {
 
 type toolInput struct{ name, args string }
 
-func newACPSession(root *daemon.RootClient, snapshot session.RootSnapshot) *acpSession {
+func newACPSession(root *daemonclient.RootClient, snapshot session.RootSnapshot) *acpSession {
 	lifecycle, stop := context.WithCancel(context.Background())
 	return &acpSession{
 		id: acp.SessionId(root.RootID()), root: root, lifecycle: lifecycle, stop: stop,
@@ -281,7 +282,7 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 		}
 	}
 	for _, event := range snapshot.Presentation {
-		b.consumeEvent(s, daemon.ProtocolEvent{RootID: snapshot.RootID, Seq: event.Seq, Kind: event.Kind, Payload: event.Payload})
+		b.consumeEvent(s, protocol.ProtocolEvent{RootID: snapshot.RootID, Seq: event.Seq, Kind: event.Kind, Payload: event.Payload})
 	}
 	if err := b.register(s); err != nil {
 		s.stop()
@@ -425,7 +426,7 @@ func (b *Bridge) Prompt(_ context.Context, params acp.PromptRequest) (acp.Prompt
 	s.mu.Unlock()
 
 	text, parts := promptFromBlocks(params.Prompt, b.vision)
-	action, err := s.root.NewAction("submit", daemon.SubmitPayload{Text: text, Parts: parts})
+	action, err := s.root.NewAction("submit", protocol.SubmitPayload{Text: text, Parts: parts})
 	if err != nil {
 		return acp.PromptResponse{}, acp.NewInternalError(err.Error())
 	}
@@ -499,8 +500,8 @@ func (b *Bridge) consume(s *acpSession) {
 	}
 }
 
-func (b *Bridge) consumeEvent(s *acpSession, event daemon.ProtocolEvent) {
-	var stream daemon.StreamEvent
+func (b *Bridge) consumeEvent(s *acpSession, event protocol.ProtocolEvent) {
+	var stream protocol.StreamEvent
 	if strings.HasPrefix(event.Kind, "stream.") {
 		if err := json.Unmarshal(event.Payload, &stream); err != nil {
 			return
@@ -508,7 +509,7 @@ func (b *Bridge) consumeEvent(s *acpSession, event daemon.ProtocolEvent) {
 	}
 	switch event.Kind {
 	case "session.permission_mode.updated":
-		var update daemon.SessionUpdateEvent
+		var update protocol.SessionUpdateEvent
 		if json.Unmarshal(event.Payload, &update) == nil && update.PermissionMode != nil {
 			b.applyPermissionMode(s, *update.PermissionMode, event.Seq)
 		}
@@ -537,7 +538,7 @@ func (b *Bridge) consumeEvent(s *acpSession, event daemon.ProtocolEvent) {
 			}})
 		}
 	case "stream.plan":
-		var plan daemon.PlanEvent
+		var plan protocol.PlanEvent
 		if json.Unmarshal([]byte(stream.Result), &plan) == nil {
 			entries := make([]acp.PlanEntry, 0, len(plan.Items))
 			for _, item := range plan.Items {

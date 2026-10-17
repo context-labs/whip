@@ -7,11 +7,12 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
 func TestProvisionalTitle(t *testing.T) {
-	long := strings.Repeat("界", 65)
+	long := strings.Repeat("界", provisionalTitleRunes+1)
 	tests := []struct {
 		name     string
 		messages []llm.Message
@@ -22,8 +23,8 @@ func TestProvisionalTitle(t *testing.T) {
 			{Role: "user", Content: "injected"},
 			{Role: "user", Content: "  authored\n title  ", Authored: true},
 		}, want: "authored title"},
-		{name: "exact boundary", messages: []llm.Message{{Role: "user", Content: strings.Repeat("界", 64), Authored: true}}, want: strings.Repeat("界", 64)},
-		{name: "truncates by rune", messages: []llm.Message{{Role: "user", Content: long, Authored: true}}, want: strings.Repeat("界", 63) + "…"},
+		{name: "exact boundary", messages: []llm.Message{{Role: "user", Content: strings.Repeat("界", provisionalTitleRunes), Authored: true}}, want: strings.Repeat("界", provisionalTitleRunes)},
+		{name: "truncates by rune", messages: []llm.Message{{Role: "user", Content: long, Authored: true}}, want: strings.Repeat("界", provisionalTitleRunes-1) + "…"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -39,11 +40,11 @@ func TestProvisionalTitle(t *testing.T) {
 }
 
 func TestProvisionalTitlePersistsAcrossWritePaths(t *testing.T) {
-	input := strings.Repeat("界", 65)
-	want := strings.Repeat("界", 63) + "…"
+	input := strings.Repeat("界", provisionalTitleRunes+1)
+	want := strings.Repeat("界", provisionalTitleRunes-1) + "…"
 
 	t.Run("Save", func(t *testing.T) {
-		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +63,7 @@ func TestProvisionalTitlePersistsAcrossWritePaths(t *testing.T) {
 	})
 
 	t.Run("CommitRootTurn", func(t *testing.T) {
-		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+		store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,13 +86,12 @@ func TestProvisionalTitlePersistsAcrossWritePaths(t *testing.T) {
 		if err := store.CommitRootTurn(context.Background(), RootTurnCommit{
 			RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 			Messages: []llm.Message{{Role: "user", Content: input, Authored: true}, {Role: "assistant", Content: "done"}},
-			Model:    "model", Provider: "provider",
 		}); err != nil {
 			t.Fatal(err)
 		}
 		meta, _, err := store.Load(rootID)
-		if err != nil || meta.Title != want || !utf8.ValidString(meta.Title) {
-			t.Fatalf("persisted title = %q, err = %v", meta.Title, err)
+		if err != nil || meta.Title != "" {
+			t.Fatalf("turn completion initialized title = %q, err = %v", meta.Title, err)
 		}
 	})
 }

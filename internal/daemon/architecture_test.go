@@ -1,10 +1,14 @@
 package daemon
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -43,13 +47,81 @@ func productionGoFiles(t *testing.T, directory string) map[string]string {
 
 func TestArchitectureKeepsProviderCallsBehindAgentSession(t *testing.T) {
 	root := repositoryRoot(t)
-	for path, body := range productionGoFiles(t, filepath.Join(root, "internal", "daemon")) {
-		if filepath.Base(path) == "agent_session.go" {
-			continue
+	for _, name := range []string{"daemon", "provider", "client"} {
+		for path, body := range productionGoFiles(t, filepath.Join(root, "internal", name)) {
+			if path == filepath.Join(root, "internal", "daemon", "agent_session.go") {
+				continue
+			}
+			for _, call := range []string{".Complete(", ".Stream("} {
+				if strings.Contains(body, call) {
+					t.Errorf("model provider call %q escaped AgentSession: %s", call, path)
+				}
+			}
 		}
-		for _, call := range []string{".Complete(", ".Stream("} {
-			if strings.Contains(body, call) {
-				t.Errorf("model provider call %q escaped AgentSession: %s", call, path)
+	}
+}
+
+func TestArchitectureKeepsProviderIndependentOfDaemon(t *testing.T) {
+	root := repositoryRoot(t)
+	for path, body := range productionGoFiles(t, filepath.Join(root, "internal", "provider")) {
+		file, err := parser.ParseFile(token.NewFileSet(), path, body, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imported := range file.Imports {
+			name, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if name == "github.com/context-labs/whip/internal/daemon" {
+				t.Errorf("provider imports daemon: %s", path)
+			}
+		}
+	}
+}
+
+func TestArchitectureKeepsConnectionPlumbingIndependentOfDaemon(t *testing.T) {
+	root := repositoryRoot(t)
+	for _, directory := range []string{"daemonconn", "commandpresentation"} {
+		for path, body := range productionGoFiles(t, filepath.Join(root, "internal", directory)) {
+			file, err := parser.ParseFile(token.NewFileSet(), path, body, parser.ImportsOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, imported := range file.Imports {
+				name, err := strconv.Unquote(imported.Path.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if name == "github.com/context-labs/whip/internal/daemon" {
+					t.Errorf("connection plumbing imports daemon: %s", path)
+				}
+			}
+		}
+	}
+}
+
+func TestArchitectureSeparatesNativeClientsFromDaemon(t *testing.T) {
+	root := repositoryRoot(t)
+	for directory, forbidden := range map[string]string{
+		"client": "github.com/context-labs/whip/internal/daemon",
+		"daemon": "github.com/context-labs/whip/internal/client",
+		"tui":    "github.com/context-labs/whip/internal/daemon",
+		"acp":    "github.com/context-labs/whip/internal/daemon",
+	} {
+		for path, body := range productionGoFiles(t, filepath.Join(root, "internal", directory)) {
+			file, err := parser.ParseFile(token.NewFileSet(), path, body, parser.ImportsOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, imported := range file.Imports {
+				name, err := strconv.Unquote(imported.Path.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if name == forbidden {
+					t.Errorf("native client boundary imports %q: %s", forbidden, path)
+				}
 			}
 		}
 	}
@@ -96,5 +168,26 @@ func TestArchitectureContainsNoClassicRuntimeSurface(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(removed))); !os.IsNotExist(err) {
 			t.Errorf("classic runtime file remains: %s (stat error %v)", removed, err)
 		}
+	}
+}
+
+func TestArchitectureKeepsProcessConstructionOutOfStorage(t *testing.T) {
+	root := repositoryRoot(t)
+	for path, body := range productionGoFiles(t, filepath.Join(root, "internal", "session")) {
+		file, err := parser.ParseFile(token.NewFileSet(), path, body, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok {
+				if constructor, ok := call.Fun.(*ast.SelectorExpr); ok {
+					switch constructor.Sel.Name {
+					case "NewProcessManager", "NewWorkspaces":
+						t.Errorf("storage constructs a host resource with %s: %s", constructor.Sel.Name, path)
+					}
+				}
+			}
+			return true
+		})
 	}
 }

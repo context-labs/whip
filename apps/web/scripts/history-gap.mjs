@@ -33,17 +33,18 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
   const session = client.session(root);
   const view = createSessionView(session);
   await view.start();
-  const findGap = async () => {
-    await reading.hover(); await page.mouse.wheel(0, -1);
+  const findGap = async (region = reading) => {
+    await region.hover(); await page.mouse.wheel(0, -1);
     await page.waitForTimeout(200);
-    await reading.evaluate(element => { element.dispatchEvent(new Event('scrollend')); element.scrollTop = 0; });
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const gap = reading.locator('[data-history-gap]').first();
-      const visible = await reading.evaluate(element => {
+    await region.evaluate(element => { element.dispatchEvent(new Event('scrollend')); element.scrollTop = 0; });
+    // A bounded 512-record window can exceed 100 viewports of code/output.
+    for (let attempt = 0; attempt < 512; attempt++) {
+      const gap = region.locator('[data-history-gap]').first();
+      const visible = await region.evaluate(element => {
         const gap = element.querySelector('[data-history-gap]');
         if (!gap) { element.scrollTop += element.clientHeight * 0.6; return false; }
         const top = gap.getBoundingClientRect().top - element.getBoundingClientRect().top;
-        if (top >= 0 && top < element.clientHeight - 100) return true;
+        if (top >= 0 && top + gap.getBoundingClientRect().height <= element.clientHeight) return true;
         element.scrollTop += top - 100; return false;
       });
       if (visible) return gap;
@@ -106,7 +107,7 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
         const readsBeforeSwitch = requests.length;
         await page.getByRole('button', { name: 'REPL', exact: true }).click();
         const notebook = page.getByRole('region', { name: 'REPL executions', exact: true });
-        await expect(notebook.locator('[data-history-gap]')).toContainText("Couldn't load messages");
+        await expect(await findGap(notebook)).toContainText("Couldn't load messages");
         await page.goBack(); await findGap();
         assert.equal(requests.length, readsBeforeSwitch, 'Chat and REPL share the failed range without refetching');
         const retry = control.getByRole('button', { name: 'Retry', exact: true });

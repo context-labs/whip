@@ -17,7 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/webassets"
 	"github.com/context-labs/whip/internal/webgateway"
@@ -74,7 +75,7 @@ func runWeb(ctx context.Context, args []string) error {
 
 // Both public foreground and private managed modes use this runner. The Open
 // factory always narrows socket privileges and fails closed on old daemons.
-func runGateway(ctx context.Context, paths daemon.RuntimePaths, expected *gatewayReady, ready func(gatewayReady) error) error {
+func runGateway(ctx context.Context, paths daemonconn.RuntimePaths, expected *gatewayReady, ready func(gatewayReady) error) error {
 	options := gatewayEnvironment()
 	options.SocketPath = paths.Socket
 	options.Open = func(ctx context.Context) (webgateway.Client, error) {
@@ -127,9 +128,9 @@ func runGateway(ctx context.Context, paths daemon.RuntimePaths, expected *gatewa
 	}
 }
 
-func dialGatewayClient(ctx context.Context, paths daemon.RuntimePaths) (*daemon.Client, error) {
-	client, err := daemon.DialClient(ctx, paths, daemon.InitializeParams{
-		ProtocolMajor: daemon.ProtocolMajor, BuildID: version,
+func dialGatewayClient(ctx context.Context, paths daemonconn.RuntimePaths) (*daemonclient.Client, error) {
+	client, err := daemonclient.DialClient(ctx, paths, protocol.InitializeParams{
+		ProtocolMajor: protocol.Major, BuildID: version,
 		ClientID: daemonClientID("web-gateway"), ClientKind: "automation",
 		Capabilities: []string{protocol.NetworkClientCapability},
 	})
@@ -190,7 +191,7 @@ func checkWebAssets(ctx context.Context, endpoint string) error {
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&info); err != nil {
 		return fmt.Errorf("invalid gateway web discovery: %w", err)
 	}
-	if info.ProtocolMajor != daemon.ProtocolMajor || info.WebSocketPath != "/api/v3/ws" || info.ContentPath != "/api/v3/content/" {
+	if info.ProtocolMajor != protocol.Major || info.WebSocketPath != "/api/v3/ws" || info.ContentPath != "/api/v3/content/" {
 		return errors.New("gateway web protocol is incompatible; update the gateway executable")
 	}
 	if !info.Available {

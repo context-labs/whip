@@ -11,12 +11,15 @@ import (
 type CreateSessionParams struct {
 	ExecutionEngine string `json:"execution_engine,omitempty"`
 	// Definition selects the agent definition; empty means the coding agent.
-	Definition     string              `json:"definition,omitempty"`
-	Kind           session.SessionKind `json:"kind"`
-	CWD            string              `json:"cwd"`
-	Model          string              `json:"model"`
-	Provider       string              `json:"provider"`
-	PermissionMode string              `json:"permission_mode,omitempty"`
+	Definition string              `json:"definition,omitempty"`
+	Kind       session.SessionKind `json:"kind"`
+	CWD        string              `json:"cwd"`
+	Model      string              `json:"model"`
+	Provider   string              `json:"provider"`
+	// Effort is "off" or a catalog level; blank resolves the definition's
+	// default, else the configured default, against the model. Protocol 6.9.
+	Effort         string `json:"effort,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 type RootParams struct {
 	RootID string `json:"root_id"`

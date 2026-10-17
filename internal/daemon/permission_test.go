@@ -18,7 +18,8 @@ import (
 func TestCapabilityAuthorityRoutesThroughRootActor(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -65,7 +66,8 @@ func TestDirectPermissionControlsStayRootScoped(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	otherRootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -91,7 +93,7 @@ func TestDirectPermissionControlsStayRootScoped(t *testing.T) {
 	_, err = dispatcher.Dispatch(t.Context(), capability.Request{
 		RootID: rootID, AgentID: root.AgentID(), CapabilityID: root.authority.Files.ID,
 		CapabilityGeneration: root.authority.Files.Generation, OperationID: "direct-permission", Operation: "write",
-		Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+		Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 	})
 	var pending *capability.PermissionPendingError
 	if !errors.As(err, &pending) {
@@ -118,7 +120,8 @@ func TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -141,7 +144,7 @@ func TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes(t *testing.T) {
 			RootID: rootID, AgentID: root.AgentID(), CapabilityID: root.authority.Shell.ID,
 			CapabilityGeneration: root.authority.Shell.Generation, WriterCapabilityID: root.authority.Files.ID,
 			WriterCapabilityGeneration: root.authority.Files.Generation, OperationID: operationID, Operation: "bash",
-			Arguments: json.RawMessage(`{"command":"` + command + `"}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+			Arguments: json.RawMessage(`{"command":"` + command + `"}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 		})
 		return response.Output, err
 	}
@@ -231,7 +234,8 @@ func TestPermissionRuleInExternalModeSkipsThePrimaryPrompt(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &permissionModeRunner{fakeRunner: &fakeRunner{}, external: true}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -255,7 +259,7 @@ func TestPermissionRuleInExternalModeSkipsThePrimaryPrompt(t *testing.T) {
 			RootID: rootID, AgentID: root.AgentID(), CapabilityID: root.authority.Shell.ID,
 			CapabilityGeneration: root.authority.Shell.Generation, WriterCapabilityID: root.authority.Files.ID,
 			WriterCapabilityGeneration: root.authority.Files.Generation, OperationID: operationID, Operation: "bash",
-			Arguments: json.RawMessage(`{"command":"` + command + `"}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+			Arguments: json.RawMessage(`{"command":"` + command + `"}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 		})
 		var pending *capability.PermissionPendingError
 		if !errors.As(err, &pending) {

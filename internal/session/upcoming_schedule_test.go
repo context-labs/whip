@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestUpcomingSchedulesIndependentOfHistoryAndClaims(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestUpcomingSchedulesIndependentOfHistoryAndClaims(t *testing.T) {
 }
 
 func TestUpcomingSchedulesPromptAndAggregateBounds(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

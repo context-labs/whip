@@ -32,7 +32,7 @@ export class NativeEffects {
   async copy(value: unknown) { text(value, 8 << 20); clipboard.writeText(value); }
   async openExternal(value: unknown) { await shell.openExternal(externalURL(value)); }
   async pickDirectory() {
-    const result = await dialog.showOpenDialog(this.window, { properties: ['openDirectory'], title: 'Choose a local project directory' });
+    const result = await dialog.showOpenDialog(this.window, { properties: ['openDirectory', 'createDirectory'], title: 'Choose a local project directory' });
     return result.canceled ? undefined : result.filePaths[0];
   }
   async beginSave(filename: unknown, mediaType: unknown, size: unknown) {

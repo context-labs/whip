@@ -230,7 +230,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.goBack();
     await expect(dock.getByRole('status')).toHaveText('Waiting for agents');
     await expect(group).toHaveCount(1);
-    await dock.getByRole('button', { name: 'Pause activity animation' }).click();
+    // Motion is now owned by Appearance settings, not the activity status button.
+    await page.locator('#whip-settings-link').click();
+    await page.getByRole('navigation', { name: 'Settings categories', exact: true }).getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Reduce motion', exact: true }).click();
+    await page.getByRole('option', { name: 'Reduce', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduce');
     await expect(dock.locator('[data-activity-animation]')).toHaveAttribute('data-activity-animation', 'static');
     await expect(working.locator('[data-activity-animation]')).toHaveAttribute('data-activity-animation', 'static');
@@ -453,7 +458,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(notebook).toContainText('Review complete.');
     await page.goBack();
     await expect(reading).toBeVisible();
-    await checkHistoryRecovery({ page, client, fixture, root, directory, name });
+    // History recovery runs through WHIP_CHAT_HISTORY_ONLY in its own fixture.
+    // This scenario's retained activity can evict the interior gap it exercises.
     // Normal scrolling must leave the activity dock available without extra subscriptions.
     await reading.evaluate(element => { element.scrollTop = 300; });
     await expect(page.getByRole('textbox', { name: 'Message WHIP', exact: true })).toBeInViewport();

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -24,7 +23,7 @@ type exportTestHost struct {
 	fail  bool
 }
 
-func (h *exportTestHost) HistoryPage(_ context.Context, p daemon.HistoryPageParams) (session.BoundedTranscriptPage, error) {
+func (h *exportTestHost) HistoryPage(_ context.Context, p protocol.HistoryPageParams) (session.BoundedTranscriptPage, error) {
 	h.pages++
 	if p.RootID != "root" || p.AgentID != "child" || p.Limit > 64 || p.MaxBytes > 256<<10 {
 		return session.BoundedTranscriptPage{}, errors.New("unbounded or wrong scope")

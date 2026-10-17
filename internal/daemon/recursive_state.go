@@ -75,9 +75,9 @@ func (host *recursiveHost) statePage(ctx context.Context, operation string, argu
 	node := host.session
 	values, err := routeControlValue(node.root, ctx, func(actorCtx context.Context) ([]sessionstore.StateValue, error) {
 		if operation == "private_list" {
-			return node.root.store.ListPrivateStatePage(actorCtx, node.root.meta.ID, node.id, afterKey, int(limit)+1)
+			return node.root.store.ListPrivateStatePage(actorCtx, node.root.id, node.id, afterKey, int(limit)+1)
 		}
-		return node.root.store.BlackboardHistoryPage(actorCtx, node.root.meta.ID, node.id, key, afterVersion, int(limit)+1)
+		return node.root.store.BlackboardHistoryPage(actorCtx, node.root.id, node.id, key, afterVersion, int(limit)+1)
 	})
 	if err != nil {
 		return nil, err

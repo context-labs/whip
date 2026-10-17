@@ -12,6 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -67,7 +68,7 @@ func TestSessionSummariesAcrossTransports(t *testing.T) {
 			}
 		})
 	}
-	client, err := DialWebSocketClient(t.Context(), f.endpoint, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "summary-negotiation", ClientKind: "automation", Capabilities: []string{"session_summaries", "unknown", "session_summaries"}})
+	client, err := daemonclient.DialWebSocketClient(t.Context(), f.endpoint, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "summary-negotiation", ClientKind: "automation", Capabilities: []string{"session_summaries", "unknown", "session_summaries"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,8 @@ func TestSessionSummariesAcrossTransports(t *testing.T) {
 func TestSessionSummariesDoNotOpenRootsAndObserveConcurrentQuestionAnswers(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	opens := 0
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		opens++
 		return Components{Runner: &fakeRunner{}}, nil
 	})

@@ -390,7 +390,8 @@ func promptRuntimeProvider(t *testing.T) (<-chan llm.Request, *llm.Client) {
 func openPromptRuntime(t *testing.T, store *session.Store, rootID string, client *llm.Client) (*Daemon, *Session, *RecursiveRuntime) {
 	t.Helper()
 	var runtime *RecursiveRuntime
-	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(client, meta.Model, 128, "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 		value.ContextLimit = 65536
@@ -399,6 +400,7 @@ func openPromptRuntime(t *testing.T, store *session.Store, rootID string, client
 		if err != nil {
 			return Components{}, err
 		}
+		definition.Surface.AutoTitle = false
 		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
 			Engine: meta.ExecutionEngine, Definition: definition, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
 		})

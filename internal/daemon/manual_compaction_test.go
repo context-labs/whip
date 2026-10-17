@@ -39,10 +39,11 @@ func TestManualCompactionUsesRawSequencesAfterFocusAndRestart(t *testing.T) {
 	if err := store.Save(rootID, 1, raw[:29], "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
+	processes := newTestProcesses(t)
 	openOwner := func() (*Daemon, *Session, *AgentSession) {
 		t.Helper()
 		var runner *AgentSession
-		owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "system", tools.NewServices())
 			value.ContextLimit = 4000
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
@@ -84,6 +85,7 @@ func TestManualCompactionUsesRawSequencesAfterFocusAndRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		store = openStore(t, path)
+		processes = newTestProcesses(t)
 		_, restored, err := store.Load(rootID)
 		if err != nil || len(restored) != 5 || restored[0].RawSequence != expectedCutoff || restored[1].Role != "user" || restored[1].RawSequence != expectedCutoff ||
 			restored[2].RawSequence != expectedCutoff+1 || restored[3].Role != "tool" || restored[3].ToolCallID != restored[2].ToolCalls[0].ID {
@@ -119,7 +121,8 @@ func TestHistoryReplacementDoesNotResurrectCommittedJournalAsProvisional(t *test
 				t.Fatal(err)
 			}
 			runner := &AgentSession{id: rootID, agent: agent.NewRuntime(nil, "model", 1024, "system", tools.NewServices()), turn: turnJournal{TurnID: "completed-turn", Messages: history}}
-			runner.root = newSession(store, meta, authority, Components{Runner: runner})
+			processes := newTestProcesses(t)
+			runner.root = newSession(store, processes, meta, authority, Components{Runner: runner})
 			host := &recursiveHost{session: runner}
 			replacement, err := store.RewindHistory(t.Context(), rootID, from)
 			if err != nil {

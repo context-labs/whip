@@ -11,11 +11,23 @@ The executable contract is `internal/protocol`: wire DTOs, operation registry,
 permission metadata and schemas. `packages/protocol/schema/manifest.json`
 lists RPCs and runtime operations with their parameter/result types. Generated
 TypeScript declarations and Ajv validators are exported by `@whip/protocol`.
-Run `npm ci` and `npm run check` from the repository root. Regenerate after
-editing Go types with `npm run generate`; drift checks compare without rewriting
-files. Standalone validators require no runtime code generation or Ajv dependency.
+Run `npm ci`, `task generate`, then `npm run check` from the repository root.
+Both `packages/protocol/schema/` and `packages/protocol/generated/` are ignored
+output; Go definitions and generators are the source of truth. Refresh with
+`task generate` after pulling, switching branches, or editing protocol source.
+Drift checks compare local output with current source without rewriting files.
+Standalone validators require no runtime code generation or Ajv dependency.
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
+
+Protocol **6.9** adds `session.create.effort` and makes effort one vocabulary.
+An effort value is `off` or a catalog level everywhere; blank is not a value.
+A session stores a concrete effort from creation: the request, else the agent
+definition's default, else the configured default, resolved against the model's
+catalog entry. `session.effort.get` returns that saved value, which is also the
+value the runner applies. Sessions created before 6.9 are resolved the same way
+the first time the daemon opens them. Additive; 6.8 clients keep creating
+sessions with the resolved default.
 
 Protocol **6.8** adds optional versioned transcript `presentation` metadata,
 stream `part_id`, and allowlisted operation `display` fields. Durable presentation
@@ -310,6 +322,26 @@ Disconnecting cancels connection queries and subscriptions, not accepted work.
 Cancellation targets a specific turn so a delayed cancellation cannot affect a
 later turn. Uncertain external effects are interrupted rather than replayed.
 
+Session creation does not take a naming prompt. The first accepted authored text
+initializes the deterministic title and may start one background compact-model
+request, governed by the definition's `surface.auto_title` policy. There is no
+`session.autotitle` opt-in command. `session.rename` remains explicit user intent
+and supersedes pending generation. Title writes retain the `session.title.updated`
+root event and catalog-revision bump. Connections negotiating
+`session_title_notifications` receive this best-effort host-level notification
+after a committed deterministic/generated title, manual rename, or fork creation:
+
+```json
+{"jsonrpc":"2.0","method":"sessions.title.changed","params":{"root_id":"root-id"}}
+```
+
+No root subscription is required. The message carries no title value or stream
+cursor: clients refetch their existing catalog/summary data. It is sent only after
+initialization, has no acknowledgement or replay, and uses existing bounded
+outbound queues. A slow/disconnected client cannot roll back a title write. Keep
+ordinary polling and reconnect reads as backup; peers without negotiated support
+continue polling. See [session naming](features.md#session-naming).
+
 Read operations travel through `query` with `root_id`, `operation` and typed
 `payload`, and do not create command journal entries. `operation.invoke` handles
 explicitly ephemeral operations such as terminal input and MCP attachment.
@@ -505,6 +537,7 @@ active daemon. It runs the **built SDK**, not a second handwritten RPC client:
 
 ```sh
 npm ci
+task generate
 npx playwright install chromium firefox
 npm run test:browser
 WHIP_SDK_RACE=1 npm run acceptance
@@ -607,6 +640,14 @@ and `limit` is 1–128. Results contain directory names and full paths, the pare
 scan ceiling is reached. It reads no file bodies. Symlinks to directories are
 navigable. Filesystem changes can alter later pages; refresh the directory to
 obtain a new listing.
+
+`host.directory.create` is a host-scoped mutating RPC available before a session
+exists. It takes an existing absolute `parent` and one child `name`, creates a
+single directory with the host process’s filesystem permissions, and returns its
+absolute `path`. It rejects nested/invalid names and existing entries rather than
+overwriting or adopting them. No parent directories are created and no session
+is started. Clients must not automatically retry a lost creation response; inspect
+the parent listing instead. Availability is advertised in the operation catalog.
 
 `host.attention` reads a lightweight live index without opening every root or
 spending root subscriptions. `limit` is 1–128 and `max_bytes` is 4–512 KiB. Items

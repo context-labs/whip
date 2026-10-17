@@ -114,8 +114,10 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const route = providers.inventory.data?.providers?.find(item => item.id === provider);
   const ready = tab.model ? !!route?.status.available && !route.status.disabled : selection?.ready === true;
   const levels = modelEfforts(catalogModels(catalog.data?.result, provider), model);
-  const requestedEffort = tab.effort ?? configuration.data?.default_effort ?? 'off';
-  const effort = tab.effort ?? (levels.includes(requestedEffort) ? requestedEffort : 'off');
+  // '' shows as "Default": no explicit choice, so create omits effort and the
+  // daemon resolves the definition's or configured default against the model.
+  const configuredDefault = configuration.data?.default_effort ?? '';
+  const effort = tab.effort ?? (configuredDefault && levels.includes(configuredDefault) ? configuredDefault : '');
   const effortAvailable = tab.effort === undefined || levels.includes(effort);
   const requiresUpdate = !!providers.inventory.data && !selection;
   const executionEngine = tab.executionEngine ?? configuration.data?.default_execution_engine ?? connection.info?.default_execution_engine ?? 'starlark';
@@ -154,14 +156,14 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
     setError('');
     const text = draft;
     try {
-      // Create, apply the chosen effort, then send. Each step runs through the
+      // Create with the chosen effort, then send. Each step runs through the
       // command runner, whose delivery tracking keeps a dropped connection from
       // sending twice and surfaces an unresolved send under the composer.
-      const created = await runtime.run(client.sessions.create({ cwd: cwd.trim(), model, provider, permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) }), 'Create session', undefined, key);
+      const created = await runtime.run(client.sessions.create({ cwd: cwd.trim(), model, provider, ...(tab.effort !== undefined ? { effort } : {}), permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) }), 'Create session', undefined, key);
       const rootId = created.result?.root_id;
       if (!rootId) throw new Error('Session creation returned no session.');
       if (attachments.length) {
-        // Once created, this session owns the draft. Upload/effort/send failures
+        // Once created, this session owns the draft. Upload/send failures
         // stay in its normal composer instead of creating another root on retry.
         const session = client.session(rootId);
         const destination = compositionKey(runtimeId, rootId, rootId);
@@ -173,7 +175,6 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         const uploadToken = runtime.compositions.beginSubmission(destination)!;
         runtime.tabs.promoteNew(tab.id, runtimeId, rootId);
         try {
-          if (tab.effort !== undefined) await runtime.run(session.command('session.effort', { effort, persist_default: false }), 'Set initial reasoning effort', undefined, destination);
           await uploading;
         } catch (error) {
           runtime.report(error);
@@ -191,7 +192,6 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         if (result.status === 'failed' && !result.delivery) runtime.report(result.error);
         return;
       }
-      if (tab.effort !== undefined) await runtime.run(client.session(rootId).command('session.effort', { effort, persist_default: false }), 'Set initial reasoning effort', undefined, key);
       // Acceptance is the handover: this tab becomes the session's and the turn runs there.
       await new Promise<void>((resolve, reject) => {
         let accepted = false;
@@ -252,11 +252,11 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         <PermissionModeControl value={permission} inherited={tab.permissionMode === undefined} disabled={disabled} onChange={permissionMode => updateSetup({ permissionMode: permissionMode as NewChatTab['permissionMode'] })} />
         {ready ? <CatalogModelPicker model={model} provider={provider} catalog={catalog.data?.result} loading={catalog.isFetching}
           error={connected ? catalog.error?.message : undefined} onRetry={() => void catalog.refetch()} disabled={disabled}
-          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data?.result, provider), model).includes(effort) ? effort : 'off' })}
+          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data?.result, provider), model).includes(effort) ? effort : undefined })}
           onSessionOptions={() => setShowOptions(true)} />
           : providers.inventory.isPending ? <PickerSkeletons count={2} />
           : <Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>}
-        {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
+        {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={['', ...levels]} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort: effort || undefined })} />}
         <Button type="submit" variant="primary" aria-label="Send first message" xstyle={styles.send} loading={busy}
           disabled={disabled || !permissionAvailable || !!unresolved || requiresUpdate || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}>{!busy && <ArrowUp size={16} />}</Button>
       </div>

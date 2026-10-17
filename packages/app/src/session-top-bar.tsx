@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Button, IconButton, Menu, ToggleGroup, Tooltip, type MenuItem } from '@whip/ui';
-import { ChevronDown, MoreHorizontal, PanelRight } from 'lucide-react';
+import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
@@ -33,7 +33,7 @@ export function SessionTopBar({ host, cwd, agentName, kind, activity, onAgents, 
   ];
   const detailsLabel = detailsOpen ? 'Hide session details' : 'Session details';
   const menu: MenuItem[] = kind === 'new' ? [] : [
-    ...views.filter(view => view.value !== kind && view.onSelect).map(({ value, label, onSelect }) => ({ id: value, label, onSelect })),
+    ...(kind !== 'chat' && onChat ? [{ id: 'chat', label: 'Chat', onSelect: onChat }] : []),
     ...(onDetails ? [{ id: 'details', label: detailsLabel, onSelect: onDetails }] : []),
     ...(onRoot ? [{ id: 'root', label: 'Root conversation', onSelect: onRoot }] : []),
     ...actions,
@@ -55,10 +55,6 @@ export function SessionTopBar({ host, cwd, agentName, kind, activity, onAgents, 
           items={views.map(view => ({ value: view.value, label: view.label, disabled: view.value !== kind && !view.onSelect }))}
           onValueChange={([next]) => { if (next && next !== kind) views.find(view => view.value === next)?.onSelect?.(); }}
           xstyle={styles.views} />}
-        {kind !== 'new' && onDetails && <span {...stylex.props(styles.secondaryAction)}>
-          <IconButton variant="ghost" size="sm" label={detailsLabel} aria-expanded={detailsOpen}
-            xstyle={detailsOpen && styles.detailsActive} onClick={onDetails}><PanelRight size={16} /></IconButton>
-        </span>}
         {!!menu.length && <Menu onOpenChange={onPrepare} trigger={<IconButton variant="ghost" size="sm" label="Session actions"><MoreHorizontal size={16} /></IconButton>} items={menu} />}
       </div>
     </div>
@@ -75,7 +71,5 @@ const styles = stylex.create({
   truncate: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
   activity: { display: 'flex', alignItems: 'center', flex: { default: '1 1 0', '@container (max-width: 600px)': '0 0 auto' }, marginInlineStart: 'auto', minWidth: 0, justifyContent: 'flex-end', paddingInline: scale.space2 },
   actions: { display: 'flex', alignItems: 'center', flexShrink: 0, gap: scale.space1 },
-  secondaryAction: { display: { default: 'inline-flex', '@container (max-width: 600px)': 'none' } },
   views: { marginInlineEnd: scale.space1 },
-  detailsActive: { backgroundColor: colors.hover, borderColor: surface.quietBorder },
 });

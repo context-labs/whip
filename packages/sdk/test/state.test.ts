@@ -58,6 +58,12 @@ class Host {
   streams: Stream[] = [];
   listeners = new Set<() => void>();
   commands = new Set<(outcome: { command_id: string; status: string }) => void>();
+  titles = new Set<(params: { root_id: string }) => void>();
+  onNotification = (method: string, fn: (params: { root_id: string }) => void) => {
+    assert.equal(method, 'sessions.title.changed');
+    this.titles.add(fn); return () => { this.titles.delete(fn); };
+  };
+  titleChanged(root_id = 'root') { for (const listener of this.titles) listener({ root_id }); }
   calls: { method: string; params: Record<string, unknown> }[] = [];
   connection = { state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection-1' } };
   history?: (params: Record<string, unknown>, options?: CallOptions) => Promise<unknown>;
@@ -1037,27 +1043,172 @@ test('questions resolve across clients and unknown event payloads stay explicit'
   await view.dispose();
 });
 
-test('catalog polling is observed, revision-based, and never opens roots', async () => {
+test('catalog polling updates an unopened session title without a root subscription', async t => {
   const host = new Host();
+  host.catalogItems = [{ ...host.catalogItems[0]!, title: '' }];
   const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 10 });
+  t.after(() => list.dispose());
   await list.start();
   const initial = host.calls.length;
   await pause(25);
   assert.equal(host.calls.length, initial);
   const stop = list.subscribe(() => {});
   await until(() => host.calls.some(call => call.method === 'sessions.revision'));
-  host.catalogRevision = '2';
-  host.catalogItems = [{ ...host.catalogItems[0]!, title: 'Renamed' }];
-  await until(() => list.getSnapshot().page?.revision === '2');
-  assert.equal(list.getSnapshot().page?.items?.[0]?.title, 'Renamed');
+  // Another client accepts the first message, then background naming completes.
+  // This observer receives only persisted catalog revisions, not root events.
+  for (const [revision, title] of [['2', 'Help me repair the build'], ['3', 'Repair build']] as const) {
+    host.catalogRevision = revision;
+    host.catalogItems = [{ ...host.catalogItems[0]!, title }];
+    await until(() => list.getSnapshot().page?.revision === revision);
+    assert.equal(list.getSnapshot().page?.items?.[0]?.title, title);
+  }
   stop();
   await pause(15);
   const stopped = host.calls.length;
+  host.catalogRevision = '4';
+  host.catalogItems = [{ ...host.catalogItems[0]!, title: 'Manually renamed' }];
   await pause(25);
   assert.equal(host.calls.length, stopped);
+  const observeAgain = list.subscribe(() => {});
+  await until(() => list.getSnapshot().page?.items?.[0]?.title === 'Manually renamed');
+  observeAgain();
   assert.equal(host.streams.length, 0);
   assert.ok(host.calls.every(call => call.method.startsWith('sessions.')));
   await list.dispose();
+});
+
+test('a title changed during an in-flight catalog poll converges on the next poll', async t => {
+  const host = new Host();
+  const call = host.call.bind(host);
+  let release: (() => void) | undefined;
+  let delayed = false;
+  t.mock.method(host, 'call', async (method: string, params: Record<string, unknown>, options?: CallOptions) => {
+    const result = await call(method, params, options);
+    if (method === 'sessions.revision' && !delayed) {
+      delayed = true;
+      await new Promise<void>(resolve => { release = resolve; });
+    }
+    return result;
+  });
+  const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 10 });
+  const stop = list.subscribe(() => {});
+  t.after(async () => { release?.(); stop(); await list.dispose(); });
+  await list.start();
+  await until(() => !!release);
+  host.catalogRevision = '2';
+  host.catalogItems = [{ ...host.catalogItems[0]!, title: 'Generated during poll' }];
+  release!();
+  await until(() => list.getSnapshot().page?.items?.[0]?.title === 'Generated during poll');
+  assert.equal(list.getSnapshot().page?.revision, '2');
+  assert.equal(host.streams.length, 0);
+  assert.ok(host.calls.every(call => call.method.startsWith('sessions.')));
+});
+
+test('title hints refresh unopened catalogs, including off-page roots, without disturbing observation or overlays', async t => {
+  const host = new Host();
+  const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 60_000 });
+  let stop = list.subscribe(() => {});
+  t.after(async () => { stop(); await list.dispose(); });
+  await list.start(); await list.start();
+  assert.equal(host.titles.size, 1);
+  list.setOptimisticArchived('root', true);
+  host.catalogRevision = '2';
+  host.catalogItems = [{ ...host.catalogItems[0]!, title: 'Changed on another client' }, { ...host.catalogItems[0]!, id: 'new-fork', title: 'Fork title' }];
+  host.titleChanged('new-fork');
+  await until(() => list.getSnapshot().page?.revision === '2');
+  assert.deepEqual(list.getSnapshot().page?.items?.map(item => item.title), ['Fork title']);
+  list.setOptimisticArchived('root', false);
+  assert.equal(list.getSnapshot().page?.items?.[0]?.title, 'Changed on another client');
+  assert.equal(host.streams.length, 0);
+  stop();
+  const calls = host.calls.length;
+  host.catalogRevision = '3'; host.titleChanged();
+  await pause(5);
+  assert.equal(host.calls.length, calls);
+  stop = list.subscribe(() => {});
+  await until(() => list.getSnapshot().page?.revision === '3');
+  host.notify('reconnecting'); host.titleChanged();
+  assert.equal(list.getSnapshot().status, 'stale');
+  host.catalogRevision = '4'; host.notify('connected');
+  await until(() => list.getSnapshot().page?.revision === '4');
+  assert.equal(host.titles.size, 1);
+  await list.dispose();
+  assert.equal(host.titles.size, 0);
+});
+
+for (const blocked of ['sessions.revision', 'sessions.list', 'loadMore']) {
+  test('title hints during ' + blocked + ' coalesce and reconcile after an old result', async t => {
+    const host = new Host();
+    const call = host.call.bind(host);
+    let release!: () => void;
+    let held = false;
+    let hold = false;
+    host.call = async (method, params, options) => {
+      if (hold && !held && method === (blocked === 'loadMore' ? 'sessions.list' : blocked)) {
+        held = true;
+        const old = await call(method, params, options);
+        await new Promise<void>(resolve => { release = resolve; });
+        return old;
+      }
+      const result = await call(method, params, options);
+      return blocked === 'loadMore' && method === 'sessions.list' ? { ...result as object, has_more: true, next_cursor: 'next' } : result;
+    };
+    const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 60_000 });
+    const stop = list.subscribe(() => {});
+    t.after(async () => { stop(); await list.dispose(); });
+    await list.start();
+    // Revision and pagination reads must return the old unchanged revision, so only the queued refresh can catch up.
+    if (blocked === 'sessions.list') host.catalogRevision = '2';
+    hold = true;
+    const pending = blocked === 'loadMore' ? list.loadMore() : list.refresh();
+    await until(() => !!release);
+    host.catalogRevision = '3'; host.catalogItems = [{ ...host.catalogItems[0]!, title: 'Newest title' }];
+    const before = host.calls.length;
+    for (let i = 0; i < 20; i++) host.titleChanged('off-page');
+    assert.equal(host.calls.length, before);
+    release(); await pending;
+    await until(() => list.getSnapshot().page?.revision === '3');
+    assert.equal(list.getSnapshot().page?.items?.[0]?.title, 'Newest title');
+    assert.ok(host.calls.length - before <= 3);
+    assert.equal(host.streams.length, 0);
+  });
+}
+
+test('a title hint acknowledging an archived root keeps unrelated catalog items', async t => {
+  const host = new Host();
+  const other = { ...host.catalogItems[0]!, id: 'other', title: 'Other session' };
+  host.catalogItems.push(other);
+  const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 60_000 });
+  const stop = list.subscribe(() => {});
+  t.after(async () => { stop(); await list.dispose(); });
+  await list.start();
+  list.setOptimisticArchived('root', true);
+  host.catalogRevision = '2'; host.catalogItems = [{ ...other, title: 'Other renamed' }];
+  host.titleChanged('other');
+  await until(() => list.getSnapshot().page?.revision === '2');
+  assert.deepEqual(list.getSnapshot().page?.items, host.catalogItems);
+});
+
+test('optimistic archive hides the item immediately and reconciles against the server', async t => {
+  const host = new Host();
+  const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 60_000 });
+  const stop = list.subscribe(() => {});
+  t.after(async () => { stop(); await list.dispose(); });
+  await list.start();
+  const item = host.catalogItems[0]!;
+  list.setOptimisticArchived('root', true);
+  assert.deepEqual(list.getSnapshot().page?.items, []);
+  // A failed archive reverts before any refresh: the item returns in place.
+  list.setOptimisticArchived('root', false);
+  assert.deepEqual(list.getSnapshot().page?.items, [item]);
+  // Re-archive, then a refresh whose server truth agrees drops the overlay.
+  list.setOptimisticArchived('root', true);
+  host.catalogRevision = '2'; host.catalogItems = [];
+  await list.refresh();
+  assert.deepEqual(list.getSnapshot().page?.items, []);
+  host.catalogRevision = '3'; host.catalogItems = [item];
+  await list.refresh();
+  assert.deepEqual(list.getSnapshot().page?.items, [item]);
 });
 
 test('archive completion refreshes the active catalog once without waiting for the poll or opening a root', async t => {
@@ -1092,8 +1243,11 @@ test('an observed catalog stops its timer while paused and resumes polling on re
   assert.equal(refresh.mock.callCount(), 0, 'paused observers must not keep waking a timer');
   assert.equal(list.getSnapshot().status, 'stale');
   host.catalogRevision = '2';
+  host.catalogItems = [{ ...host.catalogItems[0]!, title: 'Named while disconnected' }];
   host.notify('connected');
   await until(() => list.getSnapshot().page?.revision === '2');
+  assert.equal(list.getSnapshot().page?.items?.[0]?.title, 'Named while disconnected');
+  assert.equal(host.streams.length, 0);
   const resumed = refresh.mock.callCount();
   await until(() => refresh.mock.callCount() > resumed);
   assert.equal(list.getSnapshot().status, 'live');

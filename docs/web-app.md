@@ -49,7 +49,12 @@ share profiles; tabs and split layouts remain separate per browser window.
 Execution hosts refreshes profiles on open, browser focus and Local reconnect.
 Previously saved browser-only addresses are available for explicit import.
 
-The sidebar groups sessions by host and then directory. Different hosts can be
+The sidebar lists directories across hosts in one recent-first Projects list.
+Project headings are text-only. Remote directories show a host name and connection
+status, with a compact details popover; local directories stay unlabelled. Groups remain distinct by exact host and path. Directory collapse
+and seven-at-a-time More/Less behavior are unchanged. Temporary disconnects keep
+stale catalog rows visible; explicit Disconnect clears that host's catalog.
+Different hosts can be
 open in the same tab strip and split panes. Disconnecting one host leaves the
 others usable, and its tabs stay in place with connection feedback. Disconnect
 changes browser observation, not the remote daemon's accepted work. If Local
@@ -254,10 +259,11 @@ access behind a trusted network or authenticated proxy.
 
 ## Build from source
 
-Use Node 24 and the Go version declared in `go.mod`:
+Use Node 24, the Go version declared in `go.mod`, and Task:
 
 ```sh
 npm ci
+task generate
 task build
 ./whipcode daemon start
 ./whipcode web
@@ -285,6 +291,10 @@ When replacing a running source-built daemon, use your rebuilt binary explicitly
 ```
 
 ## Develop against an existing daemon
+
+Initialize with `npm ci` and `task generate` first. Rerun `task generate` after
+pulling, switching branches, or editing protocol source; the protocol artifacts
+are ignored and ordinary development/build commands do not refresh them.
 
 For UI iteration, run `npm run dev:web` from the repository root and open
 `http://127.0.0.1:3000`. Vite reloads changes in `apps/web`, `packages/app` and
@@ -420,6 +430,20 @@ The dated records below describe their original frontend builds; they are not
 acceptance evidence for the gateway migration. Current migration checks and any
 unperformed device/manual acceptance are tracked separately in the
 [gateway acceptance plan](../.ai-docs/plans/web-gateway/README.md).
+
+### Agent response controls — September 27, 2026
+
+Run `npm run pack:web && node apps/web/scripts/user-messages.mjs` against isolated
+fake-provider daemons. The script verifies the packed renderer before compiling
+the fixture, then checks one completed-response date/copy/history footer in
+Chromium and Firefox: streaming suppression, local time preserved on reload,
+copy success and denied-write retry, hover/focus/menu-open behavior, left
+alignment, light/dark/Claude Code themes, narrow layouts and 44px touch targets.
+Real fork and confirmed rewind commands retain the selected response and its
+timestamp, exclude only later conversation, and leave the original intact on
+fork. Latest-response rewind is disabled. Screenshots are written under
+`/tmp/whip-user-message-results`. These checks exercise the shared web/desktop
+renderer in browsers; they are not a separate native desktop acceptance run.
 
 ### Multiple execution hosts — September 8, 2026
 

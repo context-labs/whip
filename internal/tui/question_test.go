@@ -6,12 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
-
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -63,7 +62,7 @@ func sentAnswer(t *testing.T, command tea.Cmd) questionAnswer {
 }
 
 // answerReply is the daemon's reply to our own question.answer for payload.
-func answerReply(payload string, result daemon.CommandResult, err error) clientCommandMsg {
+func answerReply(payload string, result protocol.CommandResult, err error) clientCommandMsg {
 	return clientCommandMsg{action: Action{Operation: "question.answer", Payload: json.RawMessage(payload)}, result: result, err: err}
 }
 
@@ -158,7 +157,7 @@ func TestQuestionSingleKeysMoveJumpAndAnswer(t *testing.T) {
 		t.Fatal("hints do not say sending…")
 	}
 	// the reply closes the dialog and writes the line; the event that follows adds nothing
-	m.Update(answerReply(`{"id":"q1","answer":["bun"]}`, daemon.CommandResult{Status: "succeeded", Output: "answered"}, nil))
+	m.Update(answerReply(`{"id":"q1","answer":["bun"]}`, protocol.CommandResult{Status: "succeeded", Output: "answered"}, nil))
 	if m.question != nil {
 		t.Fatal("the succeeded reply did not close the dialog")
 	}
@@ -202,7 +201,7 @@ func TestQuestionEscDismisses(t *testing.T) {
 	// the event lands first here; the reply that follows adds nothing
 	payload, _ := json.Marshal(session.LifecycleEvent{QuestionID: "q1", Dismissed: true})
 	m.applyClientLifecycle("question.answered", payload)
-	m.Update(answerReply(`{"id":"q1","dismissed":true}`, daemon.CommandResult{Status: "succeeded", Output: "dismissed"}, nil))
+	m.Update(answerReply(`{"id":"q1","dismissed":true}`, protocol.CommandResult{Status: "succeeded", Output: "dismissed"}, nil))
 	if m.question != nil || strings.Count(m.transcriptText(), `" dismissed)`) != 1 {
 		t.Fatalf("dialog=%v transcript=%q", m.question != nil, m.transcriptText())
 	}
@@ -293,17 +292,17 @@ func TestQuestionAnswerFailures(t *testing.T) {
 	q := openQuestion(t, m, questionPending(false))
 	q.inFlight = true
 	// replies for a question that closed meanwhile leave the dialog now open alone
-	m.Update(answerReply(`{"id":"q-old","answer":["x"]}`, daemon.CommandResult{Status: "failed", Error: `question "q-old" is not open`}, nil))
-	m.Update(answerReply(`{"id":"q-old","answer":["x"]}`, daemon.CommandResult{}, errors.New("socket closed")))
+	m.Update(answerReply(`{"id":"q-old","answer":["x"]}`, protocol.CommandResult{Status: "failed", Error: `question "q-old" is not open`}, nil))
+	m.Update(answerReply(`{"id":"q-old","answer":["x"]}`, protocol.CommandResult{}, errors.New("socket closed")))
 	if m.question != q || !q.inFlight {
 		t.Fatalf("another question's reply touched the dialog: dialog=%v inFlight=%v", m.question == q, q.inFlight)
 	}
-	m.Update(answerReply(`{"id":"q1","answer":["bun"]}`, daemon.CommandResult{}, errors.New("socket closed")))
+	m.Update(answerReply(`{"id":"q1","answer":["bun"]}`, protocol.CommandResult{}, errors.New("socket closed")))
 	if m.question != q || q.inFlight || !strings.Contains(m.transcriptText(), "socket closed") {
 		t.Fatalf("transport failure: dialog=%v inFlight=%v transcript=%q", m.question == q, q.inFlight, m.transcriptText())
 	}
 	q.inFlight = true
-	m.Update(answerReply(`{"id":"q1","answer":["bun"]}`, daemon.CommandResult{Status: "failed", Error: "unknown question q1"}, nil))
+	m.Update(answerReply(`{"id":"q1","answer":["bun"]}`, protocol.CommandResult{Status: "failed", Error: "unknown question q1"}, nil))
 	if m.question != nil || !strings.Contains(m.transcriptText(), "unknown question q1") {
 		t.Fatalf("daemon rejection: dialog=%v transcript=%q", m.question != nil, m.transcriptText())
 	}

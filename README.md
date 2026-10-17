@@ -91,10 +91,11 @@ Requires **Go 1.27+, Node.js 24, and [Task](https://taskfile.dev/)**.
 git clone --branch main https://github.com/context-labs/whip.git
 cd whip
 npm ci
+task generate
 task build
 ```
 
-This builds locally without replacing an installed app or restarting its daemon. See the [development and setup guide](docs/setup.md), [Desktop guide](docs/desktop.md), and [contributor checks](CONTRIBUTING.md).
+`task generate` prepares the ignored protocol artifacts and SDK. Rerun it after protocol changes or switching branches; rerun `npm ci` first when dependencies change. This builds locally without replacing an installed app or restarting its daemon. See the [development and setup guide](docs/setup.md), [Desktop guide](docs/desktop.md), and [contributor checks](CONTRIBUTING.md).
 
 [Documentation](docs/README.md) · [Architecture](docs/architecture.md) · [Frontend](docs/frontend.md) · [Evaluations](evals/README.md)
 

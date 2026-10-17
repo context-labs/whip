@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
 func renderMCPStatus(raw string) (string, error) {
-	var servers []daemon.MCPStatusResult
+	var servers []protocol.MCPStatusResult
 	if err := json.Unmarshal([]byte(raw), &servers); err != nil {
 		return "", err
 	}
@@ -38,7 +38,7 @@ func renderMCPStatus(raw string) (string, error) {
 
 // cacheMCPInventory keeps the daemon's latest status rows for the MCP palette.
 func (m *model) cacheMCPInventory(raw string) {
-	var servers []daemon.MCPStatusResult
+	var servers []protocol.MCPStatusResult
 	if err := json.Unmarshal([]byte(raw), &servers); err == nil {
 		m.mcpInventory = servers
 	}
@@ -49,7 +49,7 @@ func (m *model) cacheMCPInventory(raw string) {
 // remote-daemon servers appear in status while a name in local config may not
 // be live at all. Each row offers only what the daemon can honor for that
 // state; blocked and unreadable rows point at the status view that says why.
-func mcpPaletteRows(inventory []daemon.MCPStatusResult) []struct{ title, command string } {
+func mcpPaletteRows(inventory []protocol.MCPStatusResult) []struct{ title, command string } {
 	type row = struct{ title, command string }
 	if len(inventory) == 0 {
 		return []row{{"Load MCP server status (fills this list)", "/mcp status"}}
@@ -77,7 +77,7 @@ func mcpPaletteRows(inventory []daemon.MCPStatusResult) []struct{ title, command
 }
 
 func renderLSPStatus(raw string) (string, error) {
-	var servers []daemon.LSPStatusResult
+	var servers []protocol.LSPStatusResult
 	if err := json.Unmarshal([]byte(raw), &servers); err != nil {
 		return "", err
 	}
@@ -114,7 +114,7 @@ func renderSchedules(raw string) (string, error) {
 }
 
 func renderContextAudit(raw string) (string, error) {
-	var audit daemon.ContextAuditResult
+	var audit protocol.ContextAuditResult
 	if err := json.Unmarshal([]byte(raw), &audit); err != nil {
 		return "", err
 	}

@@ -12,7 +12,7 @@ for (const filename of filenames) {
 }
 const manifest = JSON.parse(await readFile('schema/manifest.json', 'utf8'));
 const operations = surface => manifest.operations.filter(operation => operation.surface === surface);
-let declarations = '// Generated from Go wire types. Run npm run generate.\n';
+let declarations = '// Generated from Go wire types. Run task generate.\n';
 for (const [name, schema] of Object.entries(schemas)) {
   declarations += await compile(schema, name, { bannerComment: '', unreachableDefinitions: true });
   declarations += '\n';
@@ -90,9 +90,9 @@ function validators(mode) {
     ajv.addSchema(mode === 'response' ? allowAdditions(schema) : schema);
     exports[name] = schema.$id;
   }
-  return '// Generated standalone validators. Run npm run generate.\n' + standaloneCode(ajv, exports);
+  return '// Generated standalone validators. Run task generate.\n' + standaloneCode(ajv, exports);
 }
-const runtime = `// Generated from Go wire types. Run npm run generate.
+const runtime = `// Generated from Go wire types. Run task generate.
 import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = ${JSON.stringify(manifest, null, 2)};
@@ -129,7 +129,10 @@ const files = {
 if (!check) await mkdir('generated', { recursive: true });
 for (const [name, expected] of Object.entries(files)) {
   if (check) {
-    const actual = await readFile(`generated/${name}`, 'utf8');
-    if (actual !== expected) throw new Error(`Generated contract drift: generated/${name}`);
+    const actual = await readFile(`generated/${name}`, 'utf8').catch(error => {
+      if (error.code === 'ENOENT') throw new Error(`Missing generated/${name}. Run task generate.`);
+      throw error;
+    });
+    if (actual !== expected) throw new Error(`Generated contract drift: generated/${name}. Run task generate.`);
   } else await writeFile(`generated/${name}`, expected);
 }

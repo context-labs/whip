@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/openaiauth"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 func authOpenAICLI(args []string) error {
@@ -29,7 +29,7 @@ func authOpenAICLI(args []string) error {
 		return err
 	}
 	defer func() { _ = client.Close() }()
-	var status daemon.ProviderStatus
+	var status protocol.ProviderStatus
 	if operation == "logout" {
 		status, err = client.LogoutProvider(ctx, openaiauth.Provider)
 	} else {

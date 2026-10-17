@@ -25,6 +25,10 @@ func TestLoadSaveDefaults(t *testing.T) {
 		cfg.MCPImport.Codex.Enabled == nil || *cfg.MCPImport.Codex.Enabled {
 		t.Fatal("fresh installs must leave external MCP imports opt-in")
 	}
+	if cfg.CompactModel != "" || cfg.CompactProvider != "" || cfg.CompactPct != 0 {
+		t.Fatalf("first-run compaction is not automatic: model=%q provider=%q percent=%d",
+			cfg.CompactModel, cfg.CompactProvider, cfg.CompactPct)
+	}
 	cfg.DefaultModel = "glm-5.2-fast"
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
@@ -592,5 +596,39 @@ func TestEngineOnlyConfigurationPreservesPreference(t *testing.T) {
 	cfg, err := Load()
 	if err != nil || cfg.RLM.Engine() != "quickjs" || cfg.RLM.MaxConcurrentHostCalls != 1 {
 		t.Fatalf("config=%+v %v", cfg, err)
+	}
+}
+
+func TestLoadPreservesCompactionSettings(t *testing.T) {
+	tests := []struct {
+		name     string
+		model    string
+		provider string
+		percent  int
+	}{
+		{name: "automatic"},
+		{name: "automatic with ignored provider", provider: "old-provider"},
+		{name: "explicit former default", model: "deepseek-v4-flash-0731", provider: "inference-net"},
+		{name: "explicit missing override", model: "missing-model", provider: "missing-provider"},
+		{name: "legacy low threshold", percent: 5},
+		{name: "legacy high threshold", percent: 95},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
+			cfg := Default()
+			cfg.CompactModel, cfg.CompactProvider, cfg.CompactPct = test.model, test.provider, test.percent
+			if err := cfg.Save(); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if loaded.CompactModel != test.model || loaded.CompactProvider != test.provider || loaded.CompactPct != test.percent {
+				t.Fatalf("saved compaction settings changed: model=%q provider=%q percent=%d",
+					loaded.CompactModel, loaded.CompactProvider, loaded.CompactPct)
+			}
+		})
 	}
 }
