@@ -61,8 +61,23 @@ func TestProcessEnvironmentCwdAndDescriptors(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "/daemon-agent")
 	t.Setenv("RANDOM_DAEMON_SECRET", "daemon-random")
 	t.Setenv("WHIPCODE_HOME", "/snapshot-whip-home")
+	goEnvironment := map[string]string{
+		"GOCACHE":     "/snapshot-go-build-cache",
+		"GOMODCACHE":  "/snapshot-go-module-cache",
+		"GOPATH":      "/snapshot-gopath",
+		"GOROOT":      "/snapshot-goroot",
+		"GOTOOLCHAIN": "local",
+		"GOFLAGS":     "-mod=mod",
+	}
+	for name, value := range goEnvironment {
+		t.Setenv(name, value)
+	}
+	t.Setenv("GOPROXY", "https://user:secret@proxy.invalid")
+	t.Setenv("GOAUTH", "daemon-auth-command")
+	t.Setenv("GO_PRIVATE_TOKEN", "daemon-go-secret")
 	m := NewProcessManager()
 	t.Setenv("HOME", "/changed-after-snapshot")
+	t.Setenv("GOMODCACHE", "/changed-after-snapshot")
 
 	f, err := os.CreateTemp(t.TempDir(), "descriptor")
 	if err != nil {
@@ -112,7 +127,12 @@ func TestProcessEnvironmentCwdAndDescriptors(t *testing.T) {
 			t.Errorf("%s = %q, want %q", name, env[name], want)
 		}
 	}
-	for _, name := range []string{"PROVIDER_API_KEY", "SSH_AUTH_SOCK", "RANDOM_DAEMON_SECRET"} {
+	for name, want := range goEnvironment {
+		if env[name] != want {
+			t.Errorf("%s = %q, want %q", name, env[name], want)
+		}
+	}
+	for _, name := range []string{"PROVIDER_API_KEY", "SSH_AUTH_SOCK", "RANDOM_DAEMON_SECRET", "GOPROXY", "GOAUTH", "GO_PRIVATE_TOKEN"} {
 		if _, ok := env[name]; ok {
 			t.Errorf("daemon environment leaked %s", name)
 		}
@@ -129,6 +149,21 @@ func TestProcessEnvironmentCwdAndDescriptors(t *testing.T) {
 	}
 	if built, err := m.environment(nil); err != nil || !slices.IsSorted(built) {
 		t.Errorf("environment not deterministically sorted: %v, %v", built, err)
+	}
+	// Launchers that own exec.Cmd receive the captured build settings too;
+	// explicit per-process values still take precedence.
+	child, err := m.ChildEnvironment(map[string]string{"GOFLAGS": "-mod=readonly"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childEnv := envMap(child)
+	for name, want := range goEnvironment {
+		if name == "GOFLAGS" {
+			want = "-mod=readonly"
+		}
+		if childEnv[name] != want {
+			t.Errorf("ChildEnvironment %s = %q, want %q", name, childEnv[name], want)
+		}
 	}
 	if err := m.Close(); err != nil {
 		t.Fatal(err)
