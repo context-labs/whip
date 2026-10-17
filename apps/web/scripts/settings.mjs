@@ -5,9 +5,6 @@ import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
 import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
 
-process.env.OPENROUTER_API_KEY = 'fixture-settings-key';
-process.env.INFERENCE_API_KEY = '';
-
 const results = process.env.WHIP_SETTINGS_RESULTS ?? '/tmp/whip-settings-browser-results';
 await mkdir(results, { recursive: true });
 const axeSource = await readFile(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
@@ -38,8 +35,15 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await page.getByRole('option', { name: option, exact: true }).click();
   };
   try {
-    await writeFile(join(fixture.directory, 'home', 'config.json'), JSON.stringify({ defaultModel: 'settings-model', defaultProvider: 'openrouter', models: { 'settings-model': { providers: ['openrouter'] }, 'unsaved-settings-model': { providers: ['openrouter'] } } }));
-    await writeFile(join(fixture.directory, 'home', 'models.json'), JSON.stringify({ openrouter: { baseUrl: 'https://openrouter.ai/api/v1', fetchedAt: new Date().toISOString(), models: [{ id: 'settings-model' }, { id: 'unsaved-settings-model', reasoning_efforts: ['low', 'high'] }] } }));
+    // TestMain intentionally clears inherited provider keys. Configure a local
+    // fixture route explicitly so this acceptance test never needs an account.
+    const providerBaseURL = fixture.info.frontend + '/v1';
+    await writeFile(join(fixture.directory, 'home', 'config.json'), JSON.stringify({
+      defaultModel: 'settings-model', defaultProvider: 'openrouter',
+      providers: { openrouter: { baseUrl: providerBaseURL, api: 'openai-completions', auth: 'none' } },
+      models: { 'settings-model': { providers: ['openrouter'] }, 'unsaved-settings-model': { providers: ['openrouter'] } },
+    }));
+    await writeFile(join(fixture.directory, 'home', 'models.json'), JSON.stringify({ openrouter: { baseUrl: providerBaseURL, fetchedAt: new Date().toISOString(), models: [{ id: 'settings-model' }, { id: 'unsaved-settings-model', reasoningEfforts: ['low', 'high'] }] } }));
     await page.goto(chatURL);
     const composer = page.locator('[data-whip-composer]');
     await composer.waitFor();

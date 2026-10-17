@@ -2106,7 +2106,9 @@ reading anchors; it does not undo filesystem effects.
 TanStack Virtual bounds rendered rows. Follow its measurement/anchor integration
 when changing variable-height Markdown, code, or tool output. Preserve the
 reader's position while paging or streaming; show Jump to latest when away from
-live output. A replaced/evicted anchor should degrade visibly to retained history,
+live output. An explicit Jump to latest supersedes older reading-position restores,
+including an insertion-anchor restore started while its history fetch is pending.
+A replaced/evicted anchor should degrade visibly to retained history,
 not fetch unlimited history to recover an exact pixel. Code rendering is lazy,
 bounded, copyable text; do not inject untrusted HTML or treat model output as UI
 instructions. Keep URL/content checks in the existing rendering paths.

@@ -46,3 +46,24 @@ the compatibility lifecycle/rollback scenarios; verify the shared renderer's
 REPL, agent, provider and effort controls; and run the staged desktop lifecycle
 smoke against temporary homes. These checks use local fixture providers and
 must not consume personal provider credentials or existing sessions.
+
+## Follow-up renderer acceptance repair
+
+The release smoke exposed an existing `ReadingList` race: after Latest fetched
+newer history, an insertion-anchor restore created during that fetch could pull
+the REPL back to older rows. The separate renderer fix cancels that restore after
+the read completes, while preserving the existing user-input cancellation guard.
+No SDK, protocol, provider, or persistence semantics change.
+
+The REPL, settings, child-agent, activity, and history-recovery checks run in SDK CI
+on Chromium and Firefox, with their artifacts retained alongside browser
+acceptance evidence. Their setup waits for startup to finish, exercises an upward
+scroll from outside both history-prefetch thresholds, and uses an explicit local
+provider route instead of inherited account keys. The activity test changes
+reduced motion through the current Appearance controls. These test-harness
+repairs retain the existing behavioral assertions.
+
+Activity and history recovery each use their existing standalone mode with a
+fresh fixture. Reusing the activity stress fixture can evict the interior range
+the recovery scenario expects to retain; the independent runs keep all of the
+existing recovery, request-bound, identity, and reading-anchor assertions.

@@ -225,6 +225,13 @@ jobs:
       - run: node packages/ui/tests/csp.mjs
       - run: npm run test:packed -w @whip/ui
       - run: WHIP_WEB_BROWSERS=chromium,firefox node apps/web/scripts/browser.mjs
+      - name: Renderer release acceptance
+        run: |
+          node apps/web/scripts/repl-viewer.mjs
+          node apps/web/scripts/settings.mjs
+          WHIP_CHAT_AGENTS_ONLY=1 WHIP_CHAT_ACTIVITY_RESULTS=/tmp/whip-chat-activity-results/agents node apps/web/scripts/chat-activity.mjs
+          WHIP_CHAT_ACTIVITY_RESULTS=/tmp/whip-chat-activity-results/activity node apps/web/scripts/chat-activity.mjs
+          WHIP_CHAT_HISTORY_ONLY=1 WHIP_CHAT_ACTIVITY_RESULTS=/tmp/whip-chat-activity-results/history node apps/web/scripts/chat-activity.mjs
       - run: node apps/web/scripts/model-picker.mjs
       - run: node apps/web/scripts/snapshot-refresh.mjs
       - run: node --test apps/web/scripts/performance-probes.test.mjs
@@ -247,6 +254,9 @@ jobs:
           path: |
             /tmp/whip-web-browser-results
             /tmp/whip-web-snapshot-refresh
+            /tmp/whip-repl-viewer-results
+            /tmp/whip-settings-browser-results
+            /tmp/whip-chat-activity-results
             packages/ui/ui-test-results
 
   docs:
