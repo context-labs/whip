@@ -458,7 +458,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(notebook).toContainText('Review complete.');
     await page.goBack();
     await expect(reading).toBeVisible();
-    await checkHistoryRecovery({ page, client, fixture, root, directory, name });
+    // History recovery runs through WHIP_CHAT_HISTORY_ONLY in its own fixture.
+    // This scenario's retained activity can evict the interior gap it exercises.
     // Normal scrolling must leave the activity dock available without extra subscriptions.
     await reading.evaluate(element => { element.scrollTop = 300; });
     await expect(page.getByRole('textbox', { name: 'Message WHIP', exact: true })).toBeInViewport();

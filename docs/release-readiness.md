@@ -55,10 +55,15 @@ the REPL back to older rows. The separate renderer fix cancels that restore afte
 the read completes, while preserving the existing user-input cancellation guard.
 No SDK, protocol, provider, or persistence semantics change.
 
-The focused REPL, settings, and child-agent renderer checks run in the SDK CI
-job on Chromium and Firefox, with their artifacts retained alongside browser
+The REPL, settings, child-agent, activity, and history-recovery checks run in SDK CI
+on Chromium and Firefox, with their artifacts retained alongside browser
 acceptance evidence. Their setup waits for startup to finish, exercises an upward
 scroll from outside both history-prefetch thresholds, and uses an explicit local
 provider route instead of inherited account keys. The activity test changes
 reduced motion through the current Appearance controls. These test-harness
 repairs retain the existing behavioral assertions.
+
+Activity and history recovery each use their existing standalone mode with a
+fresh fixture. Reusing the activity stress fixture can evict the interior range
+the recovery scenario expects to retain; the independent runs keep all of the
+existing recovery, request-bound, identity, and reading-anchor assertions.
