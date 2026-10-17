@@ -81,12 +81,11 @@ func linkifyFilePathsWith(s string, exists func(string) bool, uri func(string, s
 // checked here: paths with a slash take any extension, bare filenames need
 // at least two letters (links_test.go yes, tui.go no — too prose-shaped).
 func isFileRef(path string) bool {
-	dot := strings.LastIndexByte(path, '.')
-	if dot < 0 {
+	_, ext, found := strings.CutLast(path, ".")
+	if !found {
 		// no extension: only a slashed path counts (internal/tui, /etc/hostname)
 		return strings.Contains(path, "/")
 	}
-	ext := path[dot+1:]
 	if strings.ContainsRune(ext, '/') {
 		return false // dot was in a directory segment
 	}
