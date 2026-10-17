@@ -8,7 +8,9 @@ remain unchanged.
 - Go 1.27.2 replaces 1.27.0. The refreshed `govulncheck` reports no reachable
   vulnerabilities; findings in unused dependency code remain visible.
 - TanStack Start 1.168.60 applies the same targeted version update proposed by
-  [#328](https://github.com/context-labs/whip/pull/328).
+  [#328](https://github.com/context-labs/whip/pull/328). The docs router is aligned
+  to Start's matching 1.170.41 version so prerendering resolves compatible SSR
+  exports; the desktop/web app's router pin remains unchanged.
 - The existing compatible ranges resolve patched `compression`, `shell-quote`,
   and `source-map-js` releases in the root lockfile.
 
