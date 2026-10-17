@@ -4,6 +4,7 @@ import { useCallback, useContext, useLayoutEffect, useRef, useState } from 'reac
 import type { PointerEvent, ReactNode } from 'react';
 import { workspaceDragContext, WorkspaceDragScope, useWorkspaceDragTarget } from './workspace-drag';
 import { styles } from './workspace-layout.stylex';
+import { scrollbarStyles } from './scrollbar.stylex';
 import { tabDrop } from './workspace-tab-drag';
 import type { TabDrop } from './workspace-tab-drag';
 
@@ -185,7 +186,7 @@ function WorkspaceLayoutContent({ layout, focusedPaneId, onResize, onFocusPane, 
             aria-label={labelledPanels.has(panel.id) ? undefined : panel.label} aria-labelledby={labelledPanels.has(panel.id) ? panel.labelledBy : undefined}
             data-workspace-view={panel.id} data-workspace-pane={panel.paneId}
             onPointerDownCapture={event => focusFromPointer(panel.paneId, event)} onFocusCapture={() => onFocusPane(panel.paneId)}
-            {...stylex.props(styles.content, !rect && styles.unmeasured)} style={rect}>{panel.content}</section>;
+            {...stylex.props(styles.content, scrollbarStyles.native, !rect && styles.unmeasured)} style={rect}>{panel.content}</section>;
         })}
         {scope?.visible && preview && <div aria-hidden="true" data-workspace-drop={preview.drop.edge ?? 'tab'} {...stylex.props(styles.preview)} style={preview.rect}/>}
       </div>

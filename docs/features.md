@@ -1261,6 +1261,18 @@ Tests: `internal/theme/resolve_test.go`, `packages/ui/tests/themes.test.ts`,
 and `apps/web/scripts/claude-code-theme.mjs` cover catalog parity, validation,
 source colors, rendered surfaces, selection, reload and switching away.
 
+## Native web scrollbars
+
+Chat/reading lists, the session sidebar, workspace content, shared ScrollArea,
+and dialog viewports keep native scrolling with shared theme-aware styling:
+9px tracks, rounded inset thumbs, and stronger hover feedback. Firefox uses the
+standard thin/color fallback; touch and forced-colors mode retain platform
+defaults. No new scroller, dependency, or scroll state is introduced.
+
+Code: `packages/ui/src/scrollbar.stylex.ts` and its viewport consumers.
+Tests: `packages/ui/tests/scrollbars.mjs` (production CSS, browser geometry,
+themes, keyboard/wheel, fallbacks and CSP); `WHIP/Scrollbars` in Storybook.
+
 ## Web directory navigation
 
 The saved-session sidebar follows the compact Claude/Paper hierarchy while using

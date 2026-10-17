@@ -14,6 +14,7 @@ import { mergeProps } from '@base-ui/react/merge-props';
 import { AlertCircle, ChevronRight, X } from 'lucide-react';
 import { useContext, type ComponentPropsWithRef, type ReactNode } from 'react';
 import { styles } from './styles.stylex';
+import { scrollbarStyles } from './scrollbar.stylex';
 import { colors } from './tokens.stylex';
 import { IconButton } from './actions';
 import { ClipboardContext, type CopyText } from './clipboard';
@@ -47,7 +48,7 @@ export function Separator() {return <BaseSeparator {...stylex.props(styles.separ
 export function Stack({xstyle, ...props}: ComponentPropsWithRef<'div'> & Styled) {return <div {...mergeProps(stylex.props(styles.stack, xstyle), props)}/>;}
 export function Row({xstyle, ...props}: ComponentPropsWithRef<'div'> & Styled) {return <div {...mergeProps(stylex.props(styles.row, xstyle), props)}/>;}
 export function Panel({xstyle, ...props}: ComponentPropsWithRef<'section'> & Styled) {return <section {...mergeProps(stylex.props(styles.panel, xstyle), props)}/>;}
-export function ScrollArea({xstyle, ...props}: ComponentPropsWithRef<'div'> & Styled) {return <div tabIndex={0} {...mergeProps(stylex.props(styles.scroll, xstyle), props)}/>;}
+export function ScrollArea({xstyle, ...props}: ComponentPropsWithRef<'div'> & Styled) {return <div tabIndex={0} {...mergeProps(stylex.props(styles.scroll, scrollbarStyles.native, xstyle), props)}/>;}
 export function SettingsRow({label, description, children, xstyle}: {label: ReactNode; description?: ReactNode; children: ReactNode} & Styled) {return <div {...stylex.props(styles.settingsRow, xstyle)}><div {...stylex.props(styles.grow)}><div {...stylex.props(styles.label)}>{label}</div>{description && <p {...stylex.props(styles.description)}>{description}</p>}</div>{children}</div>;}
 export function Breadcrumbs({children, label = 'Location'}: {children: ReactNode; label?: string}) {return <nav aria-label={label} {...stylex.props(styles.row)}>{children}</nav>;}
 /**
