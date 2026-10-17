@@ -19,6 +19,164 @@ func decodeFixture(stream string) (Message, Usage, error) {
 	return decodeResponses(strings.NewReader(stream), "account", "model", func(string) {}, func(string) {}, func(string, string, string) {})
 }
 
+func TestResponsesRejectMalformedHistory(t *testing.T) {
+	t.Parallel()
+	image := ImagePart("png", []byte("image"))
+	for _, tc := range []struct {
+		name    string
+		message Message
+		tools   []Tool
+		want    string
+	}{
+		{name: "unknown role", message: Message{Role: "unknown"}, want: "message role"},
+		{
+			name: "missing image", want: "invalid image",
+			message: Message{Role: "user", Parts: []ContentPart{{Type: "image_url"}}},
+		},
+		{name: "assistant image", message: Message{Role: "assistant", Parts: []ContentPart{image}}, want: "invalid image"},
+		{
+			name: "unknown part", want: "unsupported OpenAI message content",
+			message: Message{Role: "user", Parts: []ContentPart{{Type: "audio"}}},
+		},
+		{
+			name: "unsupported tool", want: "function tools",
+			message: Message{Role: "user", Content: "hi"}, tools: []Tool{{Type: "computer"}},
+		},
+		{name: "malformed continuation", message: Message{
+			Role: "assistant", Continuation: ResponseContinuation{AccountID: "account", Model: "model", Items: "{broken"},
+		}, want: "continuation is malformed"},
+		{name: "invalid continuation item", message: Message{
+			Role: "assistant", Continuation: ResponseContinuation{AccountID: "account", Model: "model", Items: `["invalid"]`},
+		}, want: "malformed output item"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body, err := encodeResponses(Request{Model: "model", Messages: []Message{tc.message}, Tools: tc.tools}, "account")
+			if err == nil || !strings.Contains(err.Error(), tc.want) || len(body) != 0 {
+				t.Fatalf("invalid history produced a provider request: %q %v", body, err)
+			}
+		})
+	}
+	message := Message{Role: "assistant", Continuation: ResponseContinuation{
+		AccountID: "account", Model: "model", Items: strings.Repeat(" ", maxResponseBytes+1),
+	}}
+	_, err := encodeResponses(Request{Model: "model", Messages: []Message{message}}, "account")
+	if err == nil || !strings.Contains(err.Error(), "size limit") {
+		t.Fatalf("oversized continuation accepted: %v", err)
+	}
+}
+
+func TestResponsesOutputValidationPreservesRefusalAndBounds(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		items []json.RawMessage
+		want  string
+	}{
+		{name: "item count", items: make([]json.RawMessage, maxResponseItems+1), want: "too many output items"},
+		{name: "malformed item", items: []json.RawMessage{json.RawMessage(`"invalid"`)}, want: "malformed output item"},
+		{
+			name: "unexpected role", want: "unexpected output role",
+			items: []json.RawMessage{json.RawMessage(`{"type":"message","role":"user"}`)},
+		},
+		{
+			name: "unexpected content", want: "unsupported output content",
+			items: []json.RawMessage{json.RawMessage(
+				`{"type":"message","role":"assistant","content":[{"type":"audio"}]}`,
+			)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			message, err := responseMessage(tc.items)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || len(message.ToolCalls) != 0 {
+				t.Fatalf("invalid output accepted: %+v %v", message, err)
+			}
+		})
+	}
+	_, err := responseMessage([]json.RawMessage{json.RawMessage(strings.Repeat(" ", maxResponseBytes+1))})
+	if err == nil || !strings.Contains(err.Error(), "size limit") {
+		t.Fatalf("oversized provider output accepted: %v", err)
+	}
+	message, err := responseMessage([]json.RawMessage{
+		json.RawMessage(`{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"Cannot comply."}]}`),
+	})
+	if err != nil || message.Content != "Cannot comply." || len(message.ToolCalls) != 0 {
+		t.Fatalf("refusal was not preserved as text: %+v %v", message, err)
+	}
+}
+
+func TestResponsesMalformedFramesNeverPublishContinuation(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, frame, want string }{
+		{
+			name: "malformed item", want: "malformed output item",
+			frame: `{"type":"response.output_item.added","item":"bad"}`,
+		},
+		{
+			name: "orphan arguments", want: "without a call",
+			frame: `{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{}"}`,
+		},
+		{
+			name: "malformed terminal", want: "malformed terminal response",
+			frame: `{"type":"response.completed","response":"bad"}`,
+		},
+		{
+			name: "malformed usage", want: "malformed token usage",
+			frame: `{"type":"response.completed","response":{"status":"completed","usage":"bad"}}`,
+		},
+		{
+			name: "invalid usage", want: "usage",
+			frame: `{"type":"response.completed","response":{"status":"completed",` +
+				`"usage":{"input_tokens":-1,"output_tokens":2}}}`,
+		},
+		{name: "invalid completed item", frame: responseFixture(`["bad"]`), want: "malformed output item"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// No trailing blank line: the last frame must still be validated at EOF.
+			message, _, err := decodeFixture("data: " + tc.frame)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || message.Continuation.Items != "" {
+				t.Fatalf("malformed frame published continuation: %+v %v", message, err)
+			}
+		})
+	}
+	message, _, err := decodeResponses(
+		accountingBrokenReader{},
+		"account",
+		"model",
+		func(string) {},
+		func(string) {},
+		func(string, string, string) {},
+	)
+	if !errors.Is(err, io.ErrUnexpectedEOF) || message.Continuation.Items != "" {
+		t.Fatalf("stream read failure lost: %+v %v", message, err)
+	}
+}
+
+func TestResponsesRetainTextPartsAndRejectSamplingOptions(t *testing.T) {
+	t.Parallel()
+	request := Request{Messages: []Message{{Role: "user", Parts: []ContentPart{{Type: "text", Text: "part text"}}}}}
+	body, err := encodeResponses(request, "account")
+	if err != nil || !strings.Contains(string(body), `"text":"part text"`) {
+		t.Fatalf("text part lost: %s %v", body, err)
+	}
+	value := 0.5
+	for _, tc := range []struct {
+		name              string
+		temperature, topP *float64
+	}{{name: "temperature", temperature: &value}, {name: "top_p", topP: &value}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			input := request
+			input.Temperature, input.TopP = tc.temperature, tc.topP
+			if _, err := encodeResponses(input, "account"); err == nil || !strings.Contains(err.Error(), "unsupported") {
+				t.Fatalf("unsupported sampling option accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestResponsesToolContinuationRoundTrip(t *testing.T) {
 	items := `[{"type":"reasoning","id":"r1","encrypted_content":"opaque-state","summary":[]},` +
 		`{"type":"message","id":"m1","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Checking."}]},` +

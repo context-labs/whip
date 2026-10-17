@@ -55,6 +55,15 @@ valid RSA signatures, malformed nested RSA DigestInfo, unknown advisories,
 registry fallback and patch tampering. The SDK job runs this gate before the
 existing frontend and SDK acceptance checks.
 
+The compiler update also changes statement weights in coverage profiles. On
+identical source, Go 1.27.0 records 38,455 statements and Go 1.27.2 records 37,134;
+702 blocks receive different weights. The hosted tests all passed, but coverage
+moved from 90.2% to 89.8%. The 90% floor is retained. Additional regressions cover
+provider image/request encoding, malformed responses and continuation limits,
+truncation and thinking preservation, cancellation of waiting client calls, and
+bounded presentation copy isolation and UTF-8 handling. These tests change no
+runtime behavior.
+
 ## Returning to registry releases
 
 When upstream publishes fixes, review the release against these patches, remove
