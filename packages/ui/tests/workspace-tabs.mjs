@@ -43,6 +43,33 @@ try {
       const visit = async (params = '') => { await page.goto(`${origin}/${params}`); await expect(page.getByRole('tab')).toHaveCount(params.includes('many') ? 32 : 4); };
       const tab = value => page.locator(`[role="tab"][id="whip-workspace-tab-${value}"]`);
       const selected = value => expect(page.getByLabel('Active session', { exact: true })).toHaveText(value);
+      // Fade only title text, retain full names, and protect short labels from the fade.
+      await visit();
+      const title = tab('gamma').locator(':scope > span').nth(1);
+      const titleStyle = () => title.evaluate(element => ({
+        mask: getComputedStyle(element).maskImage, overflow: getComputedStyle(element).textOverflow,
+        clipped: element.scrollWidth > element.clientWidth,
+      }));
+      assert.equal((await titleStyle()).overflow, 'clip');
+      assert.match((await titleStyle()).mask, /to right/);
+      assert.equal((await titleStyle()).clipped, true);
+      await expect(tab('gamma')).toHaveAccessibleName(/A long translated session name that remains readable and accessible/);
+      assert.equal(await tab('gamma').evaluate(element => getComputedStyle(element.firstElementChild).maskImage), 'none');
+      await title.evaluate(element => { element.textContent = 'Short'; });
+      assert.ok(await title.evaluate(element => {
+        const range = document.createRange(); range.selectNodeContents(element);
+        return range.getBoundingClientRect().right <= element.getBoundingClientRect().right - 16;
+      }), 'A fitting title should remain fully opaque');
+      await page.emulateMedia({ forcedColors: 'active' });
+      assert.equal((await titleStyle()).mask, 'none');
+      await page.emulateMedia({ forcedColors: 'none', media: 'print' });
+      assert.equal((await titleStyle()).mask, 'none');
+      await page.emulateMedia({ media: 'screen' });
+      await visit('?rtl');
+      assert.match((await titleStyle()).mask, /to left/);
+      await page.emulateMedia({ forcedColors: 'active' });
+      assert.equal((await titleStyle()).mask, 'none');
+      await page.emulateMedia({ forcedColors: 'none' });
       // A crowded strip must spend its label space on the title, not host metadata.
       await page.setViewportSize({ width: 800, height: 600 });
       await visit('?many');
@@ -96,6 +123,13 @@ try {
       await tab('gamma').click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
       await (await popup).close(); await selected('alpha');
       await expect(page.getByLabel('Navigation count', { exact: true })).toHaveText('1');
+      for (const shortcut of ['Shift+F10', 'ContextMenu']) {
+        await tab('gamma').focus();
+        await page.keyboard.press(shortcut);
+        await expect(page.getByRole('menuitem', { name: 'Move left', exact: true })).toBeVisible();
+        await page.keyboard.press('Escape');
+        await selected('alpha');
+      }
       await tab('gamma').click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Move left', exact: true }).click();
       await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('gamma,alpha,delta');

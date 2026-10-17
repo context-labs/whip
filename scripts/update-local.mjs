@@ -25,7 +25,9 @@ WHIP_DESKTOP_NOTARIZE=1 uses the existing packaging notarization settings.
 See README.md for details and recovery. No Git pull or release publication occurs.`;
 
 async function build(env) {
-  for (const [file, args] of [['npm', ['ci']], [process.execPath, ['node_modules/electron/install.js']],
+  // Git dependencies resolve their own build tooling; revalidate cached registry metadata.
+  for (const [file, args] of [['npm', ['ci', '--prefer-online']],
+    ['npm', ['run', 'generate']], ['npm', ['run', 'build']], [process.execPath, ['node_modules/electron/install.js']],
     [process.execPath, ['apps/desktop/scripts/package.mjs']]]) {
     await new Promise((resolve, reject) => {
       const child = spawn(file, args, { cwd: repositoryRoot, stdio: 'inherit', env });

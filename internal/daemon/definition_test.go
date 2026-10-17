@@ -90,7 +90,8 @@ func TestDefinitionSurfaceDisablesAutomaticTitle(t *testing.T) {
 	runner := &titleRunner{fakeRunner: &fakeRunner{}, title: "Never Applied", finished: make(chan struct{})}
 	definition := agentdef.Coding()
 	definition.Surface.AutoTitle = false
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner, Definition: definition}, nil
 	})
 	if err != nil {
@@ -100,9 +101,6 @@ func TestDefinitionSurfaceDisablesAutomaticTitle(t *testing.T) {
 	root, err := value.Open(rootID)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if result := clientCommand(t, root, "tui", "autotitle", "session.autotitle", protocol.EmptyParams{}); result.Status != "succeeded" {
-		t.Fatalf("enable automatic title=%+v", result)
 	}
 	receipt, err := root.Submit(t.Context(), "Investigate flaky workers")
 	if err != nil {
@@ -118,8 +116,8 @@ func TestDefinitionSurfaceDisablesAutomaticTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(meta.Title, runner.title) {
-		t.Fatalf("title applied: %q", meta.Title)
+	if meta.Title != "Investigate flaky workers" {
+		t.Fatalf("definition opt-out lost deterministic title: %q", meta.Title)
 	}
 }
 
@@ -171,7 +169,7 @@ func createDefinitionRoot(t *testing.T, store *session.Store, definition string)
 	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "definitions", CommandID: id, Scope: session.CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", create.Definition, create.DefinitionRevision)
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", "", create.Definition, create.DefinitionRevision)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +278,7 @@ func TestRegisteredDefinitionRunsAndResolves(t *testing.T) {
 	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "definitions", CommandID: id, Scope: session.CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", create.Definition, create.DefinitionRevision)
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", "", create.Definition, create.DefinitionRevision)
 	if err != nil {
 		t.Fatal(err)
 	}

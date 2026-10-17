@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
@@ -51,6 +52,7 @@ func TestContextJournalRecordsOriginalMessagesExactlyOnce(t *testing.T) {
 	}
 	var journal []llm.Message
 	boundaries := 0
+	before := time.Now()
 	final, err := ag.TurnParts(t.Context(), original, parts, Events{
 		Prefix: []llm.Message{{Role: "system", Content: "journal prefix"}},
 		OnMessage: func(message llm.Message) int {
@@ -91,7 +93,17 @@ func TestContextJournalRecordsOriginalMessagesExactlyOnce(t *testing.T) {
 	if len(view) != len(journal)+1 {
 		t.Fatalf("view contains %d messages, journal contains %d", len(view), len(journal))
 	}
-	for i := range journal {
+	for i, message := range journal {
+		if message.Role == "assistant" || message.Authored {
+			if message.SentAt == nil || message.SentAt.Before(before) || message.SentAt.After(time.Now()) {
+				t.Fatalf("journal message %d has no recording timestamp: %+v", i, message)
+			}
+		} else if message.SentAt != nil {
+			t.Fatalf("internal message was stamped: %+v", message)
+		}
+		if view[i+1].SentAt != message.SentAt {
+			t.Fatalf("journal and model view timestamps diverged for message %d", i)
+		}
 		if view[i+1].RawSequence != 100+(i+1)*7 {
 			t.Fatalf("message %d lost raw sequence: %+v", i, view[i+1])
 		}
@@ -100,6 +112,11 @@ func TestContextJournalRecordsOriginalMessagesExactlyOnce(t *testing.T) {
 		t.Fatalf("model view did not focus independently: %+v", view[2])
 	}
 	first, second := <-requests, <-requests
+	for _, message := range second.Messages {
+		if message.SentAt != nil {
+			t.Fatalf("recording timestamp reached provider: %+v", message)
+		}
+	}
 	if first.Messages[2].Content != view[2].Content || second.Messages[len(second.Messages)-1].Content != "journal steer" {
 		t.Fatalf("provider did not receive focused input then steer: %+v, %+v", first.Messages, second.Messages)
 	}
@@ -145,9 +162,71 @@ func TestContextJournalIncludesMaxTurnsFinalAnswer(t *testing.T) {
 	if len(view) != 5 || view[4].Content != final || view[4].RawSequence != 204 {
 		t.Fatalf("capped answer missing from retained view: %+v", view)
 	}
+	if last.SentAt == nil || last.SentAt.IsZero() || view[4].SentAt != last.SentAt {
+		t.Fatalf("finalization timestamp missing or changed: journal=%+v view=%+v", last, view[4])
+	}
 	first, second := <-requests, <-requests
 	if len(first.Tools) != 1 || len(second.Tools) != 0 || second.Messages[len(second.Messages)-1].Role != "system" {
 		t.Fatalf("fixture did not exercise tools-disabled final answer: %+v, %+v", first, second)
+	}
+}
+
+func TestAppendTurnMessagesRecordsAssistantTimestampOnce(t *testing.T) {
+	t.Parallel()
+	for _, role := range []string{"assistant", "user", "system", "tool"} {
+		t.Run(role, func(t *testing.T) {
+			t.Parallel()
+			supplied := time.Date(2025, 6, 1, 14, 30, 0, 123, time.FixedZone("offset", 3600))
+			ag := &Agent{}
+			journal := []llm.Message{}
+			events := Events{OnMessage: func(message llm.Message) int {
+				journal = append(journal, message)
+				return len(journal)
+			}}
+			before := time.Now()
+			ag.appendTurnMessages(events,
+				llm.Message{Role: role, Content: "new"},
+				llm.Message{Role: role, Content: "existing", SentAt: &supplied},
+			)
+			first := journal[0].SentAt
+			if role == "assistant" {
+				if first == nil || first.Before(before) || first.After(time.Now()) {
+					t.Fatalf("new assistant timestamp = %v", first)
+				}
+			} else if first != nil {
+				t.Fatalf("stamped %s message: %v", role, first)
+			}
+			if journal[1].SentAt != &supplied {
+				t.Fatal("replaced supplied timestamp")
+			}
+			ag.appendTurnMessages(events, ag.MessagesSnapshot()...)
+			for i, message := range ag.MessagesSnapshot() {
+				if message.SentAt != journal[i].SentAt || message.SentAt != journal[i%2].SentAt {
+					t.Fatalf("timestamp changed between append, journal and snapshot: %+v", message)
+				}
+			}
+		})
+	}
+}
+
+func TestContextJournalStampsPreservedPartialResponse(t *testing.T) {
+	t.Parallel()
+	ag := &Agent{}
+	journal := []llm.Message{}
+	ag.preserveModelResponse(Events{OnMessage: func(message llm.Message) int {
+		journal = append(journal, message)
+		return len(journal)
+	}}, llm.Message{
+		Role: "assistant", Content: "partial answer", ToolCalls: []llm.ToolCall{{ID: "pending"}},
+	}, llm.Usage{}, context.Canceled)
+	if len(journal) != 2 || journal[0].Content != "partial answer\n[response interrupted]" {
+		t.Fatalf("partial journal = %+v", journal)
+	}
+	if journal[0].SentAt == nil || journal[0].SentAt.IsZero() || journal[1].SentAt != nil {
+		t.Fatalf("partial response/tool timestamps = %+v", journal)
+	}
+	if ag.MessagesSnapshot()[0].SentAt != journal[0].SentAt {
+		t.Fatal("partial response timestamp differs in journal and model view")
 	}
 }
 

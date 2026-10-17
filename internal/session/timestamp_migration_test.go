@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestV20UpgradeNormalizesLegacyTimestampOrdering(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,7 @@ PRAGMA user_version=20;`); err != nil {
 	}
 
 	for range 2 { // Reopening an upgraded store must preserve the same values.
-		store, err = Open(path)
+		store, err = Open(path, capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +116,7 @@ PRAGMA user_version=20;`); err != nil {
 
 func TestTimestampNormalizationFailureRollsBackUpgrade(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +142,7 @@ PRAGMA user_version=20;`); err != nil {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if reopened, err := Open(path); err == nil {
+	if reopened, err := Open(path, capability.NewWorkspaces()); err == nil {
 		_ = reopened.Close()
 		t.Fatal("incomplete schema unexpectedly upgraded")
 	} else if !strings.Contains(err.Error(), "normalize legacy timestamps") {

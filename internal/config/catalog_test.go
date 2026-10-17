@@ -48,11 +48,11 @@ func TestCatalogEffortsNormalizesOffAndMissingModels(t *testing.T) {
 		{ID: "reasoning", ReasoningEfforts: []string{"none", "low", "high"}},
 		{ID: "plain"},
 	}}
-	if got := catalog.Efforts("reasoning"); !slices.Equal(got, []string{"", "low", "high"}) {
+	if got := catalog.Efforts("reasoning"); !slices.Equal(got, []string{"off", "low", "high"}) {
 		t.Fatalf("reasoning efforts = %v", got)
 	}
 	for _, model := range []string{"plain", "missing"} {
-		if got := catalog.Efforts(model); !slices.Equal(got, []string{""}) {
+		if got := catalog.Efforts(model); !slices.Equal(got, []string{"off"}) {
 			t.Errorf("%s efforts = %v", model, got)
 		}
 	}

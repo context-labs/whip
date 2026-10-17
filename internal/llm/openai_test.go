@@ -41,7 +41,10 @@ func TestStreamStripsAuthoredFlag(t *testing.T) {
 	defer srv.Close()
 
 	sent := time.Now()
-	msgs := []Message{{Role: "user", Content: "typed by me", Authored: true, SentAt: &sent}}
+	msgs := []Message{
+		{Role: "user", Content: "typed by me", Authored: true, SentAt: &sent},
+		{Role: "assistant", Content: "recorded response", SentAt: &sent},
+	}
 	if _, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m", Messages: msgs}, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +53,11 @@ func TestStreamStripsAuthoredFlag(t *testing.T) {
 	}
 	if strings.Contains(string(body), "sent_at") {
 		t.Fatalf("SentAt timestamp leaked to provider: %s", body)
+	}
+	for _, message := range msgs {
+		if message.SentAt != &sent {
+			t.Fatalf("provider filtering mutated local timestamp: %+v", message)
+		}
 	}
 }
 

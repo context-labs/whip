@@ -8,6 +8,7 @@ import (
 
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/protocol"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -99,23 +100,7 @@ func (s *Server) query(ctx context.Context, params protocol.QueryParams) (protoc
 	return protocol.QueryResult{RootID: params.RootID, Content: &protocol.ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest, Size: value.Size, MediaType: value.MediaType, Source: value.Source}}, nil
 }
 
-func (c *Client) Query(ctx context.Context, params protocol.QueryParams) (protocol.QueryResult, error) {
-	var result protocol.QueryResult
-	err := c.Call(ctx, "query", params, &result)
-	if err == nil && result.Content != nil {
-		if result.RootID != params.RootID {
-			return protocol.QueryResult{}, errors.New("query content root does not match request")
-		}
-		command := CommandResult{Content: result.Content, Operation: params.Operation}
-		if err := c.commandContent(ctx, result.RootID, &command); err != nil {
-			return protocol.QueryResult{}, err
-		}
-		result.Result = command.Result
-	}
-	return result, err
-}
-
-func queryProviderCatalogs(ctx context.Context, providers *ProviderService, payload json.RawMessage) (string, error) {
+func queryProviderCatalogs(ctx context.Context, providers *providersvc.ProviderService, payload json.RawMessage) (string, error) {
 	var params protocol.ProviderCatalogParams
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, &params); err != nil {

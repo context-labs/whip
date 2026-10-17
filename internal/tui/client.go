@@ -15,36 +15,37 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
-	bubbletea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/colorprofile"
-
-	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/llm"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
+
+	bubbletea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/update"
 )
 
-type ClientState = daemon.RootClientState
+type ClientState = daemonclient.RootClientState
 
 const (
-	ClientDisconnected = daemon.RootDisconnected
-	ClientReconnecting = daemon.RootReconnecting
-	ClientSnapshotting = daemon.RootSnapshotting
-	ClientLive         = daemon.RootLive
+	ClientDisconnected = daemonclient.RootDisconnected
+	ClientReconnecting = daemonclient.RootReconnecting
+	ClientSnapshotting = daemonclient.RootSnapshotting
+	ClientLive         = daemonclient.RootLive
 )
 
 type (
-	Action           = daemon.RootAction
-	ClientUpdate     = daemon.RootUpdate
-	daemonConnection = daemon.RootConnection
-	ClientOptions    = daemon.RootClientOptions
-	Client           = daemon.RootClient
+	Action           = daemonclient.RootAction
+	ClientUpdate     = daemonclient.RootUpdate
+	daemonConnection = daemonclient.RootConnection
+	ClientOptions    = daemonclient.RootClientOptions
+	Client           = daemonclient.RootClient
 )
 
-func NewClient(options ClientOptions) (*Client, error) { return daemon.NewRootClient(options) }
+func NewClient(options ClientOptions) (*Client, error) { return daemonclient.NewRootClient(options) }
 
 // clientPresentation is the daemon-fed state needed to render a terminal. It
 // deliberately has no provider client, tool registry, scheduler, store, or
@@ -79,18 +80,18 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 	if err != nil {
 		return "", err
 	}
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		return "", err
 	}
 	clientID := "tui-" + rand.Text()
 	resumeChecked := false
 	connector := func(ctx context.Context, cursors map[string]int64) (daemonConnection, error) {
-		connection, err := daemon.EnsureClient(ctx, paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: Version, ClientKind: "tui",
+		connection, err := daemonclient.EnsureClient(ctx, paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, BuildID: Version, ClientKind: "tui",
 			ClientID: clientID, Capabilities: []string{"commands", "events", "snapshots", "permissions"},
 			Cursors: cursors,
-		}, func() error { return daemon.LaunchSelfDaemon(paths) })
+		}, func() error { return daemonconn.LaunchSelfDaemon(paths) })
 		if err != nil || resumeID == "" || (engine == "" && definition == "") || resumeChecked {
 			return connection, err
 		}
@@ -114,9 +115,9 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		resumeChecked = true
 		return connection, nil
 	}
-	var create *daemon.CreateSession
+	var create *session.CreateSession
 	if resumeID == "" {
-		create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName, ExecutionEngine: engine, Definition: definition}
+		create = &session.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName, ExecutionEngine: engine, Definition: definition}
 	}
 	client, err := NewClient(ClientOptions{
 		ClientID: clientID,
@@ -139,7 +140,7 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		cfg: cfg, client: client, clientState: ClientDisconnected,
 		clientView: clientPresentation{
 			modelID: apiID, contextLimit: contextLimit,
-			effort:   DefaultEffortFor(catalogs, provName, apiID, cfg.DefaultEffort),
+			effort:   config.ResolveEffort(catalogs, provName, apiID, cfg.DefaultEffort),
 			messages: []llm.Message{{Role: "system"}},
 		},
 		modelName: modelName, provName: provName,
@@ -216,17 +217,6 @@ func configureInteractiveSession(ctx context.Context, client *Client, cautious, 
 			return err
 		}
 	}
-	action, err := client.NewAction("session.autotitle", protocol.EmptyParams{})
-	if err != nil {
-		return fmt.Errorf("configure automatic titles: %w", err)
-	}
-	result, err := client.Command(ctx, action)
-	if err != nil {
-		return fmt.Errorf("configure automatic titles: %w", err)
-	}
-	if result.Status != "succeeded" {
-		return fmt.Errorf("configure automatic titles: %s", result.Error)
-	}
 	return nil
 }
 
@@ -240,18 +230,18 @@ type clientSnapshotMsg struct {
 }
 type clientCommandMsg struct {
 	action Action
-	result daemon.CommandResult
+	result protocol.CommandResult
 	err    error
 }
 type clientPermissionMsg struct {
 	action       Action
 	permissionID string
-	result       daemon.PermissionDecisionResult
+	result       protocol.PermissionDecisionResult
 	err          error
 }
 type clientTerminalMsg struct {
 	action Action
-	result daemon.CommandResult
+	result protocol.CommandResult
 	err    error
 }
 
@@ -371,19 +361,10 @@ func (m *model) applyClientRoute(modelName, providerName string) {
 	}
 }
 
+// applyStoredEffort shows the session's saved effort. The daemon resolves a
+// concrete value at creation, so the saved value is the applied one.
 func (m *model) applyStoredEffort(stored string) {
-	switch stored {
-	case "off":
-		m.clientView.effort = ""
-	case "":
-		if m.cfg == nil {
-			m.clientView.effort = ""
-			return
-		}
-		m.clientView.effort = DefaultEffortFor(m.catalogs, m.provName, m.displayModelID(), m.cfg.DefaultEffort)
-	default:
-		m.clientView.effort = stored
-	}
+	m.clientView.effort = stored
 }
 
 func (m *model) rebuildClientTranscript() {
@@ -431,7 +412,7 @@ func pendingUserText(item session.InboxItem) string {
 	case "submit", "steer":
 		return string(item.Payload.Inline)
 	case "submit.parts", "steer.parts":
-		var payload daemon.SubmitPayload
+		var payload protocol.SubmitPayload
 		if json.Unmarshal(item.Payload.Inline, &payload) != nil {
 			return ""
 		}
@@ -512,11 +493,11 @@ func (m *model) displayContextLimit() int {
 	return m.clientView.contextLimit
 }
 
-func (m *model) recordClientStream(event daemon.ProtocolEvent) {
+func (m *model) recordClientStream(event protocol.ProtocolEvent) {
 	if !strings.HasPrefix(event.Kind, "stream.") || event.Kind == "stream.accounting" {
 		return
 	}
-	var payload daemon.StreamEvent
+	var payload protocol.StreamEvent
 	if json.Unmarshal(event.Payload, &payload) != nil {
 		return
 	}
@@ -541,8 +522,8 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		return false, nil
 	}
 	var omitted struct {
-		Truncated bool                  `json:"truncated"`
-		Content   *daemon.ContentHandle `json:"content"`
+		Truncated bool                    `json:"truncated"`
+		Content   *protocol.ContentHandle `json:"content"`
 	}
 	// Host outcomes live in the REPL panel, which reads the retained small fields.
 	if json.Unmarshal(payload, &omitted) == nil && omitted.Truncated && !strings.HasPrefix(kind, "stream.cell.host") {
@@ -553,7 +534,7 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		m.append(dimStyle.Render(detail))
 		return true, nil
 	}
-	var event daemon.StreamEvent
+	var event protocol.StreamEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
 		m.append(errStyle.Render("daemon stream: " + err.Error()))
 		return true, nil
@@ -635,7 +616,7 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		}
 		return true, nil
 	case "stream.plan":
-		var plan daemon.PlanEvent
+		var plan protocol.PlanEvent
 		if err := json.Unmarshal([]byte(event.Result), &plan); err != nil {
 			m.append(errStyle.Render("daemon plan: " + err.Error()))
 			return true, nil
@@ -769,7 +750,7 @@ func mergePresentation(snapshot, current []session.SnapshotEvent, cursor int64) 
 	return merged
 }
 
-func (m *model) openAgent(result daemon.AgentTranscriptResult) {
+func (m *model) openAgent(result protocol.AgentTranscriptResult) {
 	m.agentOpen = result.Agent.ID
 	m.agentMessages[result.Agent.ID] = pageMessages(result.Page)
 	m.setHistoryPage(result.Agent.ID, result.Page)
@@ -819,7 +800,7 @@ func (m *model) cancelVisibleTurn() (bubbletea.Model, bubbletea.Cmd) {
 
 func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubbletea.Cmd) {
 	if strings.HasPrefix(kind, "session.") && strings.HasSuffix(kind, ".updated") {
-		var event daemon.SessionUpdateEvent
+		var event protocol.SessionUpdateEvent
 		if err := json.Unmarshal(payload, &event); err != nil {
 			return false, nil
 		}
@@ -1390,7 +1371,7 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 				if m.agentOpen != "" {
 					return m.submitClientAction("agent.submit", map[string]string{"id": m.agentOpen, "text": sent, "delivery": "steer"}, text)
 				}
-				return m.submitClientAction("steer", daemon.SubmitPayload{Text: sent}, text)
+				return m.submitClientAction("steer", protocol.SubmitPayload{Text: sent}, text)
 			default:
 				return m, nil
 			}
@@ -1615,7 +1596,7 @@ func (m *model) openThinPalette() {
 		commandItem("Model", "Agent", "/model", true),
 		{
 			title: "Reasoning effort", category: "Agent",
-			dynDesc: func(value *model) string { return "current: " + effortLabel(value.displayEffort()) },
+			dynDesc: func(value *model) string { return "current: " + value.displayEffort() },
 			dynHint: func(*model) string { return "/effort" },
 			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
 				value.openThinEffortPalette()
@@ -1840,7 +1821,7 @@ func (m *model) openThinEffortPalette() {
 	items := make([]paletteItem, 0, len(m.effortsFor()))
 	for _, level := range m.effortsFor() {
 		items = append(items, paletteItem{
-			title: "Effort: " + effortLabel(level), category: "Agent",
+			title: "Effort: " + level, category: "Agent",
 			dynDesc: func(value *model) string {
 				if value.displayEffort() == level {
 					return "current"
@@ -1849,7 +1830,7 @@ func (m *model) openThinEffortPalette() {
 			},
 			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
 				value.palette = nil
-				return value.submitClientAction("session.effort", protocol.EffortParams{Effort: effortLabel(level), PersistDefault: true}, "")
+				return value.submitClientAction("session.effort", protocol.EffortParams{Effort: level, PersistDefault: true}, "")
 			},
 		})
 	}
@@ -1946,13 +1927,11 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		if !ok {
 			levels := m.effortsFor()
 			names := make([]string, len(levels))
-			for index := range levels {
-				names[index] = effortLabel(levels[index])
-			}
+			copy(names, levels)
 			m.append(errStyle.Render("unknown effort level; " + m.modelName + " supports: " + strings.Join(names, ", ")))
 			return m, nil
 		}
-		return m.submitClientAction("session.effort", protocol.EffortParams{Effort: effortLabel(level), PersistDefault: true}, "")
+		return m.submitClientAction("session.effort", protocol.EffortParams{Effort: level, PersistDefault: true}, "")
 	case "model", "model-for-session":
 		if m.beforeSession() {
 			return m, m.openProviderSetup()
@@ -2094,4 +2073,4 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	return m.submitClientCLI(operation, args)
 }
 
-var _ daemonConnection = (*daemon.Client)(nil)
+var _ daemonConnection = (*daemonclient.Client)(nil)

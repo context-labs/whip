@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 )
 
 func TestFullScreenLayoutFitsTerminal(t *testing.T) {
@@ -73,7 +73,7 @@ func TestOpencodeDialogsUseRecursiveCommandSurface(t *testing.T) {
 	}
 	// Server rows come from the daemon's inventory, not local config: the
 	// config's "local" is stale here and must not appear; the daemon's rows do.
-	m.mcpInventory = []daemon.MCPStatusResult{{Name: "docs", Status: "ready", Tools: 3}, {Name: "ghost", Status: "blocked", Note: "blocked by mcpImport config (project)"}}
+	m.mcpInventory = []protocol.MCPStatusResult{{Name: "docs", Status: "ready", Tools: 3}, {Name: "ghost", Status: "blocked", Note: "blocked by mcpImport config (project)"}}
 	m.openThinMCPPalette()
 	out = strings.Join(m.ocDialogRows(), "\n")
 	for _, want := range []string{"MCP import status", "Enable Codex imports", "Enable project .mcp.json imports", "Reconnect docs", "Disable docs for this session", "Why is ghost blocked"} {

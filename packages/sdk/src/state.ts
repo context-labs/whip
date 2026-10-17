@@ -897,10 +897,13 @@ export class SessionListView {
   private timer?: ReturnType<typeof setTimeout>;
   private stopConnection?: () => void;
   private stopCommands?: () => void;
+  private stopTitles?: () => void;
   private pending?: Promise<void>;
   private started = false;
   private epoch = 0;
   private refreshAgain = false;
+  // ponytail: Map preserves insertion order, so re-insertion lands at the end.
+  private readonly overlays = new Map<string, { archived: boolean; item?: NonNullable<SessionCatalogPage['items']>[number]; index: number }>();
   private runtimeID?: string;
   private readonly interval: number;
   private readonly maxBytes: number;
@@ -941,6 +944,9 @@ export class SessionListView {
     this.stopCommands = this.client.onCommand(terminalChanges(() => {
       if (this.listeners.size) void this.refresh();
     }));
+    this.stopTitles = this.client.onNotification('sessions.title.changed', () => {
+      if (this.listeners.size) void this.refresh();
+    });
     await this.refresh();
     this.pollLater();
   }
@@ -960,7 +966,10 @@ export class SessionListView {
     if (!this.current.page?.has_more) return;
     if (!this.current.page.next_cursor) throw new WhipError('invalid_response', 'Session list is missing its continuation cursor');
     this.pending = this.fetch(true);
-    try { await this.pending; } finally { this.pending = undefined; }
+    try { await this.pending; } finally {
+      this.pending = undefined;
+      if (this.refreshAgain) { this.refreshAgain = false; void this.refresh(); }
+    }
   }
 
   async dispose(): Promise<void> {
@@ -970,8 +979,24 @@ export class SessionListView {
     clearTimeout(this.timer);
     this.stopConnection?.();
     this.stopCommands?.();
+    this.stopTitles?.();
     this.set({ ...this.current, status: 'closed' });
     this.listeners.clear();
+  }
+
+  /** Hide or restore an item before the host confirms; the next refresh reconciles. */
+  setOptimisticArchived(rootId: string, archived: boolean): void {
+    const items = this.current.page?.items;
+    const index = items?.findIndex(item => item.id === rootId) ?? -1;
+    if (index >= 0) {
+      if (archived) this.overlays.set(rootId, { archived, item: items![index]!, index });
+      else this.overlays.delete(rootId);
+    } else {
+      const entry = this.overlays.get(rootId);
+      if (archived) this.overlays.delete(rootId);
+      else this.overlays.set(rootId, { ...entry, archived, index: entry?.index ?? -1 });
+    }
+    if (this.current.page) this.publish(this.current.page);
   }
 
   private async fetch(more: boolean): Promise<void> {
@@ -993,7 +1018,7 @@ export class SessionListView {
       const merged = { ...page, items: more ? [...(previous?.items ?? []), ...(page.items ?? [])] : page.items };
       if (bytes(merged) > this.maxBytes) {
         this.set({ ...this.current, status: 'live', truncated: true, error: new Error('Session list cache is full; refresh to start a new page window') });
-      } else this.set({ status: 'live', page: merged, truncated: false });
+      } else this.publish(merged);
     } catch (error) {
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
       this.set({ ...this.current, status: previous ? 'stale' : 'error', error: asError(error) });
@@ -1016,6 +1041,23 @@ export class SessionListView {
   private set(value: SessionListSnapshot): void {
     this.current = freeze(value) as SessionListSnapshot;
     for (const listener of this.listeners) listener();
+  }
+
+  private publish(page: SessionCatalogPage): void {
+    let items = page.items;
+    if (this.overlays.size && items) {
+      items = [...items];
+      for (const [id, entry] of this.overlays) {
+        const index = items.findIndex(item => item.id === id);
+        if (entry.archived) {
+          if (index >= 0) entry.item = items[index]; else this.overlays.delete(id);
+          if (index >= 0) items.splice(index, 1);
+        } else if (index >= 0) this.overlays.delete(id);
+        else if (entry.item) items.splice(Math.min(entry.index < 0 ? items.length : entry.index, items.length), 0, entry.item);
+        else this.overlays.delete(id);
+      }
+    }
+    this.set({ status: 'live', page: { ...page, items }, truncated: false });
   }
 }
 

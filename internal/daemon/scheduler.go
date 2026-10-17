@@ -26,7 +26,7 @@ func (s *Session) startScheduler() {
 }
 
 func (s *Session) fireDueSchedules(at time.Time) error {
-	tasks, err := s.store.SchedulesContext(s.supervisor.ctx, s.meta.ID)
+	tasks, err := s.store.SchedulesContext(s.supervisor.ctx, s.id)
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func (s *Session) fireDueSchedules(at time.Time) error {
 			continue
 		}
 		_, err = s.store.ClaimScheduleFire(s.supervisor.ctx, session.ScheduleFireClaim{
-			RootID: s.meta.ID, AgentID: s.authority.AgentID, ScheduleID: task.ID,
+			RootID: s.id, AgentID: s.authority.AgentID, ScheduleID: task.ID,
 			ExpectedLastFire: task.LastFire, Slot: slot,
 		})
 		if err != nil && !errors.Is(err, session.ErrScheduleClaimed) {

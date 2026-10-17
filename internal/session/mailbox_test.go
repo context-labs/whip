@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
 func newMailboxFixture(t *testing.T) (*Store, string, string) {
 	t.Helper()
-	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

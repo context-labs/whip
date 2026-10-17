@@ -14,6 +14,7 @@ import (
 
 	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 )
 
 func TestDaemonStatusDoesNotInitializeHome(t *testing.T) {
@@ -32,7 +33,7 @@ func TestDaemonStatusDoesNotInitializeHome(t *testing.T) {
 					home = filepath.Join(userHome, "custom-home")
 					t.Setenv(buildinfo.Env("HOME"), home)
 				}
-				paths, err := daemon.ResolvePaths(home)
+				paths, err := daemonconn.ResolvePaths(home)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -54,7 +55,7 @@ func TestDaemonStatusDoesNotInitializeHome(t *testing.T) {
 func TestDaemonStatusPreservesExistingRuntime(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(buildinfo.Env("HOME"), home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestDaemonStatusPreservesExistingRuntime(t *testing.T) {
 }
 
 func TestDaemonStatusIdentifiesOnlyUnownedStaleSocket(t *testing.T) {
-	paths, err := daemon.Paths(t.TempDir())
+	paths, err := daemonconn.Paths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestDaemonStatusIdentifiesOnlyUnownedStaleSocket(t *testing.T) {
 func TestDaemonManagementLifecycle(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +132,7 @@ func TestDaemonManagementLifecycle(t *testing.T) {
 	previousLaunch := launchManagedDaemon
 	previousTail := tailDaemonLog
 	var daemonRuns []chan error
-	launchManagedDaemon = func(daemon.RuntimePaths) error {
+	launchManagedDaemon = func(daemonconn.RuntimePaths) error {
 		done := make(chan error, 1)
 		daemonRuns = append(daemonRuns, done)
 		go func() { done <- runDaemon(t.Context(), nil) }()

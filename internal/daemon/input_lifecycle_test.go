@@ -23,7 +23,8 @@ func TestLifecycleBoundaryReadFailurePreservesClaimForRetry(t *testing.T) {
 	dir := t.TempDir()
 	store := openStore(t, filepath.Join(dir, "sessions.db"))
 	rootID := createRoot(t, store)
-	owner, err := New(store, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -120,7 +121,8 @@ func TestLifecycleRootPreservesLargeInput(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &fakeRunner{}
-	owner, err := New(store, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -201,7 +203,8 @@ func TestLifecycleMultipartAndMalformedInput(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &lifecyclePartsRunner{}
-	owner, err := New(store, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -229,19 +232,16 @@ func TestLifecycleMultipartAndMalformedInput(t *testing.T) {
 	}
 	before := store.RawMessages(rootID)
 	_, receipt, err = root.AdmitCommand(t.Context(), sessionstore.CommandAdmission{ClientID: "client", CommandID: "bad", Kind: "submit.parts", RequestDigest: "bad", Payload: sessionstore.RuntimePayload{Data: []byte(strings.Repeat(" ", 9000) + "{")}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result := waitReceipt(t, receipt); !errors.Is(result.Err, sessionstore.ErrInvalidInput) {
-		t.Fatalf("malformed input: %+v", result)
+	if !errors.Is(err, sessionstore.ErrInvalidInput) || receipt != nil {
+		t.Fatalf("malformed admission: receipt=%+v error=%v", receipt, err)
 	}
 	after := store.RawMessages(rootID)
 	if len(after) != len(before) || runner.calls.Load() != 1 {
 		t.Fatal("decoding failure reused a journal or invoked the runner")
 	}
 	command, err := store.LoadCommand(t.Context(), "client", "bad")
-	if err != nil || command.Status != "failed" {
-		t.Fatalf("bad command: %+v %v", command, err)
+	if err == nil {
+		t.Fatalf("rejected input created a command: %+v", command)
 	}
 	next, err := root.Submit(t.Context(), "next valid input")
 	if err != nil {
@@ -281,8 +281,8 @@ func TestLifecycleBoundaryRejectsMalformedSteerAndDeliversCompleteInput(t *testi
 		t.Fatal("model did not start")
 	}
 	_, bad, err := root.AdmitCommand(t.Context(), sessionstore.CommandAdmission{ClientID: "client", CommandID: "bad-steer", Kind: "steer.parts", RequestDigest: "bad", Payload: sessionstore.RuntimePayload{Data: []byte("{")}})
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, sessionstore.ErrInvalidInput) || bad != nil {
+		t.Fatalf("malformed steer admission: receipt=%+v error=%v", bad, err)
 	}
 	text := strings.Repeat("x", sessionstore.MaxContentRead) + "STEER_TAIL"
 	good, err := root.Steer(t.Context(), text)
@@ -292,9 +292,6 @@ func TestLifecycleBoundaryRejectsMalformedSteerAndDeliversCompleteInput(t *testi
 	unblock()
 	if result := waitReceipt(t, receipt); result.Err != nil {
 		t.Fatal(result.Err)
-	}
-	if result := waitReceipt(t, bad); !errors.Is(result.Err, sessionstore.ErrInvalidInput) {
-		t.Fatalf("bad steer: %+v", result)
 	}
 	if result := waitReceipt(t, good); result.Err != nil {
 		t.Fatalf("good steer: %+v", result)
@@ -310,8 +307,8 @@ func TestLifecycleBoundaryRejectsMalformedSteerAndDeliversCompleteInput(t *testi
 		t.Fatalf("full steer missing or incorrect rounds: found=%v calls=%d", found, calls.Load())
 	}
 	command, err := store.LoadCommand(t.Context(), "client", "bad-steer")
-	if err != nil || command.Status != "failed" {
-		t.Fatalf("bad steer command=%+v %v", command, err)
+	if err == nil {
+		t.Fatalf("rejected steer created a command: %+v", command)
 	}
 }
 
@@ -449,7 +446,8 @@ func TestLifecycleUnsupportedPartsNeverReuseRunnerJournal(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	id := createRoot(t, store)
 	runner := &lifecycleJournalRunner{}
-	owner, err := New(store, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

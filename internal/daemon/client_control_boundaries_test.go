@@ -28,7 +28,8 @@ func TestClientValidationFailuresAreDurableAndLeaveSettingsUntouched(t *testing.
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}}
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -97,7 +98,8 @@ func TestClientModelReplacementPersistsDefaultWithoutForgettingExplicitOff(t *te
 	if err := store.SetEffort(rootID, "off"); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {

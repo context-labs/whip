@@ -146,7 +146,10 @@ export function SessionContent({
     action: 'fork' | 'rewind';
     cut: number;
     revision: string;
+    response?: { endpoint: number; runtimeId: string; rootId: string };
   }>();
+  const historyBusy = useRef(false);
+  const [historyPending, setHistoryPending] = useState(false);
   const [stored, setStored] = useState<{
     title: string;
     text?: string;
@@ -232,6 +235,7 @@ export function SessionContent({
   ) : [], [kind, history, presentation, inbox, localInputs, deliveries, queueEnabled]);
   const executions = useMemo(() => executionRows(state, agentId), [state, agentId]);
   const activeTurn = root?.active_turns[agentId];
+  const rootBusy = !!root?.active_turns[session.rootId] || root?.agents?.some(item => item.id === session.rootId && item.status === 'running');
   const previousGroups = useRef<readonly ActivityGroup[]>([]);
   const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current, activeTurn), [rows, executions, activeTurn]);
   useLayoutEffect(() => { previousGroups.current = activityRows.filter(isActivityGroup).slice(-128); }, [activityRows]);
@@ -341,6 +345,8 @@ export function SessionContent({
           bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
           historyRevision={history?.revision}
           historyCursor={history?.nextSeq}
+          historyThroughSeq={history?.throughSeq}
+          rewindDisabled={rootBusy}
           historyReady={!!history && !history.loading}
           canLoadOlder={connected}
           loadingHistory={history?.loading}
@@ -351,6 +357,13 @@ export function SessionContent({
           latestMissing={history?.latestMissing}
           readBody={(row) => void readBody(row)}
           messageScope={{ client: session.client, rootId: session.rootId, agentId }}
+          responseHistoryAction={agentId === session.rootId && connected && root && history?.revision === root.history_revision
+            ? (endpoint, action) => {
+                if (!Number.isSafeInteger(endpoint) || endpoint < 1 || endpoint >= Number.MAX_SAFE_INTEGER) return;
+                if (action === 'rewind' && (rootBusy || endpoint >= history.throughSeq)) return;
+                setHistoryAction({ action, cut: action === 'rewind' ? endpoint + 1 : endpoint, revision: history.revision,
+                  response: { endpoint, runtimeId: expectedRuntimeId, rootId: session.rootId } });
+              } : undefined}
           historyAction={
             agentId === session.rootId && connected && root
               ? (row, action) => {
@@ -512,25 +525,39 @@ export function SessionContent({
           if (!open) setHistoryAction(undefined);
         }}
         title={
-          historyAction?.action === 'rewind'
-            ? 'Rewind before this message?'
-            : 'Fork before this message?'
+          historyAction?.response
+            ? historyAction.action === 'rewind' ? 'Rewind to here?' : 'Fork from here?'
+            : historyAction?.action === 'rewind' ? 'Rewind before this message?' : 'Fork before this message?'
         }
         description={
-          historyAction?.action === 'rewind'
+          historyAction?.response
+            ? historyAction.action === 'rewind'
+              ? 'Keep this response and remove only later conversation. Tracked file changes may be restored. The daemon rejects this action if history has changed since you selected it.'
+              : 'Create a separate session including this response. The current session continues independently.'
+            : historyAction?.action === 'rewind'
             ? 'Later conversation will be removed and tracked file changes may be restored. The daemon rejects this action if history has changed since you selected it.'
             : 'Create a separate session with the earlier conversation. The current session continues independently.'
         }
         footer={
           <Button
             variant={historyAction?.action === 'rewind' ? 'danger' : 'primary'}
-            disabled={!connected || !historyAction}
+            disabled={!connected || !historyAction || historyPending || (!!historyAction.response && historyAction.action === 'rewind' && rootBusy)}
             onClick={async () => {
-              if (!historyAction) return;
+              if (!historyAction || !connected || historyBusy.current) return;
               if (historyAction.action === 'fork' && !canCreateTab()) return;
               const location = navigationRevision.current;
               setActionError(undefined);
+              historyBusy.current = true; setHistoryPending(true);
               try {
+                if (historyAction.response) {
+                  const target = historyAction.response;
+                  if (agentId !== session.rootId || target.rootId !== session.rootId || target.runtimeId !== expectedRuntimeId || currentRuntime !== target.runtimeId)
+                    throw new Error('This response belongs to a different conversation or host. Select it again.');
+                  if (root?.history_revision !== historyAction.revision || history?.revision !== historyAction.revision)
+                    throw new Error('History has changed since you selected this response. Select it again.');
+                  if (historyAction.action === 'rewind' && (rootBusy || target.endpoint >= history.throughSeq))
+                    throw new Error('Rewind is unavailable while work is running or there is no later conversation.');
+                }
                 if (historyAction.action === 'rewind')
                   await runtime.run(
                     session.history.rewind(
@@ -552,6 +579,7 @@ export function SessionContent({
                 }
                 if (stillHere(location)) setHistoryAction(undefined);
               } catch (error) { if (stillHere(location)) setActionError(error); }
+              finally { historyBusy.current = false; if (mounted.current) setHistoryPending(false); }
             }}
           >
             Confirm {historyAction?.action}

@@ -82,6 +82,7 @@ func sdkAgentsFactory(store *session.Store) (Factory, func()) {
 		if err != nil {
 			return Components{}, err
 		}
+		definition.Surface.AutoTitle = false
 		runtime, err := NewRecursiveRuntime(RecursiveRuntimeOptions{
 			Engine: meta.ExecutionEngine, Definition: definition, Agent: value, History: history, Limits: limits,
 			Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,

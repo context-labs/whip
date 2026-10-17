@@ -14,6 +14,8 @@ async function fixture(t) {
   const source = path.join(root, 'apps/web/dist');
   const target = path.join(root, 'internal/webassets/dist');
   await mkdir(path.join(root, 'scripts'), { recursive: true });
+  await mkdir(path.join(root, 'packages/protocol/scripts'), { recursive: true });
+  await writeFile(path.join(root, 'packages/protocol/scripts/check.mjs'), '');
   await mkdir(path.join(source, 'assets'), { recursive: true });
   await mkdir(target, { recursive: true });
   await copyFile(new URL('./pack-web.mjs', import.meta.url), path.join(root, 'scripts/pack-web.mjs'));
@@ -37,6 +39,14 @@ test('packages the real build tree and removes stale generated assets', async t 
   assert.equal(await readFile(path.join(f.target, 'assets/app.js'), 'utf8'), 'export const app=true;');
   assert.equal(await readFile(path.join(f.target, '.gitkeep'), 'utf8'), '');
   await assert.rejects(readFile(path.join(f.target, 'stale.js')), { code: 'ENOENT' });
+});
+
+test('refuses stale protocol artifacts before replacing the previous bundle', async t => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.root, 'packages/protocol/scripts/check.mjs'),
+    'console.error("Protocol artifacts could not be verified. Run task generate."); process.exit(1);');
+  await assert.rejects(f.run(), /Run task generate/);
+  assert.equal(await readFile(path.join(f.target, 'stale.js'), 'utf8'), 'old build');
 });
 
 test('rejects missing app entry before replacing the previous bundle', async t => {

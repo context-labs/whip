@@ -83,7 +83,7 @@ func (s *Server) validateCommandAttachments(ctx context.Context, clientID string
 	if _, err := designContextPresentation(SubmitPayload{Attachments: payload.Attachments, DesignContext: payload.DesignContext}); err != nil {
 		return nil, err
 	}
-	agentID := root.meta.ID
+	agentID := root.id
 	if params.Operation == "agent.submit" {
 		agentID = payload.ID
 		if agentID == "" {
@@ -100,7 +100,7 @@ func (s *Session) validateAttachmentReferences(ctx context.Context, agentID stri
 		return rpcFailure(-32602, err.Error())
 	}
 	for _, attachment := range attachments {
-		_, meta, err := s.store.ReadContent(ctx, attachment.Content.ReferenceID, s.meta.ID, agentID, 0, 1)
+		_, meta, err := s.store.ReadContent(ctx, attachment.Content.ReferenceID, s.id, agentID, 0, 1)
 		if err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func (s *Session) resolveAttachments(ctx context.Context, agentID string, payloa
 		content := attachment.Content
 		data := make([]byte, 0, int(content.Size))
 		for offset := int64(0); ; {
-			chunk, meta, err := s.store.ReadContent(ctx, content.ReferenceID, s.meta.ID, agentID, offset, min(MaxContentChunk, max(1, int(content.Size-offset))))
+			chunk, meta, err := s.store.ReadContent(ctx, content.ReferenceID, s.id, agentID, offset, min(MaxContentChunk, max(1, int(content.Size-offset))))
 			if err != nil {
 				if errors.Is(err, session.ErrContentAccess) || errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
 					return "", nil, fmt.Errorf("%w: read attachment: %w", session.ErrInvalidInput, err)

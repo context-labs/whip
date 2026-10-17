@@ -3,11 +3,13 @@ package session
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestAgentReportModeSurvivesStoreReopenAndMetadataViews(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +45,7 @@ func TestAgentReportModeSurvivesStoreReopenAndMetadataViews(t *testing.T) {
 			if err := store.Close(); err != nil {
 				t.Fatal(err)
 			}
-			store, err = Open(path)
+			store, err = Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}

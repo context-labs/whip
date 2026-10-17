@@ -8,9 +8,9 @@ import (
 	"errors"
 	"io"
 
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/protocoltransport"
-
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -19,10 +19,10 @@ const (
 	ProtocolMinor        = protocol.Minor
 	MaxSubscriptions     = 16
 	MaxFrameSize         = protocoltransport.MaxFrameSize
-	MaxContentChunk      = 256 << 10
+	MaxContentChunk      = daemonconn.MaxContentChunk
 	MaxConnections       = 64
 	MaxInFlight          = 32
-	MaxOutboundEnvelopes = 1024
+	MaxOutboundEnvelopes = daemonconn.MaxOutboundEnvelopes
 	MaxOutboundBytes     = 8 << 20
 	MaxUploadSize        = session.MaxInputPayloadBytes
 )
@@ -107,10 +107,6 @@ type PermissionDecisionResult = protocol.PermissionDecisionResult
 type RestartNotice = protocol.RestartNotice
 
 type RestartParams = protocol.RestartParams
-
-type eventNotification struct {
-	Event ProtocolEvent `json:"event"`
-}
 
 func requestDigest(scope, rootID, operation string, payload json.RawMessage) (string, error) {
 	var value any

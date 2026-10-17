@@ -200,7 +200,7 @@ func TestExternalPermissionDecisionClaimSurvivesHandoff(t *testing.T) {
 				name = operation + "/allow"
 			}
 			t.Run(name, func(t *testing.T) {
-				_, ledger, provider, authority := newMCPServices(t)
+				boundServices, ledger, provider, authority := newMCPServices(t)
 				paused := &pausedMCPDecisionLedger{
 					countingLedger: ledger,
 					before:         make(chan struct{}), commit: make(chan struct{}),
@@ -212,9 +212,10 @@ func TestExternalPermissionDecisionClaimSurvivesHandoff(t *testing.T) {
 				defer finish()
 				defer commit()
 				services := NewServices()
+				t.Cleanup(services.Close)
 				services.SetExternalPermissions(true)
 				services.SetMCPProvider(func() MCPProvider { return provider })
-				if err := services.BindDispatcher(paused, ledger.Workspaces(), ledger.Processes(), authority); err != nil {
+				if err := services.BindDispatcher(paused, ledger.Workspaces(), boundServices.ProcessOptions().Processes, authority); err != nil {
 					t.Fatal(err)
 				}
 				path := filepath.Join(services.ProcessOptions().Cwd, "decision.txt")

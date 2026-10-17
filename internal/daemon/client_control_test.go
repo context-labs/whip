@@ -59,7 +59,8 @@ func TestToolHostRunsOnlyRestrictedToolCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	var agentConstructions atomic.Int32
-	owner, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		if meta.Kind != session.SessionKindToolHost {
 			agentConstructions.Add(1)
 			return Components{}, errors.New("unexpected model session")
@@ -104,7 +105,8 @@ func TestToolHostRunsOnlyRestrictedToolCommands(t *testing.T) {
 func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -205,7 +207,8 @@ func TestClientCancelStopsOnlyCurrentTurn(t *testing.T) {
 		<-ctx.Done()
 		return "", ctx.Err()
 	}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -274,7 +277,8 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 	runner := &blockingShellRunner{
 		fakeRunner: &fakeRunner{}, started: make(chan struct{}), release: make(chan struct{}),
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -324,6 +328,7 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 		{"goal.from-context", map[string]any{"window": 2}},
 		{"history.rewind", map[string]any{"cut": 1}},
 		{"history.clear", map[string]string{}},
+		{"goal.set", map[string]any{"text": "blocked"}},
 	} {
 		result := clientCommand(t, root, "tui", fmt.Sprintf("busy-%d", i), test.operation, test.payload)
 		if result.Status != "failed" || !strings.Contains(result.Error, "running") {
@@ -336,9 +341,9 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 	if _, err := root.Snapshot(snapshotCtx); err != nil {
 		t.Fatalf("snapshot blocked behind shell worker: %v", err)
 	}
-	goal := clientCommand(t, root, "tui", "goal-during-shell", "goal.set", map[string]any{"text": "stay responsive"})
-	if goal.Status != "succeeded" {
-		t.Fatalf("actor command during shell = %+v", goal)
+	probe := clientCommand(t, root, "tui", "effort-during-shell", "session.effort.get", map[string]any{})
+	if probe.Status != "succeeded" {
+		t.Fatalf("actor command during shell = %+v", probe)
 	}
 	receipt, err := root.Submit(t.Context(), "after shell")
 	if err != nil {
@@ -392,7 +397,8 @@ func TestExplicitCompactionRunsOffActorAndRecordsDurableSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &compactingRunner{fakeRunner: &fakeRunner{}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -460,7 +466,8 @@ func TestClearHistoryAtomicallyDropsDerivedStateAndReleasesSnapshots(t *testing.
 		t.Fatal(err)
 	}
 	runner := &snapshottingHistoryRunner{fakeRunner: &fakeRunner{}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -528,7 +535,8 @@ func TestGoalFromContextRunsOnceOffActorAndStartsGoal(t *testing.T) {
 	runner := &goalFormingRunner{fakeRunner: &fakeRunner{
 		turn: func(context.Context, string, bool) (string, error) { return "GOAL_MET — verified", nil },
 	}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -566,7 +574,8 @@ func TestTurnSnapshotAndRewindAreDaemonOwnedAndIdempotent(t *testing.T) {
 	runner := &snapshottingHistoryRunner{fakeRunner: &fakeRunner{
 		history: []llm.Message{{Role: "system", Content: "system"}},
 	}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -609,11 +618,137 @@ func TestTurnSnapshotAndRewindAreDaemonOwnedAndIdempotent(t *testing.T) {
 	}
 }
 
+// Use the real transcript reader and command path: a response endpoint is a raw
+// storage coordinate, not its last prose row or an index in the compacted view.
+func TestResponseEndpointForkAndRewindKeepTrailingTools(t *testing.T) {
+	for _, step := range []int{1, 3} {
+		t.Run(fmt.Sprintf("sequence-step-%d", step), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sessions.db")
+			store := openStore(t, path)
+			rootID := createRoot(t, store)
+			stamp := time.Date(2025, 6, 1, 14, 30, 0, 123, time.UTC)
+			firstCall := llm.ToolCall{ID: "first", Type: "function"}
+			firstCall.Function.Name = "exec"
+			lastCall := llm.ToolCall{ID: "last", Type: "function"}
+			lastCall.Function.Name = "exec"
+			messages := []llm.Message{
+				{Role: "user", Content: "earlier", Authored: true},
+				{Role: "assistant", Content: "legacy answer"},
+				{Role: "user", Content: "selected response request", Authored: true},
+				{Role: "assistant", Content: "progress", ToolCalls: []llm.ToolCall{firstCall}, SentAt: &stamp},
+				{Role: "tool", Content: "first result", ToolCallID: firstCall.ID, Name: "exec"},
+				{Role: "user", Content: "internal delivery"},
+				{Role: "assistant", Content: "selected answer", ToolCalls: []llm.ToolCall{lastCall}, SentAt: &stamp},
+				{Role: "tool", Content: "trailing result", ToolCallID: lastCall.ID, Name: "exec"},
+				{Role: "user", Content: "later request", Authored: true},
+				{Role: "assistant", Content: "later answer"},
+			}
+			// Save's empty placeholders model legacy sparse raw history. Both
+			// compacted model indices and page indices differ from command cuts.
+			raw := make([]llm.Message, len(messages)*step+1)
+			for i, message := range messages {
+				raw[(i+1)*step] = message
+			}
+			if err := store.Save(rootID, 1, raw, "model", "provider"); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.RecordRawCompaction(t.Context(), rootID, rootID, 2*step, "earlier summary", false); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			store = openStore(t, path)
+			runner := &compactingRunner{fakeRunner: &fakeRunner{}}
+			processes := newTestProcesses(t)
+			owner, err := New(store, processes, func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
+				if len(history) != 9 || history[0].Role != "system" || history[0].RawSequence != 2*step {
+					t.Fatalf("fixture did not restore compacted raw view: %+v", history)
+				}
+				runner.history = history
+				return Components{Runner: runner}, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = owner.Close() })
+			root, err := owner.Open(rootID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			readPage := func(id string) session.BoundedTranscriptPage {
+				t.Helper()
+				page, err := store.ReadTranscriptPage(t.Context(), id, id, session.TranscriptReadOptions{
+					ThroughSeq: -1, Limit: 128, MaxBytes: 64 * 1024,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return page
+			}
+			page := readPage(rootID)
+			if len(page.Messages) != len(messages) {
+				t.Fatalf("raw page has %d messages, want %d", len(page.Messages), len(messages))
+			}
+			for i, entry := range page.Messages {
+				if entry.Seq != (i+1)*step || entry.Message == nil || entry.Message.RawSequence != entry.Seq {
+					t.Fatalf("transcript remapped raw sequence: %+v", entry)
+				}
+			}
+			endpoint := page.Messages[7].Seq
+			revision := strconv.FormatInt(page.HistoryRevision, 10)
+			fork := clientCommand(t, root, "web", "response-fork", "session.fork", map[string]any{
+				"cut": endpoint, "expected_revision": revision,
+			})
+			if fork.Status != "succeeded" {
+				t.Fatalf("fork: %+v", fork)
+			}
+			if got := readPage(fork.Output).Messages; !reflect.DeepEqual(got, page.Messages[:8]) {
+				t.Fatalf("fork did not retain complete response including trailing tools: %+v", got)
+			}
+			if !reflect.DeepEqual(readPage(rootID), page) {
+				t.Fatal("fork mutated source history")
+			}
+			// Characterize existing user actions too: cut=user seq includes the
+			// selected user in a fork, regardless of a UI label saying "before".
+			userFork := clientCommand(t, root, "web", "user-fork", "session.fork", map[string]any{
+				"cut": page.Messages[2].Seq, "expected_revision": revision,
+			})
+			if userFork.Status != "succeeded" || !reflect.DeepEqual(readPage(userFork.Output).Messages, page.Messages[:3]) {
+				t.Fatalf("user fork boundary changed: %+v", userFork)
+			}
+			rewind := clientCommand(t, root, "web", "response-rewind", "history.rewind", map[string]any{
+				"cut": endpoint + 1, "expected_revision": revision,
+			})
+			if rewind.Status != "succeeded" {
+				t.Fatalf("rewind: %+v", rewind)
+			}
+			rewound := readPage(rootID)
+			if !reflect.DeepEqual(rewound.Messages, page.Messages[:8]) || rewound.HistoryRevision != page.HistoryRevision+1 {
+				t.Fatalf("rewind did not retain complete response at new revision: %+v", rewound)
+			}
+			if len(runner.replaced) != 8 || runner.replaced[7].RawSequence != endpoint || runner.replaced[7].ToolCallID != lastCall.ID {
+				t.Fatalf("runner replacement lost response endpoint: %+v", runner.replaced)
+			}
+			if runner.replaced[1].SentAt != nil || runner.replaced[6].SentAt == nil || !runner.replaced[6].SentAt.Equal(stamp) {
+				t.Fatal("rewind restamped history or lost assistant timestamp")
+			}
+			stale := clientCommand(t, root, "web", "stale-response-rewind", "history.rewind", map[string]any{
+				"cut": endpoint + 1, "expected_revision": revision,
+			})
+			if stale.Status != "failed" || !reflect.DeepEqual(readPage(rootID), rewound) {
+				t.Fatalf("stale action changed history: %+v", stale)
+			}
+		})
+	}
+}
+
 func TestGoalRunUsesOneControlCommandAndStartsTheGoalTurn(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &fakeRunner{turn: func(context.Context, string, bool) (string, error) { return "GOAL_MET — done", nil }}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -715,7 +850,8 @@ func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
 	mcpManager := &controlSurfaceMCP{}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner, MCP: mcpManager}, nil
 	})
 	if err != nil {
@@ -781,7 +917,8 @@ func TestClientControlRejectsRootRuntimeMutationDuringTurn(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -828,7 +965,8 @@ func TestClientControlRejectsInvalidActionsDurably(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner, MCP: &controlSurfaceMCP{}}, nil
 	})
 	if err != nil {
@@ -893,7 +1031,8 @@ func TestClientControlRejectsInvalidActionsDurably(t *testing.T) {
 func TestProtocolClientCommandsFailClosedWithoutOptionalRunnerCapabilities(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -935,7 +1074,8 @@ func TestProtocolClientCommandsFailClosedWithoutOptionalRunnerCapabilities(t *te
 func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -967,7 +1107,7 @@ func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
 	if result := clientCommand(t, root, "tui", "idle-cancel", "cancel", map[string]any{}); result.Status != "failed" || !strings.Contains(result.Error, "turn ID") {
 		t.Fatalf("idle cancel = %+v", result)
 	}
-	if result := clientCommand(t, root, "tui", "workspace-fallback", "workspace.inspect", map[string]any{}); result.Output != root.meta.CWD {
+	if result := clientCommand(t, root, "tui", "workspace-fallback", "workspace.inspect", map[string]any{}); result.Output != root.WorkingDirectory() {
 		t.Fatalf("workspace fallback = %+v", result)
 	}
 	if result := clientCommand(t, root, "tui", "mcp-fallback", "mcp.status", map[string]any{}); result.Output != "[]" {
@@ -1006,7 +1146,8 @@ func TestAsyncClientControlFailuresSettleDurably(t *testing.T) {
 	if err := store.SetSnapshot(rootID, 1, "snapshot-ref"); err != nil {
 		t.Fatal(err)
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &failingAsyncRunner{fakeRunner: &fakeRunner{}}}, nil
 	})
 	if err != nil {
@@ -1055,7 +1196,8 @@ func TestMCPImportDefersRuntimeReloadUntilChildrenAreIdle(t *testing.T) {
 	runtime := &reloadTestRuntime{}
 	runtime.running.Store(true)
 	var constructions atomic.Int32
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		constructions.Add(1)
 		return Components{Runner: &fakeRunner{}, Runtime: runtime}, nil
 	})
@@ -1099,7 +1241,8 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 		rootID := createRoot(t, store)
 		runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}}
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: runner}, nil
 		})
 		if err != nil {
@@ -1113,7 +1256,7 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 		result := clientCommand(t, root, "tui", "effort-off", "session.effort", map[string]any{"effort": "off", "persist_default": true})
 		meta, _, loadErr := store.Load(rootID)
 		cfg, configErr := config.Load()
-		if result.Status != "succeeded" || runner.effort != "" || loadErr != nil || configErr != nil || meta.Effort != "off" || cfg.DefaultEffort != "off" {
+		if result.Status != "succeeded" || runner.effort != "off" || loadErr != nil || configErr != nil || meta.Effort != "off" || cfg.DefaultEffort != "off" {
 			t.Fatalf("off result=%+v runner=%q meta=%q default=%q load=%v config=%v", result, runner.effort, meta.Effort, cfg.DefaultEffort, loadErr, configErr)
 		}
 	})
@@ -1137,7 +1280,8 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 		if err := store.SetEffort(rootID, "high"); err != nil {
 			t.Fatal(err)
 		}
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: &fakeRunner{}}, nil
 		})
 		if err != nil {
@@ -1185,7 +1329,8 @@ func TestModelReplacementRejectsUnsafeFactories(t *testing.T) {
 			store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 			rootID := createRoot(t, store)
 			calls := 0
-			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 				calls++
 				if calls == 1 || test.replacement == nil {
 					return Components{Runner: test.initial}, nil
@@ -1229,7 +1374,9 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 	services.SetBrowser(browser.NewManager(browser.ModeLive), false)
 	services.SetComputerPolicy(computer.NewPolicy(nil, nil, false))
 	services.SetDiagnostics(lsp.NewManager(nil))
-	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+	processes := newTestProcesses(t)
+	t.Cleanup(services.Close)
+	if err := services.BindDispatcher(store, store.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	meta, _, err := store.Load(rootID)
@@ -1355,7 +1502,11 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
-	root := newSession(store, meta, authority, Components{Runner: runner})
+	processes := newTestProcesses(t)
+	root := newSession(store, processes, meta, authority, Components{Runner: runner})
+	if err := processes.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -20,7 +20,8 @@ import (
 
 func TestControlSessionCreationIsIdempotent(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -138,7 +139,8 @@ func TestControlRouteWaitsForAcceptedWorkAfterCancellation(t *testing.T) {
 
 func TestControlListsDeletesAndCheckpointsWithDurableOutcomes(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {

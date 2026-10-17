@@ -13,6 +13,14 @@ const (
 	PermissionModeAutomatic = "automatic"
 )
 
+// DefaultPermissionMode fails closed for legacy or unrecognized host settings.
+func DefaultPermissionMode(configured string) string {
+	if configured == PermissionModeAutomatic {
+		return PermissionModeAutomatic
+	}
+	return PermissionModePrompt
+}
+
 // PermissionMode reads the saved consent choice, including for an unopened root.
 func (s *Store) PermissionMode(ctx context.Context, rootID string) (string, error) {
 	var mode string

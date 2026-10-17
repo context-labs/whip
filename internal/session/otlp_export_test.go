@@ -154,7 +154,7 @@ func TestExportOTLPCarriesEveryMessageOnceAndKeepsCostHonest(t *testing.T) {
 	insertTranscriptRow(t, store, root, 2, map[string]any{"role": "assistant", "content": "", "call_id": "c1", "tool_calls": []map[string]any{{"id": "tc1", "type": "function", "function": map[string]any{"name": "rlm_exec", "arguments": `{"code":"print(files.read(\"README.md\"))"}`}}}})
 	insertTranscriptRow(t, store, root, 3, map[string]any{"role": "tool", "tool_call_id": "tc1", "name": "rlm_exec", "content": "# Whip"})
 	insertTranscriptRow(t, store, root, 4, map[string]any{"role": "assistant", "content": "Done.", "call_id": "c2"})
-	must(store.CommitRootTurn(context.Background(), RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq, Messages: []llm.Message{{Role: "assistant", Content: "Done."}}, Model: "kimi-k3-fast", Provider: "inference-net"}))
+	must(store.CommitRootTurn(context.Background(), RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq, Messages: []llm.Message{{Role: "assistant", Content: "Done."}}}))
 
 	data, summary, err := store.ExportOTLP(context.Background(), root, ExportOptions{ServiceVersion: "test"})
 	if err != nil {
@@ -508,7 +508,7 @@ func TestExportOTLPEmitsPromptsAndCompaction(t *testing.T) {
 	insertTranscriptRow(t, store, root, 2, map[string]any{"role": "assistant", "content": "Reading.", "call_id": "c1"})
 	insertTranscriptRow(t, store, root, 3, map[string]any{"role": "user", "content": "continue"})
 	insertTranscriptRow(t, store, root, 4, map[string]any{"role": "assistant", "content": "Done.", "call_id": "c2"})
-	must(store.CommitRootTurn(ctx, RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq1, Model: "kimi-k3-fast", Provider: "inference-net"}))
+	must(store.CommitRootTurn(ctx, RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq1}))
 	// The next turn composed a different prompt and a different notice, so
 	// its first call carries both again.
 	changed := intern("prompt.system", "You are the root agent. Skill: docs.")

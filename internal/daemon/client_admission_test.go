@@ -20,7 +20,8 @@ func TestClientAcceptancePrecedesProviderConstructionAndSurvivesDisconnect(t *te
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
 	var constructed atomic.Int32
-	value, err := New(store, func(ctx context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(ctx context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		constructed.Add(1)
 		if meta.Model == "replacement" {
 			close(entered)
@@ -101,7 +102,8 @@ func TestReplacementPreparationClosesPartialFactoryResult(t *testing.T) {
 func TestCommandAcceptanceRetriesDoNotRetainReceipts(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "runtime.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{turn: func(ctx context.Context, _ string, _ bool) (string, error) { <-ctx.Done(); return "", ctx.Err() }}}, nil
 	})
 	if err != nil {

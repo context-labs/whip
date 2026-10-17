@@ -89,6 +89,9 @@ Buttons accept `variant=primary|secondary|ghost|danger`, `size=sm|md|lg`,
 `CopyButton` accepts `showLabel` to display its label beside the icon, including
 copy success or failure feedback. The default remains an icon button.
 
+Popover accepts optional Base UI `side` and `align` placement, with collision handling
+kept in the shared positioner. Its title has no browser-default heading margins.
+
 Tooltip accepts `label`, a trigger child, optional `delay`, `disableHoverablePopup`,
 `xstyle`, and Base UI `side`, `align`, `sideOffset`, `collisionPadding`, and
 `collisionAvoidance` placement options. Rich tooltip content
@@ -322,9 +325,14 @@ separate acceptance work.
 
 Dialog accepts an optional `header` slot for controls such as a search input; its
 `title` remains the accessible dialog name. `initialFocus` and `finalFocus`
-forward Base UI focus destinations. Default titled dialogs are unchanged.
+forward Base UI focus destinations.
 `headerXstyle` and `bodyXstyle` let composed dialogs adjust section spacing and
 flex sizing while retaining the shared title, close control and focus behavior.
+Dialog and AlertDialog size naturally to their content; a fixed Base UI viewport
+scrolls the entire popup over the backdrop, not its body. Short dialogs remain
+centered; tall dialogs start at the former capped-height offset, with at least
+16px of outer space. Sheet retains its edge-anchored, viewport-height scrolling
+surface. Explicit consumer height/overflow styles still support bounded pickers.
 
 Text inputs, textareas, combobox inputs, and number inputs indicate focus by
 changing their one-pixel border to `surface.secondaryText`. They do not add an

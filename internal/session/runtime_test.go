@@ -19,7 +19,7 @@ import (
 
 func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 }
 
 func TestRuntimeValueInlineBoundary(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestRuntimeValueInlineBoundary(t *testing.T) {
 }
 
 func TestContentReferencesEnforceRootAgentAndSubtreeGrants(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestContentReferencesEnforceRootAgentAndSubtreeGrants(t *testing.T) {
 
 func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestRootTurnLifecycleIdentifiesExactTurn(t *testing.T) {
 			if status == "interrupted" {
 				_, err = store.InterruptRoot(t.Context(), rootID, "daemon stopped")
 			} else {
-				commit := RootTurnCommit{RootID: rootID, AgentID: agentID, TurnID: turnID, Status: status, Model: "model", Provider: "provider"}
+				commit := RootTurnCommit{RootID: rootID, AgentID: agentID, TurnID: turnID, Status: status}
 				switch status {
 				case "failed":
 					commit.Error = "provider unavailable"
@@ -393,7 +393,7 @@ func TestRootTurnLifecycleIdentifiesExactTurn(t *testing.T) {
 }
 
 func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,6 @@ func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *t
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: first.InboxSeq,
 		AcknowledgedInbox: []int64{steer.InboxSeq}, Messages: history,
 		WorkspaceSeq: 5, WorkspaceRef: "snapshot-commit",
-		Model: "new-model", Provider: "new-provider",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -440,8 +439,8 @@ func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.Model != "new-model" || meta.Provider != "new-provider" {
-		t.Fatalf("route=%s/%s", meta.Provider, meta.Model)
+	if meta.Model != "old-model" || meta.Provider != "old-provider" {
+		t.Fatalf("turn commit changed the session route to %s/%s", meta.Provider, meta.Model)
 	}
 	if len(restored) != 7 || restored[0].Content != "stale" || restored[4].Content != "work" || restored[6].Content != "done" {
 		t.Fatalf("restored history=%+v", restored)
@@ -462,7 +461,7 @@ func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *t
 }
 
 func TestInternalTurnInboxDoesNotPersistACommandOutcome(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +480,6 @@ func TestInternalTurnInboxDoesNotPersistACommandOutcome(t *testing.T) {
 	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Outcome: RuntimePayload{Data: bytes.Repeat([]byte("outcome"), 2048), MediaType: "text/plain", Source: "command outcome"},
-		Model:   "model", Provider: "provider",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +493,7 @@ func TestInternalTurnInboxDoesNotPersistACommandOutcome(t *testing.T) {
 }
 
 func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +522,6 @@ func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Messages: []llm.Message{{Role: "user", Content: "q4"}, {Role: "assistant", Content: "a4"}},
-		Model:    "model", Provider: "provider",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +537,7 @@ func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 }
 
 func TestRootTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +569,6 @@ func TestRootTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 			RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 			Messages:    []llm.Message{{Role: "user", Content: input}, {Role: "assistant", Content: output}},
 			Compactions: []RootCompaction{{Summary: "summary " + input, Cutoff: cutoff, RawTailStart: rawTail}},
-			Model:       "model", Provider: "provider",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -590,7 +586,7 @@ func TestRootTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 }
 
 func TestRootTurnCommitRollsBackAsOneTransition(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -608,7 +604,7 @@ func TestRootTurnCommitRollsBackAsOneTransition(t *testing.T) {
 	err = st.commitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Messages: []llm.Message{{Role: "user", Content: "work"}}, WorkspaceSeq: 1, WorkspaceRef: "rolled-back-snapshot",
-		GoalContinuation: "continue", Model: "model", Provider: "provider",
+		GoalContinuation: "continue",
 	}, func() error { return want })
 	if !errors.Is(err, want) {
 		t.Fatalf("commit error=%v", err)
@@ -642,7 +638,7 @@ func TestRootTurnCommitRollsBackAsOneTransition(t *testing.T) {
 
 func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -712,7 +708,7 @@ func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,7 +723,7 @@ func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 }
 
 func TestFailRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -869,7 +865,7 @@ func TestFailRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 
 func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -891,7 +887,7 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -943,7 +939,7 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 
 func TestRecoveryReleasesOperationReservations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := Open(path)
+	st, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -963,7 +959,7 @@ func TestRecoveryReleasesOperationReservations(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

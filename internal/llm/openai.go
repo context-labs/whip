@@ -44,10 +44,10 @@ type Message struct {
 	// results, goal-check continuations). Internal only — never sent to the
 	// provider. Used so input-history recall cycles only real submissions.
 	Authored bool `json:"authored,omitempty"`
-	// SentAt is when the human submitted the message (local time). Internal
-	// only — never sent to the provider; used by the rewind picker's
-	// per-message timestamp. A pointer so omitempty drops it for injected and
-	// pre-field messages (a zero time.Time struct is never omitted).
+	// SentAt is when a human submitted a user message or the execution host
+	// recorded an assistant message. Internal only — never sent to the provider.
+	// A pointer so omitempty drops it for other injected and pre-field messages
+	// (a zero time.Time struct is never omitted).
 	SentAt *time.Time `json:"sent_at,omitempty"`
 	// Usage is the token accounting for the assistant response that produced
 	// this message. Internal only — never sent to the provider; powers
@@ -58,6 +58,12 @@ type Message struct {
 	// provider"), so a /model switch mid-session doesn't rewrite history
 	// silently. Internal only — never sent to the provider.
 	Model string `json:"model,omitempty"`
+	// Thinking carries the assistant's thinking blocks for models that
+	// support extended thinking (Anthropic Messages flavor). Captured from
+	// the provider stream and replayed with tool_use — Anthropic validates
+	// the pairing, so a thinking-enabled tool round cannot be replayed
+	// without it. Empty for other providers and older sessions.
+	Thinking []ThinkingBlock `json:"-"`
 	// RewoundFrom notes that this message replaced an earlier clipped one
 	// (rewind + resubmit). Internal only — never sent to the provider.
 	RewoundFrom string `json:"rewound_from,omitempty"`
@@ -149,6 +155,14 @@ func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
 	return DecodeImageSize(head)
 }
 
+// ThinkingBlock is one captured thinking block from an Anthropic Messages
+// stream: the visible text and the opaque signature that must be replayed
+// verbatim with tool_use turns.
+type ThinkingBlock struct {
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature"`
+}
+
 // messageWire is the JSON shape of a Message. Content is `any` so it can be a
 // plain string (text-only) or a []ContentPart array (multimodal). The internal
 // fields are omitempty and cleared by stripAuthored before a provider request,
@@ -167,6 +181,7 @@ type messageWire struct {
 	Model        string                  `json:"model,omitempty"`
 	RewoundFrom  string                  `json:"rewound_from,omitempty"`
 	CallID       string                  `json:"call_id,omitempty"`
+	Thinking     []ThinkingBlock         `json:"thinking,omitempty"`
 }
 
 // MarshalJSON sends Content as a plain string for text-only messages and as a
@@ -176,7 +191,7 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		Continuation: m.Continuation, Presentation: m.Presentation,
 		Role: m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID,
 		Name: m.Name, Authored: m.Authored, SentAt: m.SentAt, Usage: m.Usage,
-		Model: m.Model, RewoundFrom: m.RewoundFrom, CallID: m.CallID,
+		Model: m.Model, RewoundFrom: m.RewoundFrom, CallID: m.CallID, Thinking: m.Thinking,
 	}
 	if len(m.Parts) > 0 {
 		parts := m.Parts
@@ -203,6 +218,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.Presentation = raw.Presentation
 	m.Role, m.ToolCalls, m.ToolCallID, m.Name = raw.Role, raw.ToolCalls, raw.ToolCallID, raw.Name
 	m.Authored, m.SentAt, m.Usage, m.Model, m.RewoundFrom, m.CallID = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.RewoundFrom, raw.CallID
+	m.Thinking = raw.Thinking
 	if len(raw.Content) == 0 {
 		return nil
 	}
@@ -241,7 +257,7 @@ type ToolCall struct {
 
 // stripAuthored returns a copy of msgs with the internal Authored marker and
 // SentAt timestamp cleared — they're whip-local bookkeeping (input-history
-// recall, the rewind picker) and must never reach the provider. It copies
+// recall, transcript timestamps) and must never reach the provider. It copies
 // because req.Messages typically aliases the caller's conversation slice,
 // which must keep the fields for storage/recall.
 func stripAuthored(msgs []Message) []Message {
@@ -388,7 +404,12 @@ type Client struct {
 	openAI  *openaiauth.Manager
 	BaseURL string
 	APIKey  string
-	HTTP    *http.Client
+	// Flavor selects the wire protocol: FlavorChat (default) posts
+	// chat-completions; FlavorMessages speaks Anthropic Messages natively
+	// (encodeMessages / messagesOnce). Config sets it from the provider's
+	// "api" value; it never changes for the life of the client.
+	Flavor APIFlavor
+	HTTP   *http.Client
 	// MaxRetries caps retries of transient request failures. 0 uses
 	// DefaultMaxAttempts; 1 disables retries (a single attempt).
 	MaxRetries int
@@ -428,6 +449,25 @@ func New(baseURL, apiKey string) *Client {
 		APIKey:  apiKey,
 		HTTP:    &http.Client{}, // no total timeout: stall detection and the attempt ceiling bound a call
 	}
+}
+
+// APIFlavor is the wire protocol a Client speaks.
+type APIFlavor int
+
+const (
+	// FlavorChat posts OpenAI-compatible chat-completions (the default).
+	FlavorChat APIFlavor = iota
+	// FlavorMessages speaks Anthropic Messages natively: requests encode via
+	// encodeMessages to {BaseURL}/messages and responses parse from the
+	// Anthropic SSE event stream. Providers whose Claude style models list a
+	// "messages" endpoint (inference.net) use this flavor.
+	FlavorMessages
+)
+
+// NewMessagesClient returns a Client speaking the Anthropic Messages protocol
+// / to baseURL (its /messages endpoint).
+func NewMessagesClient(baseURL, apiKey string) *Client {
+	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), APIKey: apiKey, Flavor: FlavorMessages, HTTP: &http.Client{}}
 }
 
 // Request is a chat completions request.
@@ -526,6 +566,9 @@ type HTTPError struct {
 	Body       string
 	Permanent  bool
 	RetryAfter time.Duration
+	// ResponseStarted distinguishes in-stream errors assigned a synthetic
+	// HTTP status from an actual HTTP rejection before response generation.
+	ResponseStarted bool
 }
 
 func (e *HTTPError) Error() string { return e.Status + ": " + e.Body }
@@ -870,6 +913,9 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 	if c.openAI != nil {
 		return c.subscriptionOnce(ctx, body, onText, onThink, onToolCall)
 	}
+	if c.Flavor == FlavorMessages {
+		return c.messagesOnce(ctx, body, onText, onThink, onToolCall)
+	}
 	hr, err := httpRequest(ctx, c.BaseURL, body)
 	if err != nil {
 		return Message{}, Usage{}, err
@@ -1018,7 +1064,10 @@ func validToolCallArgs(s string) bool {
 // summary call, where streaming would just add UI noise for a one-shot
 // synthesis.
 func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, error) {
-	if c.openAI != nil || c.apiResponses(req.Model) {
+	if c.openAI != nil || c.apiResponses(req.Model) || c.Flavor == FlavorMessages {
+		// The responses and messages flavors always stream (encodeMessages
+		// sets stream:true), so Complete drains the stream with nil
+		// callbacks rather than posting a non-streaming request.
 		message, usage, err := c.Stream(ctx, req, nil, nil, nil)
 		return message.Content, usage, err
 	}
@@ -1094,6 +1143,23 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 		return "", usage, nonRetryable{errors.New("no choices in completion response")}
 	}
 	return text, usage, nil
+}
+
+// newRequest builds the flavor-appropriate HTTP request: /messages for the
+// Messages flavor, /chat/completions otherwise. Validation duplicates
+// httpRequest's scheme/host check.
+func (c *Client) newRequest(ctx context.Context, body []byte) (*http.Request, error) {
+	if c.Flavor == FlavorMessages {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+anthropicMessagesPath, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		if (request.URL.Scheme != "http" && request.URL.Scheme != "https") || request.URL.Host == "" {
+			return nil, errors.New("invalid model provider URL")
+		}
+		return request, nil
+	}
+	return httpRequest(ctx, c.BaseURL, body)
 }
 
 func httpRequest(ctx context.Context, baseURL string, body []byte) (*http.Request, error) {

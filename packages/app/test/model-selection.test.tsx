@@ -65,6 +65,7 @@ it('switches the provider when the selected model name is unchanged', async () =
   fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
   const current = await screen.findByRole('option', { name: 'gpt-5.5 · openrouter' });
   expect(current.getAttribute('aria-selected')).toBe('true');
+  expect(screen.queryByRole('option', { name: 'Conversation Model' })).toBeNull();
   fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), { target: { value: 'openai-codex' } });
   expect(screen.queryByRole('option', { name: 'gpt-5.5 · openrouter' })).toBeNull();
   const subscription = screen.getByRole('option', { name: 'gpt-5.5 · openai-codex' });

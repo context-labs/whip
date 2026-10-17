@@ -126,12 +126,9 @@ func encodeResponsesWithLimit(req Request, accountID string, maxOutput int) ([]b
 	if maxOutput > 0 {
 		body["max_output_tokens"] = maxOutput
 	}
-	if req.ReasoningEffort != "" {
-		effort := req.ReasoningEffort
-		if effort == "off" {
-			effort = "none"
-		}
-		body["reasoning"] = map[string]string{"effort": effort, "summary": "auto"}
+	// "off" omits the reasoning object, matching the chat-completions encoder.
+	if req.ReasoningEffort != "" && req.ReasoningEffort != "off" {
+		body["reasoning"] = map[string]string{"effort": req.ReasoningEffort, "summary": "auto"}
 	}
 	if req.PromptCacheKey != "" {
 		body["prompt_cache_key"] = normalizeCacheKey(req.PromptCacheKey)

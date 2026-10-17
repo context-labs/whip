@@ -133,7 +133,7 @@ func TestSpansRecordATurnItsCallsAndOutliveTheJournalWindow(t *testing.T) {
 	}
 
 	// The turn commit closes the turn span with the visible outcome.
-	if err := store.CommitRootTurn(context.Background(), RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq, Messages: []llm.Message{{Role: "assistant", Content: "All green."}}, Model: "model", Provider: "provider"}); err != nil {
+	if err := store.CommitRootTurn(context.Background(), RootTurnCommit{RootID: root, AgentID: agent, InboxSeq: seq, Messages: []llm.Message{{Role: "assistant", Content: "All green."}}}); err != nil {
 		t.Fatal(err)
 	}
 	turn = spansByID(t, store, root, trace)[turnSpan]
@@ -456,7 +456,7 @@ func TestInternContentReusesReferencesAndPatchesSettledSpans(t *testing.T) {
 // must retain the conversation without inventing spans or requiring activity.
 func TestSpanMigrationPreservesHistoryWithoutBackfilling(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestSpanMigrationPreservesHistoryWithoutBackfilling(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -76,6 +75,8 @@ type Events struct {
 	// it runs. took is the pre-compaction message count, estTokens the size
 	// estimate that triggered it.
 	OnCompactStart func(took, estTokens int)
+	// OnCompactFallback reports a switch to the conversation route.
+	OnCompactFallback func(reason string)
 	// OnCompaction includes the pre-compaction history so durable stores can
 	// preserve the raw tail behind the derived summary.
 	OnCompaction func(summary string, cutoff int, before []llm.Message, info CompactInfo)
@@ -107,12 +108,14 @@ type ModelRoute struct {
 // CompactInfo reports how one compaction ran: which model wrote the summary
 // and what that call spent. Model is the bare model id when the compaction
 // ran on the conversation's own client, or "<id> @ <host>" when a dedicated
-// compaction client (a different provider route) wrote it. Usage is the
-// summary call's tokens (zero when the provider didn't report any).
+// compaction client (a different provider route) wrote it. Usage includes
+// both routes when a rejected custom request falls back (zero when unreported).
 type CompactInfo struct {
-	Model  string
-	Usage  llm.Usage
-	Pinned bool // the opening user message was retained before the raw tail
+	Model    string
+	Provider string
+	Fallback string // visible diagnostic when the conversation route replaces a custom route
+	Usage    llm.Usage
+	Pinned   bool // the opening user message was retained before the raw tail
 }
 
 // Agent holds one conversation.
@@ -143,10 +146,13 @@ type Agent struct {
 	ContextLimit int
 	// CompactClient and CompactModel run the compaction summary; nil/"" uses
 	// the conversation's own client and model.
-	CompactClient   *llm.Client
-	CompactModel    string
-	CompactProvider string
-	CompactPricing  llm.Pricing
+	CompactClient       *llm.Client
+	CompactModel        string
+	CompactProvider     string
+	CompactPricing      llm.Pricing
+	CompactContextLimit int    // dedicated route's advertised context limit (zero when unknown)
+	CompactMaxTokens    int    // dedicated route's configured output limit (zero when unknown)
+	CompactFallback     string // setup diagnostic when a custom route is unavailable
 	// CompactThreshold is the fraction of ContextLimit at which Turn compacts
 	// proactively; 0 uses defaultCompactThreshold.
 	CompactThreshold float64
@@ -546,7 +552,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				a.retriedOverflow, a.compacted = true, true
 				before := append([]llm.Message(nil), a.Messages...)
 				took := len(before)
-				sum, cutoff, info, cerr := a.compactWithStart(ctx, ev.OnCompactStart)
+				sum, cutoff, info, cerr := a.compactWithStart(ctx, ev.OnCompactStart, ev.OnCompactFallback)
 				if cerr != nil && !llm.IsCompletedAccountingError(cerr) {
 					if errors.Is(cerr, errNoHistory) {
 						// The provider rejected the request and nothing is
@@ -640,6 +646,10 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 
 func (a *Agent) appendTurnMessages(ev Events, messages ...llm.Message) {
 	for _, message := range messages {
+		if message.Role == "assistant" && message.SentAt == nil {
+			now := time.Now()
+			message.SentAt = &now
+		}
 		if ev.OnMessage != nil {
 			message.RawSequence = ev.OnMessage(message)
 		}
@@ -859,7 +869,7 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	}
 	before := append([]llm.Message(nil), a.Messages...)
 	took := len(before)
-	sum, cutoff, info, err := a.compactWithStart(ctx, ev.OnCompactStart)
+	sum, cutoff, info, err := a.compactWithStart(ctx, ev.OnCompactStart, ev.OnCompactFallback)
 	if err != nil && !llm.IsCompletedAccountingError(err) {
 		if errors.Is(err, errNoHistory) {
 			// No summary call was made. Later rounds may add foldable
@@ -977,10 +987,10 @@ func compactTailStart(msgs []llm.Message, budget int) (start int, split bool) {
 // surface the compaction in the transcript. The caller records the summary
 // and cutoff as a compaction event so the raw log survives on disk.
 func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info CompactInfo, err error) {
-	return a.compactWithStart(ctx, nil)
+	return a.compactWithStart(ctx, nil, nil)
 }
 
-func (a *Agent) compactWithStart(ctx context.Context, onStart func(took, estTokens int)) (summary string, cutoff int, info CompactInfo, err error) {
+func (a *Agent) compactWithStart(ctx context.Context, onStart func(took, estTokens int), onFallback func(string)) (summary string, cutoff int, info CompactInfo, err error) {
 	if len(a.Messages) <= 3 { // system + ≥1 user + tail: nothing to fold
 		return "", 0, CompactInfo{}, errNoHistory
 	}
@@ -1032,35 +1042,12 @@ func (a *Agent) compactWithStart(ctx context.Context, onStart func(took, estToke
 		onStart(len(a.Messages), EstimateTokens(a.Messages))
 	}
 	summaryPrompt := buildSummaryPrompt(history, prior, a.ExecutionLanguage)
-	cli, mdl := a.CompactClient, a.CompactModel
-	dedicated := cli != nil
-	if cli == nil {
-		cli = a.Client
-	}
-	if mdl == "" {
-		mdl = a.Model
-	}
-	label := mdl
-	if dedicated {
-		// a dedicated compaction route: name the host so the transcript can
-		// tell a cheap summarizer apart from the conversation's own model
-		if u, perr := url.Parse(cli.BaseURL); perr == nil && u.Host != "" {
-			label = mdl + " @ " + u.Host
-		}
-	}
-	request := llm.Request{
-		Model:     mdl,
-		MaxTokens: 4096, // room for a real state digest; 1024 clipped multi-hour sessions
-		Messages: []llm.Message{
-			sysPrompt,
-			{Role: "user", Content: summaryPrompt},
-		},
-	}
-	request.Accounting = a.CompactAccounting("compaction")
-	sum, usage, cerr := cli.Complete(ctx, request)
-	a.AddUsage(usage) // the summary call is session spend too
+	sum, info, cerr := a.compactionSummary(ctx, []llm.Message{
+		sysPrompt,
+		{Role: "user", Content: summaryPrompt},
+	}, onFallback)
 	if cerr != nil && !llm.IsCompletedAccountingError(cerr) {
-		return "", 0, CompactInfo{}, fmt.Errorf("compaction summary failed: %w", cerr)
+		return "", 0, info, fmt.Errorf("compaction summary failed: %w", cerr)
 	}
 	summary = strings.TrimSpace(sum)
 	kept := append([]llm.Message(nil), tail...)
@@ -1075,7 +1062,8 @@ func (a *Agent) compactWithStart(ctx context.Context, onStart func(took, estToke
 	a.usageMu.Lock()
 	a.lastPrompt = 0
 	a.usageMu.Unlock()
-	return summary, tailStart, CompactInfo{Model: label, Usage: usage, Pinned: len(pinned) > 0}, cerr
+	info.Pinned = len(pinned) > 0
+	return summary, tailStart, info, cerr
 }
 
 // CompactionRawTailStart returns the pre-compaction index where the prior
@@ -1216,7 +1204,7 @@ func truncateField(s string, n int) string {
 // little history). It is safe to call while a turn is not in flight.
 func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 	before := append([]llm.Message(nil), a.Messages...)
-	sum, cutoff, info, err := a.compactWithStart(ctx, ev.OnCompactStart)
+	sum, cutoff, info, err := a.compactWithStart(ctx, ev.OnCompactStart, ev.OnCompactFallback)
 	if err != nil && !llm.IsCompletedAccountingError(err) {
 		return err
 	}

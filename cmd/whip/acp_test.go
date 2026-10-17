@@ -1,9 +1,5 @@
 package main
 
-// Coverage for the ACP CLI's pure helpers: vision resolution (catalog wins,
-// config falls back) and whip's base MCP merge. The acpCLI entry point itself
-// serves stdio and isn't unit-testable; its helpers are.
-
 import (
 	"context"
 	"encoding/json"
@@ -15,10 +11,14 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/protocol"
 )
+
+// Coverage for the ACP CLI's pure helpers: vision resolution (catalog wins,
+// config falls back) and whip's base MCP merge. The acpCLI entry point itself
+// serves stdio and isn't unit-testable; its helpers are.
 
 // acpCLI's config prologue runs before the serve loop: a broken config, an
 // unknown model, or a provider with no key all error out instead of serving.
@@ -188,7 +188,7 @@ func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
 	defer func() { _ = root.Close() }()
 
 	// Exercise the content-parts path used by image-capable ACP clients.
-	action, err := root.NewAction("submit", daemon.SubmitPayload{
+	action, err := root.NewAction("submit", protocol.SubmitPayload{
 		Text:  "remember this",
 		Parts: []llm.ContentPart{{Type: "text", Text: "remember this"}},
 	})
