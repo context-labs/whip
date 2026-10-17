@@ -4,21 +4,21 @@ import (
 	"context"
 	"errors"
 
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 type providerDaemon interface {
-	ReadConfiguration(context.Context) (daemon.RuntimeConfiguration, error)
-	SetProviderKey(context.Context, daemon.ProviderKeySetup) (daemon.RuntimeConfiguration, error)
-	BeginLogin(context.Context) (daemon.ProviderLoginStatus, error)
-	BeginProviderLogin(context.Context, string) (daemon.ProviderLoginStatus, error)
-	LoginStatus(context.Context, string) (daemon.ProviderLoginStatus, error)
-	SelectLoginTeam(context.Context, string, string) (daemon.ProviderLoginStatus, error)
-	SelectLoginProject(context.Context, string, string) (daemon.ProviderLoginStatus, error)
-	CreateLoginProject(context.Context, string, string) (daemon.ProviderLoginStatus, error)
-	ProviderStatus(context.Context, string) (daemon.ProviderStatus, error)
-	LogoutProvider(context.Context, string) (daemon.ProviderStatus, error)
-	RotateProviderKey(context.Context, string) (daemon.ProviderStatus, error)
+	ReadConfiguration(context.Context) (protocol.RuntimeConfiguration, error)
+	SetProviderKey(context.Context, protocol.ProviderKeySetup) (protocol.RuntimeConfiguration, error)
+	BeginLogin(context.Context) (protocol.ProviderLoginStatus, error)
+	BeginProviderLogin(context.Context, string) (protocol.ProviderLoginStatus, error)
+	LoginStatus(context.Context, string) (protocol.ProviderLoginStatus, error)
+	SelectLoginTeam(context.Context, string, string) (protocol.ProviderLoginStatus, error)
+	SelectLoginProject(context.Context, string, string) (protocol.ProviderLoginStatus, error)
+	CreateLoginProject(context.Context, string, string) (protocol.ProviderLoginStatus, error)
+	ProviderStatus(context.Context, string) (protocol.ProviderStatus, error)
+	LogoutProvider(context.Context, string) (protocol.ProviderStatus, error)
+	RotateProviderKey(context.Context, string) (protocol.ProviderStatus, error)
 	Close() error
 }
 
@@ -45,6 +45,6 @@ func setupProviderCLI(ctx context.Context, provider, key string, environment boo
 	if err != nil {
 		return err
 	}
-	_, err = client.SetProviderKey(ctx, daemon.ProviderKeySetup{Revision: current.Revision, Provider: provider, Key: key, Environment: environment})
+	_, err = client.SetProviderKey(ctx, protocol.ProviderKeySetup{Revision: current.Revision, Provider: provider, Key: key, Environment: environment})
 	return err
 }

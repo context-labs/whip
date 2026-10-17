@@ -456,7 +456,7 @@ func TestInternContentReusesReferencesAndPatchesSettledSpans(t *testing.T) {
 // must retain the conversation without inventing spans or requiring activity.
 func TestSpanMigrationPreservesHistoryWithoutBackfilling(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestSpanMigrationPreservesHistoryWithoutBackfilling(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

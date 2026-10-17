@@ -9,39 +9,38 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
-
-	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/llm"
 )
 
 type fakeDaemonConnection struct {
 	mu            sync.Mutex
-	commands      []daemon.CommandParams
-	replay        daemon.ReplayResult
+	commands      []protocol.CommandParams
+	replay        protocol.ReplayResult
 	snapshot      session.RootSnapshot
-	events        chan daemon.ProtocolEvent
+	events        chan protocol.ProtocolEvent
 	done          chan struct{}
 	err           error
 	closeOnce     sync.Once
-	commandFunc   func(daemon.CommandParams) (daemon.CommandResult, error)
-	decisions     []daemon.PermissionDecision
-	subscriptions []daemon.SubscribeParams
+	commandFunc   func(protocol.CommandParams) (protocol.CommandResult, error)
+	decisions     []protocol.PermissionDecision
+	subscriptions []protocol.SubscribeParams
 }
 
 func newFakeDaemonConnection(snapshot session.RootSnapshot) *fakeDaemonConnection {
 	return &fakeDaemonConnection{
-		snapshot: snapshot, events: make(chan daemon.ProtocolEvent, 16), done: make(chan struct{}),
+		snapshot: snapshot, events: make(chan protocol.ProtocolEvent, 16), done: make(chan struct{}),
 	}
 }
 
-func (f *fakeDaemonConnection) Command(_ context.Context, params daemon.CommandParams) (daemon.CommandResult, error) {
+func (f *fakeDaemonConnection) Command(_ context.Context, params protocol.CommandParams) (protocol.CommandResult, error) {
 	if err := protocol.ValidateRuntime(params.Operation, params.Payload); err != nil {
-		return daemon.CommandResult{}, err
+		return protocol.CommandResult{}, err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -49,10 +48,10 @@ func (f *fakeDaemonConnection) Command(_ context.Context, params daemon.CommandP
 	if f.commandFunc != nil {
 		return f.commandFunc(params)
 	}
-	return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded"}, nil
+	return protocol.CommandResult{CommandID: params.CommandID, Status: "succeeded"}, nil
 }
 
-func (f *fakeDaemonConnection) Replay(context.Context, daemon.ReplayParams) (daemon.ReplayResult, error) {
+func (f *fakeDaemonConnection) Replay(context.Context, protocol.ReplayParams) (protocol.ReplayResult, error) {
 	return f.replay, nil
 }
 
@@ -60,16 +59,16 @@ func (f *fakeDaemonConnection) Snapshot(context.Context, string) (session.RootSn
 	return f.snapshot, nil
 }
 
-func (f *fakeDaemonConnection) DecidePermission(_ context.Context, decision daemon.PermissionDecision) (daemon.PermissionDecisionResult, error) {
+func (f *fakeDaemonConnection) DecidePermission(_ context.Context, decision protocol.PermissionDecision) (protocol.PermissionDecisionResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.decisions = append(f.decisions, decision)
-	return daemon.PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"}, nil
+	return protocol.PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"}, nil
 }
 
-func (f *fakeDaemonConnection) Events() <-chan daemon.ProtocolEvent { return f.events }
-func (f *fakeDaemonConnection) Done() <-chan struct{}               { return f.done }
-func (f *fakeDaemonConnection) Err() error                          { return f.err }
+func (f *fakeDaemonConnection) Events() <-chan protocol.ProtocolEvent { return f.events }
+func (f *fakeDaemonConnection) Done() <-chan struct{}                 { return f.done }
+func (f *fakeDaemonConnection) Err() error                            { return f.err }
 func (f *fakeDaemonConnection) Close() error {
 	f.closeOnce.Do(func() { close(f.done) })
 	return nil
@@ -136,7 +135,7 @@ func TestInteractiveSetupAppliesYoloModeOnlyToInitialSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	connection.mu.Lock()
-	commands := append([]daemon.CommandParams(nil), connection.commands...)
+	commands := append([]protocol.CommandParams(nil), connection.commands...)
 	connection.mu.Unlock()
 	if len(commands) != 1 || commands[0].Operation != "permission.mode" || !strings.Contains(string(commands[0].Payload), `"external_permissions":false`) {
 		t.Fatalf("yolo setup commands=%+v", commands)
@@ -197,7 +196,7 @@ func TestClientPermissionLabelFollowsSessionSnapshotsAndEvents(t *testing.T) {
 		t.Fatalf("other session retained full access label: %q", m.ocModeLabel())
 	}
 	for _, mode := range []string{"automatic", "prompt"} {
-		payload, err := json.Marshal(daemon.SessionUpdateEvent{PermissionMode: &mode})
+		payload, err := json.Marshal(protocol.SessionUpdateEvent{PermissionMode: &mode})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,11 +211,11 @@ func TestClientPermissionLabelFollowsSessionSnapshotsAndEvents(t *testing.T) {
 
 func TestInteractiveSetupStopsWhenCautiousModeFails(t *testing.T) {
 	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
-	connection.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
+	connection.commandFunc = func(params protocol.CommandParams) (protocol.CommandResult, error) {
 		if params.Operation == "permission.mode" {
-			return daemon.CommandResult{CommandID: params.CommandID, Status: "failed", Error: "mode change rejected"}, nil
+			return protocol.CommandResult{CommandID: params.CommandID, Status: "failed", Error: "mode change rejected"}, nil
 		}
-		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded"}, nil
+		return protocol.CommandResult{CommandID: params.CommandID, Status: "succeeded"}, nil
 	}
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
@@ -239,7 +238,7 @@ func TestInteractiveSetupStopsWhenCautiousModeFails(t *testing.T) {
 
 func TestCatalogRefreshEchoOnlyWhenExplicit(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	catalogsResult := daemon.CommandResult{Status: "succeeded", Output: `{"catalogs":{"anthropic":{}}}`}
+	catalogsResult := protocol.CommandResult{Status: "succeeded", Output: `{"catalogs":{"anthropic":{}}}`}
 
 	// Background refresh (startup, auth): no "refreshed" echo, flag untouched.
 	m, _ := liveQueueModel(t)
@@ -324,12 +323,12 @@ func TestClientSnapshotEventsAndStableActions(t *testing.T) {
 		t.Fatalf("daemon command = %+v", got)
 	}
 
-	connection.events <- daemon.ProtocolEvent{RootID: "root", Seq: 3, Kind: "text", Payload: []byte("answer")}
+	connection.events <- protocol.ProtocolEvent{RootID: "root", Seq: 3, Kind: "text", Payload: []byte("answer")}
 	update := nextClientUpdate(t, client)
 	if update.Event == nil || update.Event.Seq != 3 || client.Cursor() != 3 {
 		t.Fatalf("event update = %+v cursor=%d", update, client.Cursor())
 	}
-	connection.events <- daemon.ProtocolEvent{RootID: "root", Seq: 3, Kind: "duplicate"}
+	connection.events <- protocol.ProtocolEvent{RootID: "root", Seq: 3, Kind: "duplicate"}
 	select {
 	case duplicate := <-client.Updates():
 		t.Fatalf("duplicate event was published: %+v", duplicate)
@@ -340,7 +339,7 @@ func TestClientSnapshotEventsAndStableActions(t *testing.T) {
 func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 	first := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
 	second := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 9, Meta: session.Meta{ID: "root"}})
-	second.replay = daemon.ReplayResult{Expired: true, Latest: 9}
+	second.replay = protocol.ReplayResult{Expired: true, Latest: 9}
 	var mu sync.Mutex
 	var calls int
 	var reconnectCursor int64
@@ -366,7 +365,7 @@ func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 	client.Start()
 	defer client.Close()
 	waitClientState(t, client, ClientLive)
-	first.events <- daemon.ProtocolEvent{RootID: "root", Seq: 1, Kind: "turn.started"}
+	first.events <- protocol.ProtocolEvent{RootID: "root", Seq: 1, Kind: "turn.started"}
 	for update := nextClientUpdate(t, client); update.Event == nil; update = nextClientUpdate(t, client) {
 	}
 	first.err = errors.New("lost socket")
@@ -389,13 +388,13 @@ func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 func TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect(t *testing.T) {
 	first := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
 	first.err = errors.New("socket lost after admission")
-	first.commandFunc = func(daemon.CommandParams) (daemon.CommandResult, error) {
+	first.commandFunc = func(protocol.CommandParams) (protocol.CommandResult, error) {
 		_ = first.Close()
-		return daemon.CommandResult{}, first.err
+		return protocol.CommandResult{}, first.err
 	}
 	second := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
-	second.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
-		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "persisted outcome"}, nil
+	second.commandFunc = func(params protocol.CommandParams) (protocol.CommandResult, error) {
+		return protocol.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "persisted outcome"}, nil
 	}
 	var connects int
 	client, err := NewClient(ClientOptions{
@@ -435,12 +434,12 @@ func TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect(t *testin
 
 func TestClientCreatesThenSubscribesOnSameConnection(t *testing.T) {
 	creation := newFakeDaemonConnection(session.RootSnapshot{RootID: "new-root", Meta: session.Meta{ID: "new-root"}})
-	creation.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
-		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "new-root"}, nil
+	creation.commandFunc = func(params protocol.CommandParams) (protocol.CommandResult, error) {
+		return protocol.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "new-root"}, nil
 	}
 	var calls int
 	client, err := NewClient(ClientOptions{
-		ClientID: "tui", Create: &daemon.CreateSession{CWD: "/work", Model: "m", Provider: "p"},
+		ClientID: "tui", Create: &session.CreateSession{CWD: "/work", Model: "m", Provider: "p"},
 		RetryMin: time.Millisecond, RetryMax: time.Millisecond,
 		Connector: func(_ context.Context, cursors map[string]int64) (daemonConnection, error) {
 			calls++
@@ -654,20 +653,20 @@ func TestDaemonBackedModelRendersWithoutAnAgent(t *testing.T) {
 }
 
 func TestClientStreamEventsRenderLiveAndSnapshotRestoresThem(t *testing.T) {
-	stream := func(kind string, event daemon.StreamEvent) daemon.ProtocolEvent {
+	stream := func(kind string, event protocol.StreamEvent) protocol.ProtocolEvent {
 		payload, err := json.Marshal(event)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return daemon.ProtocolEvent{RootID: "root", Kind: kind, Payload: payload}
+		return protocol.ProtocolEvent{RootID: "root", Kind: kind, Payload: payload}
 	}
 	m := &model{input: newInput(), follow: true, showThinking: true}
-	for _, event := range []daemon.ProtocolEvent{
-		stream("stream.reasoning", daemon.StreamEvent{Text: "considering"}),
-		stream("stream.text", daemon.StreamEvent{Text: "hello"}),
-		stream("stream.tool.call", daemon.StreamEvent{ID: "tool-1", Name: "read", Args: `{"path":"a"}`}),
-		stream("stream.tool.started", daemon.StreamEvent{ID: "tool-1", Name: "read", Args: `{"path":"a"}`}),
-		stream("stream.tool.completed", daemon.StreamEvent{ID: "tool-1", Name: "read", Result: "done"}),
+	for _, event := range []protocol.ProtocolEvent{
+		stream("stream.reasoning", protocol.StreamEvent{Text: "considering"}),
+		stream("stream.text", protocol.StreamEvent{Text: "hello"}),
+		stream("stream.tool.call", protocol.StreamEvent{ID: "tool-1", Name: "read", Args: `{"path":"a"}`}),
+		stream("stream.tool.started", protocol.StreamEvent{ID: "tool-1", Name: "read", Args: `{"path":"a"}`}),
+		stream("stream.tool.completed", protocol.StreamEvent{ID: "tool-1", Name: "read", Result: "done"}),
 	} {
 		if handled, _ := m.applyClientStream(event.Kind, event.Payload); !handled {
 			t.Fatalf("event %q was not handled", event.Kind)
@@ -678,9 +677,9 @@ func TestClientStreamEventsRenderLiveAndSnapshotRestoresThem(t *testing.T) {
 	}
 
 	presentation := []session.SnapshotEvent{}
-	for i, event := range []daemon.ProtocolEvent{
-		stream("stream.text", daemon.StreamEvent{Text: "restored "}),
-		stream("stream.text", daemon.StreamEvent{Text: "answer"}),
+	for i, event := range []protocol.ProtocolEvent{
+		stream("stream.text", protocol.StreamEvent{Text: "restored "}),
+		stream("stream.text", protocol.StreamEvent{Text: "answer"}),
 	} {
 		presentation = append(presentation, session.SnapshotEvent{Seq: int64(i + 1), Kind: event.Kind, Payload: event.Payload})
 	}
@@ -801,7 +800,7 @@ func TestThinSessionPickerSwitchesBetweenPersistedModes(t *testing.T) {
 	}
 	raw, _ := json.Marshal(metas)
 	_, _ = m.Update(clientCommandMsg{
-		action: Action{Operation: "session.list"}, result: daemon.CommandResult{Status: "succeeded", Output: string(raw)},
+		action: Action{Operation: "session.list"}, result: protocol.CommandResult{Status: "succeeded", Output: string(raw)},
 	})
 	if m.picker == nil {
 		t.Fatal("session list did not open the daemon-backed picker")
@@ -877,7 +876,7 @@ func TestThinInteractiveTerminalRestoresAndForwardsBytes(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 	waitClientState(t, client, ClientLive)
 	m := &model{client: client, clientState: ClientLive, input: newInput()}
-	stream := func(kind string, event daemon.StreamEvent) session.SnapshotEvent {
+	stream := func(kind string, event protocol.StreamEvent) session.SnapshotEvent {
 		payload, marshalErr := json.Marshal(event)
 		if marshalErr != nil {
 			t.Fatal(marshalErr)
@@ -886,9 +885,9 @@ func TestThinInteractiveTerminalRestoresAndForwardsBytes(t *testing.T) {
 	}
 	m.applyClientSnapshot(session.RootSnapshot{
 		RootID: "root", Meta: session.Meta{ID: "root"}, Presentation: []session.SnapshotEvent{
-			stream("stream.terminal.started", daemon.StreamEvent{ID: "terminal-7"}),
-			stream("stream.terminal.output", daemon.StreamEvent{ID: "terminal-7", Text: "Password: "}),
-			stream("stream.terminal.awaiting", daemon.StreamEvent{ID: "terminal-7", Text: "9"}),
+			stream("stream.terminal.started", protocol.StreamEvent{ID: "terminal-7"}),
+			stream("stream.terminal.output", protocol.StreamEvent{ID: "terminal-7", Text: "Password: "}),
+			stream("stream.terminal.awaiting", protocol.StreamEvent{ID: "terminal-7", Text: "9"}),
 		},
 	})
 	if m.clientTerminalID != "terminal-7" || m.iactive == nil || m.iactive.output != "Password: " || !m.iactive.await || m.iactive.awaitcd != 9 {
@@ -917,7 +916,7 @@ func TestThinInteractiveTerminalRestoresAndForwardsBytes(t *testing.T) {
 		t.Fatalf("terminal input payload = %+v", input)
 	}
 
-	completed := stream("stream.terminal.completed", daemon.StreamEvent{ID: "terminal-7"})
+	completed := stream("stream.terminal.completed", protocol.StreamEvent{ID: "terminal-7"})
 	if handled, _ := m.applyClientStream(completed.Kind, completed.Payload); !handled || m.clientTerminalID != "" || m.iactive != nil {
 		t.Fatalf("completed terminal id=%q state=%+v", m.clientTerminalID, m.iactive)
 	}
@@ -926,10 +925,10 @@ func TestThinInteractiveTerminalRestoresAndForwardsBytes(t *testing.T) {
 func TestClosingClientDoesNotCancelDaemonOwnedCommand(t *testing.T) {
 	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
 	started, release := make(chan struct{}), make(chan struct{})
-	connection.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
+	connection.commandFunc = func(params protocol.CommandParams) (protocol.CommandResult, error) {
 		close(started)
 		<-release
-		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "finished while detached"}, nil
+		return protocol.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "finished while detached"}, nil
 	}
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", RootID: "root",
@@ -942,7 +941,7 @@ func TestClosingClientDoesNotCancelDaemonOwnedCommand(t *testing.T) {
 	waitClientState(t, client, ClientLive)
 	action, _ := client.NewAction("submit", map[string]string{"text": "keep going"})
 	type outcome struct {
-		result daemon.CommandResult
+		result protocol.CommandResult
 		err    error
 	}
 	done := make(chan outcome, 1)
@@ -974,16 +973,16 @@ func TestClosingClientDoesNotCancelDaemonOwnedCommand(t *testing.T) {
 	}
 }
 
-func (c *fakeDaemonConnection) Subscribe(_ context.Context, root string, cursor int64) (daemon.SubscribeResult, error) {
+func (c *fakeDaemonConnection) Subscribe(_ context.Context, root string, cursor int64) (protocol.SubscribeResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.subscriptions = append(c.subscriptions, daemon.SubscribeParams{RootID: root, Cursor: cursor})
-	return daemon.SubscribeResult{SubscriptionID: "subscription"}, nil
+	c.subscriptions = append(c.subscriptions, protocol.SubscribeParams{RootID: root, Cursor: cursor})
+	return protocol.SubscribeResult{SubscriptionID: "subscription"}, nil
 }
 
 func TestClientStreamHostEventsStayOutOfTheTranscript(t *testing.T) {
 	m := replTestModel(t, 140)
-	started, _ := json.Marshal(daemon.StreamEvent{ID: "c1", InvocationID: "1:1", Name: "files.read", Args: "path=README.md"})
+	started, _ := json.Marshal(protocol.StreamEvent{ID: "c1", InvocationID: "1:1", Name: "files.read", Args: "path=README.md"})
 	truncated, _ := json.Marshal(protocol.ContentEventPayload{
 		ID: "c1", InvocationID: "1:1", Name: "files.read", HostStatus: "failed",
 		Content: protocol.ContentHandle{ReferenceID: "ref-1"}, Truncated: true,
@@ -995,9 +994,9 @@ func TestClientStreamHostEventsStayOutOfTheTranscript(t *testing.T) {
 	}
 	// The REPL path decodes the truncated envelope's retained fields: the row
 	// settles as failed and keeps the summary the completion dropped.
-	opened, _ := json.Marshal(daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code":"files.read()"}`})
+	opened, _ := json.Marshal(protocol.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code":"files.read()"}`})
 	for seq, event := range [][2]any{{"stream.tool.started", opened}, {"stream.cell.host.started", started}, {"stream.cell.host", truncated}} {
-		m.recordClientStream(daemon.ProtocolEvent{Kind: event[0].(string), Payload: event[1].([]byte), Seq: int64(seq + 1)})
+		m.recordClientStream(protocol.ProtocolEvent{Kind: event[0].(string), Payload: event[1].([]byte), Seq: int64(seq + 1)})
 	}
 	if got := ansi.Strip(m.replPanelView(30)); !strings.Contains(got, "→ files.read(path=README.md) ✗ failed") {
 		t.Fatalf("truncated host completion did not settle the row:\n%s", got)
@@ -1006,7 +1005,7 @@ func TestClientStreamHostEventsStayOutOfTheTranscript(t *testing.T) {
 
 func TestClientStreamHandlesEveryRegisteredKind(t *testing.T) {
 	m := replTestModel(t, 140)
-	payload, _ := json.Marshal(daemon.StreamEvent{ID: "x"})
+	payload, _ := json.Marshal(protocol.StreamEvent{ID: "x"})
 	for kind := range protocol.EventPayloads() {
 		if strings.HasPrefix(kind, "stream.") {
 			m.applyClientStream(kind, payload)

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -22,7 +24,8 @@ func TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution(t *test
 		<-ctx.Done()
 		return "", ctx.Err()
 	}}
-	oldDaemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	oldDaemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: oldRunner}, nil
 	})
 	if err != nil {
@@ -51,12 +54,18 @@ func TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution(t *test
 		t.Fatal("detached in-flight call unexpectedly received a reply")
 	}
 
-	store, err = session.Open(path)
+	store, err = session.Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
+	processes = newTestProcesses(t)
+	unregister, err := processes.RegisterStop("reopened-owner", func() error { return nil })
+	if err != nil {
+		t.Fatalf("reopened owner has no live process manager: %v", err)
+	}
+	unregister()
 	newRunner := &fakeRunner{}
-	newDaemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	newDaemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: newRunner}, nil
 	})
 	if err != nil {
@@ -79,7 +88,7 @@ func TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution(t *test
 	}
 }
 
-func startTCPClient(t *testing.T, value *Daemon, clientID string) (*Server, *Client, <-chan error) {
+func startTCPClient(t *testing.T, value *Daemon, clientID string) (*Server, *daemonclient.Client, <-chan error) {
 	t.Helper()
 	server, err := NewServer(value, ServerOptions{})
 	if err != nil {
@@ -95,7 +104,7 @@ func startTCPClient(t *testing.T, value *Daemon, clientID string) (*Server, *Cli
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: clientID, ClientKind: "test"})
+	client, err := daemonclient.NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: clientID, ClientKind: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

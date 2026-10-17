@@ -43,7 +43,8 @@ func TestClientCompactionConfigurationUsesProviderValidation(t *testing.T) {
 			}
 			store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 			rootID := createRoot(t, store)
-			owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 				return Components{Runner: &fakeRunner{}}, nil
 			}, providers)
 			if err != nil {

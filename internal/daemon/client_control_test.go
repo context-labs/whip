@@ -59,7 +59,8 @@ func TestToolHostRunsOnlyRestrictedToolCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	var agentConstructions atomic.Int32
-	owner, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		if meta.Kind != session.SessionKindToolHost {
 			agentConstructions.Add(1)
 			return Components{}, errors.New("unexpected model session")
@@ -104,7 +105,8 @@ func TestToolHostRunsOnlyRestrictedToolCommands(t *testing.T) {
 func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -205,7 +207,8 @@ func TestClientCancelStopsOnlyCurrentTurn(t *testing.T) {
 		<-ctx.Done()
 		return "", ctx.Err()
 	}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -274,7 +277,8 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 	runner := &blockingShellRunner{
 		fakeRunner: &fakeRunner{}, started: make(chan struct{}), release: make(chan struct{}),
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -393,7 +397,8 @@ func TestExplicitCompactionRunsOffActorAndRecordsDurableSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &compactingRunner{fakeRunner: &fakeRunner{}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -461,7 +466,8 @@ func TestClearHistoryAtomicallyDropsDerivedStateAndReleasesSnapshots(t *testing.
 		t.Fatal(err)
 	}
 	runner := &snapshottingHistoryRunner{fakeRunner: &fakeRunner{}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -529,7 +535,8 @@ func TestGoalFromContextRunsOnceOffActorAndStartsGoal(t *testing.T) {
 	runner := &goalFormingRunner{fakeRunner: &fakeRunner{
 		turn: func(context.Context, string, bool) (string, error) { return "GOAL_MET — verified", nil },
 	}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -567,7 +574,8 @@ func TestTurnSnapshotAndRewindAreDaemonOwnedAndIdempotent(t *testing.T) {
 	runner := &snapshottingHistoryRunner{fakeRunner: &fakeRunner{
 		history: []llm.Message{{Role: "system", Content: "system"}},
 	}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -652,7 +660,8 @@ func TestResponseEndpointForkAndRewindKeepTrailingTools(t *testing.T) {
 			}
 			store = openStore(t, path)
 			runner := &compactingRunner{fakeRunner: &fakeRunner{}}
-			owner, err := New(store, func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			owner, err := New(store, processes, func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
 				if len(history) != 9 || history[0].Role != "system" || history[0].RawSequence != 2*step {
 					t.Fatalf("fixture did not restore compacted raw view: %+v", history)
 				}
@@ -738,7 +747,8 @@ func TestGoalRunUsesOneControlCommandAndStartsTheGoalTurn(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &fakeRunner{turn: func(context.Context, string, bool) (string, error) { return "GOAL_MET — done", nil }}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -840,7 +850,8 @@ func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
 	mcpManager := &controlSurfaceMCP{}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner, MCP: mcpManager}, nil
 	})
 	if err != nil {
@@ -906,7 +917,8 @@ func TestClientControlRejectsRootRuntimeMutationDuringTurn(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -953,7 +965,8 @@ func TestClientControlRejectsInvalidActionsDurably(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner, MCP: &controlSurfaceMCP{}}, nil
 	})
 	if err != nil {
@@ -1018,7 +1031,8 @@ func TestClientControlRejectsInvalidActionsDurably(t *testing.T) {
 func TestProtocolClientCommandsFailClosedWithoutOptionalRunnerCapabilities(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -1060,7 +1074,8 @@ func TestProtocolClientCommandsFailClosedWithoutOptionalRunnerCapabilities(t *te
 func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -1131,7 +1146,8 @@ func TestAsyncClientControlFailuresSettleDurably(t *testing.T) {
 	if err := store.SetSnapshot(rootID, 1, "snapshot-ref"); err != nil {
 		t.Fatal(err)
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &failingAsyncRunner{fakeRunner: &fakeRunner{}}}, nil
 	})
 	if err != nil {
@@ -1180,7 +1196,8 @@ func TestMCPImportDefersRuntimeReloadUntilChildrenAreIdle(t *testing.T) {
 	runtime := &reloadTestRuntime{}
 	runtime.running.Store(true)
 	var constructions atomic.Int32
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		constructions.Add(1)
 		return Components{Runner: &fakeRunner{}, Runtime: runtime}, nil
 	})
@@ -1224,7 +1241,8 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 		rootID := createRoot(t, store)
 		runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}}
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: runner}, nil
 		})
 		if err != nil {
@@ -1262,7 +1280,8 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 		if err := store.SetEffort(rootID, "high"); err != nil {
 			t.Fatal(err)
 		}
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: &fakeRunner{}}, nil
 		})
 		if err != nil {
@@ -1310,7 +1329,8 @@ func TestModelReplacementRejectsUnsafeFactories(t *testing.T) {
 			store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 			rootID := createRoot(t, store)
 			calls := 0
-			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 				calls++
 				if calls == 1 || test.replacement == nil {
 					return Components{Runner: test.initial}, nil
@@ -1354,7 +1374,9 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 	services.SetBrowser(browser.NewManager(browser.ModeLive), false)
 	services.SetComputerPolicy(computer.NewPolicy(nil, nil, false))
 	services.SetDiagnostics(lsp.NewManager(nil))
-	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+	processes := newTestProcesses(t)
+	t.Cleanup(services.Close)
+	if err := services.BindDispatcher(store, store.Workspaces(), processes, authority); err != nil {
 		t.Fatal(err)
 	}
 	meta, _, err := store.Load(rootID)
@@ -1480,7 +1502,11 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
-	root := newSession(store, meta, authority, Components{Runner: runner})
+	processes := newTestProcesses(t)
+	root := newSession(store, processes, meta, authority, Components{Runner: runner})
+	if err := processes.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}

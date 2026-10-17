@@ -15,9 +15,10 @@ import (
 	"testing"
 	"time"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -320,16 +321,16 @@ func promptSubmitter(t *testing.T, kind, workingDirectory string) func(string) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	t.Cleanup(cancel)
-	var root *daemon.RootClient
+	var root *daemonclient.RootClient
 	var err error
 	if kind == "acp" {
 		backend := &acpDaemonBackend{clientID: "prompt-acp", model: "test", provider: "testprov"}
 		root, err = backend.NewRoot(ctx, workingDirectory, nil)
 	} else {
 		// Mirror the presentation-only TUI's root creation and submit path.
-		root, err = daemon.NewRootClient(daemon.RootClientOptions{
+		root, err = daemonclient.NewRootClient(daemonclient.RootClientOptions{
 			ClientID: "prompt-tui", Connector: daemonConnector("tui", "prompt-tui"),
-			Create: &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: workingDirectory, Model: "test", Provider: "testprov"},
+			Create: &session.CreateSession{Kind: session.SessionKindAgent, CWD: workingDirectory, Model: "test", Provider: "testprov"},
 		})
 		if err == nil {
 			root.Start()
@@ -345,7 +346,7 @@ func promptSubmitter(t *testing.T, kind, workingDirectory string) func(string) {
 	t.Cleanup(func() { _ = root.Close() })
 	return func(text string) {
 		t.Helper()
-		action, err := root.NewAction("submit", daemon.SubmitPayload{Text: text})
+		action, err := root.NewAction("submit", protocol.SubmitPayload{Text: text})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type onboardingConnection struct {
@@ -27,8 +27,8 @@ func (c *onboardingConnection) Call(ctx context.Context, method string, params, 
 		*result.(*protocol.ProviderList) = list
 		return err
 	case "provider.key.set":
-		value, err := c.host.SetProviderKey(ctx, params.(daemon.ProviderKeySetup))
-		*result.(*daemon.RuntimeConfiguration) = value
+		value, err := c.host.SetProviderKey(ctx, params.(protocol.ProviderKeySetup))
+		*result.(*protocol.RuntimeConfiguration) = value
 		return err
 	case "query":
 		query := params.(protocol.QueryParams)
@@ -47,8 +47,8 @@ func (c *onboardingConnection) Call(ctx context.Context, method string, params, 
 		*result.(*protocol.QueryResult) = protocol.QueryResult{Result: raw}
 		return err
 	case "config.update":
-		value, err := c.host.UpdateConfiguration(ctx, params.(daemon.ConfigurationUpdate))
-		*result.(*daemon.RuntimeConfiguration) = value
+		value, err := c.host.UpdateConfiguration(ctx, params.(protocol.ConfigurationUpdate))
+		*result.(*protocol.RuntimeConfiguration) = value
 		return err
 	default:
 		return errors.New("unexpected onboarding request: " + method)
@@ -60,11 +60,11 @@ func TestOnboardingStaysInNormalTUIUntilExplicitFirstSend(t *testing.T) {
 	connections := make(chan *onboardingConnection, 4)
 	client, err := NewClient(ClientOptions{
 		ClientID: "onboarding", DeferCreate: true,
-		Create: &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: t.TempDir()},
+		Create: &session.CreateSession{Kind: session.SessionKindAgent, CWD: t.TempDir()},
 		Connector: func(context.Context, map[string]int64) (daemonConnection, error) {
 			c := &onboardingConnection{fakeDaemonConnection: newFakeDaemonConnection(session.RootSnapshot{RootID: "first-root"}), host: h}
-			c.commandFunc = func(p daemon.CommandParams) (daemon.CommandResult, error) {
-				return daemon.CommandResult{Status: "succeeded", Output: "first-root"}, nil
+			c.commandFunc = func(p protocol.CommandParams) (protocol.CommandResult, error) {
+				return protocol.CommandResult{Status: "succeeded", Output: "first-root"}, nil
 			}
 			connections <- c
 			return c, nil
@@ -149,7 +149,7 @@ func TestOnboardingStaysInNormalTUIUntilExplicitFirstSend(t *testing.T) {
 	for i, command := range connection.commands {
 		operations[i] = command.Operation
 	}
-	var selected daemon.CreateSession
+	var selected session.CreateSession
 	var selectedEffort protocol.EffortParams
 	if len(connection.commands) == 3 {
 		_ = json.Unmarshal(connection.commands[0].Payload, &selected)

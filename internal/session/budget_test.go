@@ -452,7 +452,7 @@ func TestCapBudgetWaitsForInheritedReservations(t *testing.T) {
 
 func TestRecoveryReleasesDescendantOperationAndAgentTurnReservations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestRecoveryReleasesDescendantOperationAndAgentTurnReservations(t *testing.
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

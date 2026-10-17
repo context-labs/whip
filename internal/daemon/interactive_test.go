@@ -101,7 +101,8 @@ func TestProtocolRedactsTerminalInputFromDurableState(t *testing.T) {
 	store := openStore(t, path)
 	rootID := createRoot(t, store)
 	runner := &terminalFakeRunner{inputs: make(chan terminalInput, 1)}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

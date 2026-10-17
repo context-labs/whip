@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
-func gatewayPolicyClient(t *testing.T, server *Server, directNetwork bool, params InitializeParams) *Client {
+func gatewayPolicyClient(t *testing.T, server *Server, directNetwork bool, params InitializeParams) *daemonclient.Client {
 	t.Helper()
 	serverSide, clientSide := net.Pipe()
 	served := make(chan struct{})
@@ -30,7 +31,7 @@ func gatewayPolicyClient(t *testing.T, server *Server, directNetwork bool, param
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	client, err := NewClient(ctx, clientSide, params)
+	client, err := daemonclient.NewClient(ctx, clientSide, params)
 	if err != nil {
 		t.Fatal(err)
 	}

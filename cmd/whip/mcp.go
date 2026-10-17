@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
@@ -151,9 +151,9 @@ func mcpServe(version string) error {
 	}
 	ctx := context.Background()
 	clientID := daemonClientID("mcp")
-	client, err := daemon.NewRootClient(daemon.RootClientOptions{
+	client, err := daemonclient.NewRootClient(daemonclient.RootClientOptions{
 		ClientID:  clientID,
-		Create:    &daemon.CreateSession{Kind: session.SessionKindToolHost, CWD: wd},
+		Create:    &session.CreateSession{Kind: session.SessionKindToolHost, CWD: wd},
 		Connector: daemonConnector("automation", clientID),
 	})
 	if err != nil {
@@ -181,7 +181,7 @@ func mcpServe(version string) error {
 	return errors.Join(serveErr, closeErr, deleteErr)
 }
 
-type daemonMCPTools struct{ client *daemon.RootClient }
+type daemonMCPTools struct{ client *daemonclient.RootClient }
 
 func (p daemonMCPTools) ToolDefinitions(ctx context.Context) ([]llm.Tool, error) {
 	action, err := p.client.NewAction("tool.schema", struct{}{})

@@ -15,6 +15,7 @@ import (
 
 	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 )
 
 func syncFixture(t *testing.T) (string, desktopSyncOptions) {
@@ -93,7 +94,7 @@ func TestDesktopSyncCoordinatesRealOwnerAndReadiness(t *testing.T) {
 	}
 	options.digest, _ = desktopBinaryDigest(source)
 	options.interrupt = true
-	if err := daemon.LaunchInstalledDaemon(paths, options.executable, nil); err != nil {
+	if err := daemonconn.LaunchInstalledDaemon(paths, options.executable, nil); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

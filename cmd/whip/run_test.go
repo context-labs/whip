@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -406,7 +407,9 @@ func TestRunQuietJSON(t *testing.T) {
 
 func configDir() (string, error) { return os.Getenv("WHIPCODE_HOME"), nil }
 
-func sessionOpen(dir string) (*session.Store, error) { return session.Open(runtimeDBPath(dir)) }
+func sessionOpen(dir string) (*session.Store, error) {
+	return session.Open(runtimeDBPath(dir), capability.NewWorkspaces())
+}
 
 // Bad flags, an unknown --format, and a missing prompt all fail before any
 // provider is contacted.
@@ -604,7 +607,7 @@ func TestRunExecutionEngineSelectionAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.Open(filepath.Join(os.Getenv("WHIPCODE_HOME"), "runtime-v2", "sessions.db"))
+	store, err := session.Open(filepath.Join(os.Getenv("WHIPCODE_HOME"), "runtime-v2", "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +633,7 @@ func TestRunAgentSelectionAndResume(t *testing.T) {
 	if _, err := runCapture(t, "", "--agent", "junior-developer", "--permission-mode", "automatic", "--max-tokens", "10000", "select agent"); err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.Open(filepath.Join(os.Getenv("WHIPCODE_HOME"), "runtime-v2", "sessions.db"))
+	store, err := session.Open(filepath.Join(os.Getenv("WHIPCODE_HOME"), "runtime-v2", "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

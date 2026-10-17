@@ -131,9 +131,17 @@ func (l *panicLifecycle) Start(context.Context) {
 	l.launcher("MCP lifecycle", func() { panic("MCP exploded") })
 }
 
+// newTestProcesses retains caller cleanup if construction fails; successful owners close it first.
+func newTestProcesses(t *testing.T) *capability.ProcessManager {
+	t.Helper()
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
+	return processes
+}
+
 func openStore(t *testing.T, path string) *session.Store {
 	t.Helper()
-	store, err := session.Open(path)
+	store, err := session.Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +173,8 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 		rootID := createRoot(t, store)
 		runner := &titleRunner{fakeRunner: &fakeRunner{}, title: "Worker Queue Investigation", finished: make(chan struct{})}
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: runner}, nil
 		})
 		if err != nil {
@@ -215,7 +224,8 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 		rootID := createRoot(t, store)
 		runner := &titleRunner{fakeRunner: &fakeRunner{}, title: "Unicode Session Title", finished: make(chan struct{})}
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: runner}, nil
 		})
 		if err != nil {
@@ -257,7 +267,8 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 			fakeRunner: &fakeRunner{}, title: "Generated Too Late",
 			started: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{}),
 		}
-		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 			return Components{Runner: runner}, nil
 		})
 		if err != nil {
@@ -309,7 +320,8 @@ func TestConcurrentSubmitUsesCommittedInboxOrder(t *testing.T) {
 		mu.Unlock()
 		return "done " + input, nil
 	}}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -387,7 +399,8 @@ func TestRootsRunConcurrentlyAndCallerCancellationDoesNotOwnWork(t *testing.T) {
 			}
 		}}
 	}
-	daemon, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		runners[meta.ID].history = append([]llm.Message(nil), history...)
 		return Components{Runner: runners[meta.ID]}, nil
 	})
@@ -436,7 +449,8 @@ func TestUnobservedCompletionCannotBlockActor(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &fakeRunner{}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -460,7 +474,8 @@ func TestSteerWhileIdleRunsAsAuthoredTurn(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &fakeRunner{}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -499,7 +514,8 @@ func TestSteerDuringTurnRunsAsNextTurn(t *testing.T) {
 		}
 		return input, nil
 	}}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -531,7 +547,8 @@ func TestReturnedTurnErrorIsRecoverable(t *testing.T) {
 		}
 		return "recovered", nil
 	}}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -577,7 +594,8 @@ func TestGoalContinuationRunsWithoutClientAndClearsGoal(t *testing.T) {
 		continued <- authored
 		return "GOAL_MET - verified", nil
 	}}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner, GoalMaxRounds: 2}, nil
 	})
 	if err != nil {
@@ -626,7 +644,8 @@ func TestWorkerAndActorPanicsAreRootLocalAndAwaitCleanup(t *testing.T) {
 			badID, goodID := createRoot(t, store), createRoot(t, store)
 			goodRunner := &fakeRunner{}
 			mcp := &fakeCloser{}
-			daemon, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			daemon, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 				if meta.ID == badID {
 					return Components{Runner: test.runner, MCP: mcp}, nil
 				}
@@ -651,7 +670,7 @@ func TestWorkerAndActorPanicsAreRootLocalAndAwaitCleanup(t *testing.T) {
 			}
 			<-descendantStarted
 			processStopped := make(chan struct{})
-			unregister, err := store.Processes().RegisterStop(badID, func() error {
+			unregister, err := processes.RegisterStop(badID, func() error {
 				close(processStopped)
 				return nil
 			})
@@ -699,7 +718,8 @@ func TestMCPLifecyclePanicFailsOnlyItsRoot(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	badID, goodID := createRoot(t, store), createRoot(t, store)
 	lifecycle := &panicLifecycle{}
-	daemon, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		if meta.ID == badID {
 			return Components{Runner: &fakeRunner{}, MCP: lifecycle}, nil
 		}
@@ -749,7 +769,8 @@ func TestToolPanicReentersRootSupervisor(t *testing.T) {
 		Def: llm.NewTool("explode", "panic", `{"type":"object"}`),
 		Run: func(context.Context, json.RawMessage) (string, error) { panic("tool exploded") },
 	})
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &AgentSession{agent: ag}, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
@@ -789,7 +810,8 @@ func TestAgentStreamEventsAreDurableOrderedAndSnapshotRestorable(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	agentValue := agent.NewRuntime(llm.New(server.URL, "key"), "model", 100, "system", tools.NewServices())
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &AgentSession{agent: agentValue}, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
@@ -869,7 +891,8 @@ func TestOpenBindsMCPProcesses(t *testing.T) {
 	rootID := createRoot(t, store)
 	ag := agent.NewRuntime(llm.New("http://unused", "key"), "model", 100, "system", tools.NewServices())
 	manager := &fakeMCP{}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &AgentSession{agent: ag}, MCP: manager, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
@@ -880,8 +903,11 @@ func TestOpenBindsMCPProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manager.processes != store.Processes() || manager.rootID != rootID || manager.cwd != root.WorkingDirectory() {
+	if manager.processes != processes || manager.rootID != rootID || manager.cwd != root.WorkingDirectory() {
 		t.Fatalf("MCP process scope=%p %q %q", manager.processes, manager.rootID, manager.cwd)
+	}
+	if options := ag.Services.ProcessOptions(); options.Processes != processes || options.RootID != rootID {
+		t.Fatalf("agent process scope = %p %q", options.Processes, options.RootID)
 	}
 	if len(ag.AllTools()) != 0 {
 		t.Fatal("MCP process setup changed the model-facing tool surface")
@@ -899,7 +925,8 @@ func TestStopAwaitsWorkerAndUnblocksReceipt(t *testing.T) {
 		close(exited)
 		return "", ctx.Err()
 	}}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -942,7 +969,8 @@ func TestOpenSharesLiveRootWithoutHoldingRegistryLockDuringFactory(t *testing.T)
 	slowFactoryEntered := make(chan struct{})
 	releaseSlowFactory := make(chan struct{})
 	var calls atomic.Int32
-	daemon, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		calls.Add(1)
 		if meta.ID == slowID {
 			close(slowFactoryEntered)
@@ -1013,7 +1041,8 @@ func TestDispatchWaitsForAdmissionPublication(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	root := newSession(store, meta, authority, Components{Runner: &fakeRunner{}})
+	processes := newTestProcesses(t)
+	root := newSession(store, processes, meta, authority, Components{Runner: &fakeRunner{}})
 	t.Cleanup(root.supervisor.stop)
 	root.admitMu.RLock()
 	dispatched := make(chan error, 1)
@@ -1037,7 +1066,8 @@ func TestOpenCanonicalizesAliasesAndReportsStoppedRoots(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	var calls atomic.Int32
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		calls.Add(1)
 		return Components{Runner: &fakeRunner{}}, nil
 	})
@@ -1069,7 +1099,8 @@ func TestResumeActiveOpensDurableRootsAndReportsFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opened atomic.Int32
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		opened.Add(1)
 		return Components{Runner: &fakeRunner{}}, nil
 	})
@@ -1084,10 +1115,14 @@ func TestResumeActiveOpensDurableRootsAndReportsFailures(t *testing.T) {
 	}
 
 	closedStore := openStore(t, filepath.Join(t.TempDir(), "closed-active.db"))
-	closed, err := New(closedStore, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	closedStoreProcesses := newTestProcesses(t)
+	closed, err := New(closedStore, closedStoreProcesses, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedStoreProcesses.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := closedStore.Close(); err != nil {
@@ -1145,10 +1180,14 @@ func TestSessionWakeAndReferencedInboxFailuresAreReported(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].Seq != sequence.InboxSeq {
 		t.Fatalf("referenced inbox = %+v, %v", items, err)
 	}
-	root := newSession(store, meta, authority, Components{Runner: &fakeRunner{}})
+	processes := newTestProcesses(t)
+	root := newSession(store, processes, meta, authority, Components{Runner: &fakeRunner{}})
 	text, err := root.inboxText(items[0])
 	if err != nil || text != large {
 		t.Fatalf("resolved inbox = %d bytes, %v", len(text), err)
+	}
+	if err := processes.Close(); err != nil {
+		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -1175,7 +1214,8 @@ func TestAgentRunnerSafeCloseEdges(t *testing.T) {
 func TestFactoryPanicSettlesOpenAndClose(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		panic("factory exploded")
 	})
 	if err != nil {
@@ -1200,14 +1240,18 @@ func TestNewAndOpenValidateAndCleanUpFailedConstruction(t *testing.T) {
 	factory := func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	}
-	if _, err := New(nil, factory); err == nil {
+	if _, err := New(nil, nil, factory); err == nil {
 		t.Fatal("nil store was accepted")
 	}
 	closedStore := openStore(t, filepath.Join(t.TempDir(), "closed.db"))
+	closedStoreProcesses := newTestProcesses(t)
+	if err := closedStoreProcesses.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := closedStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(closedStore, factory); err == nil {
+	if _, err := New(closedStore, closedStoreProcesses, factory); err == nil {
 		t.Fatal("closed store recovery succeeded")
 	}
 	if !closedStore.AcquireDaemon() {
@@ -1215,7 +1259,8 @@ func TestNewAndOpenValidateAndCleanUpFailedConstruction(t *testing.T) {
 	}
 	closedStore.ReleaseDaemon()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	if _, err := New(store, nil); err == nil {
+	processes := newTestProcesses(t)
+	if _, err := New(store, processes, nil); err == nil {
 		t.Fatal("nil factory was accepted")
 	}
 	bindRootID, missingRunnerRootID := createRoot(t, store), createRoot(t, store)
@@ -1223,14 +1268,14 @@ func TestNewAndOpenValidateAndCleanUpFailedConstruction(t *testing.T) {
 	runner := &bindErrorRunner{err: bindErr}
 	bindMCP, missingRunnerMCP := &fakeCloser{}, &fakeCloser{}
 	var bindProcessStopped, missingRunnerProcessStopped atomic.Bool
-	daemon, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	daemon, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		stopped := &bindProcessStopped
 		components := Components{Runner: runner, MCP: bindMCP}
 		if meta.ID == missingRunnerRootID {
 			stopped = &missingRunnerProcessStopped
 			components = Components{MCP: missingRunnerMCP}
 		}
-		if _, err := store.Processes().RegisterStop(meta.ID, func() error {
+		if _, err := processes.RegisterStop(meta.ID, func() error {
 			stopped.Store(true)
 			return nil
 		}); err != nil {
@@ -1269,7 +1314,8 @@ func TestCloseCancelsInFlightFactory(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	entered := make(chan struct{})
-	daemon, err := New(store, func(ctx context.Context, _ session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(ctx context.Context, _ session.Meta, _ []llm.Message) (Components, error) {
 		close(entered)
 		<-ctx.Done()
 		return Components{}, ctx.Err()
@@ -1371,14 +1417,23 @@ func TestNewRejectsSecondDaemonOwner(t *testing.T) {
 	factory := func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	}
-	daemon, err := New(store, factory)
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, factory)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = daemon.Close() })
-	if _, err := New(store, factory); err == nil || !strings.Contains(err.Error(), "already has a daemon owner") {
+	if _, err := New(store, processes, factory); err == nil || !strings.Contains(err.Error(), "already has a daemon owner") {
 		t.Fatalf("second daemon error=%v", err)
 	}
+	if _, err := store.LoadMeta(createRoot(t, store)); err != nil {
+		t.Fatalf("second-owner rejection closed the database: %v", err)
+	}
+	unregister, err := processes.RegisterStop("after-second-owner-rejection", func() error { return nil })
+	if err != nil {
+		t.Fatalf("second-owner rejection closed the process manager: %v", err)
+	}
+	unregister()
 }
 
 func TestClosePreservesClaimedScheduleWake(t *testing.T) {
@@ -1393,7 +1448,8 @@ func TestClosePreservesClaimedScheduleWake(t *testing.T) {
 			return "", ctx.Err()
 		},
 	}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -1455,7 +1511,8 @@ func TestReopenReconstructsHistoryAndRunsQueuedSubmitOnce(t *testing.T) {
 	store = openStore(t, path)
 	runner := &fakeRunner{}
 	var restored []llm.Message
-	daemon, err := New(store, func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
 		restored = append([]llm.Message(nil), history...)
 		runner.history = append([]llm.Message(nil), history...)
 		return Components{Runner: runner}, nil
@@ -1520,7 +1577,8 @@ func TestReopenResumesQueuedScheduleAsUnauthored(t *testing.T) {
 		started <- authored
 		return "done", nil
 	}}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

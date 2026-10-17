@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
@@ -87,7 +88,8 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 			if _, err := store.AddSchedule(rootID, "@every 10m", "existing", time.Now().UTC().Add(time.Hour)); err != nil {
 				t.Fatal(err)
 			}
-			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 				components := Components{Runner: &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: home}, MCP: &controlSurfaceMCP{}}
 				if operation.Name == "mcp.refresh" {
 					components.MCP = nil
@@ -152,7 +154,7 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 	}
 }
 
-func runtimeUnixClient(t *testing.T, value *Daemon) *Client {
+func runtimeUnixClient(t *testing.T, value *Daemon) *daemonclient.Client {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "whip-v2-") //nolint:usetesting // short path is required by the Unix socket path-length limit on macOS
 	if err != nil {
@@ -173,7 +175,7 @@ func runtimeUnixClient(t *testing.T, value *Daemon) *Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(t.Context(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "fixture-client", ClientKind: "test"})
+	client, err := daemonclient.NewClient(t.Context(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "fixture-client", ClientKind: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

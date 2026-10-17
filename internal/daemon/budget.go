@@ -44,7 +44,7 @@ func (s *Session) beginAgentModelAttempt(ctx context.Context, agentID string, at
 	// Check at admission for roots, descendants, helpers, compaction and retries.
 	// An attempt already admitted keeps its immutable route and may finish.
 	if s.providers != nil {
-		if err := s.providers.checkModelProvider(attempt.Provider); err != nil {
+		if err := s.providers.CheckModelProvider(attempt.Provider); err != nil {
 			return llm.ModelPermit{}, err
 		}
 	}

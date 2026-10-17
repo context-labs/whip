@@ -11,17 +11,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/daemonconn"
 )
 
 func TestRuntimePathsAndOwnerLock(t *testing.T) {
-	if _, err := Paths(""); err == nil {
+	if _, err := daemonconn.Paths(""); err == nil {
 		t.Fatal("empty runtime home was accepted")
 	}
 	blocked := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(blocked, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Paths(blocked); err == nil {
+	if _, err := daemonconn.Paths(blocked); err == nil {
 		t.Fatal("regular file was accepted as runtime home")
 	}
 	if _, err := AcquireOwner(filepath.Join(t.TempDir(), "missing", "daemon.lock")); err == nil {
@@ -32,11 +34,11 @@ func TestRuntimePathsAndOwnerLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := filepath.Join(t.TempDir(), strings.Repeat("long", 40))
-	paths, err := Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths.Socket) >= maxUnixSocketPath || paths.Runtime == paths.Home {
+	if len(paths.Socket) >= 100 || paths.Runtime == paths.Home {
 		t.Fatalf("long-path fallback = %+v", paths)
 	}
 	lock, err := AcquireOwner(paths.Lock)
@@ -47,7 +49,7 @@ func TestRuntimePathsAndOwnerLock(t *testing.T) {
 	if err != nil || !active || pid != os.Getpid() {
 		t.Fatalf("active owner = pid %d, active %t, err %v", pid, active, err)
 	}
-	if _, err := AcquireOwner(paths.Lock); !errors.Is(err, ErrDaemonOwned) {
+	if _, err := AcquireOwner(paths.Lock); !errors.Is(err, daemonconn.ErrDaemonOwned) {
 		t.Fatalf("second owner error = %v", err)
 	}
 	if err := lock.Close(); err != nil {
@@ -61,46 +63,6 @@ func TestRuntimePathsAndOwnerLock(t *testing.T) {
 		t.Fatalf("released owner lock was not reusable: %v", err)
 	}
 	_ = lock.Close()
-}
-
-func TestResolvePathsDoesNotCreateRuntime(t *testing.T) {
-	t.Parallel()
-	root, err := os.MkdirTemp("/tmp", "whip-paths-") //nolint:usetesting // Exercise both short and hashed Unix socket paths on macOS.
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	for _, test := range []struct {
-		name     string
-		home     string
-		fallback bool
-	}{
-		{name: "short path", home: filepath.Join(root, "home")},
-		{name: "long path", home: filepath.Join(root, strings.Repeat("long", 40)), fallback: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			paths, err := ResolvePaths(test.home)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if (paths.Runtime != paths.Home) != test.fallback {
-				t.Fatalf("runtime fallback = %+v", paths)
-			}
-			for _, path := range []string{test.home, paths.Home, paths.Runtime} {
-				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("resolving paths touched %s: %v", path, err)
-				}
-			}
-			created, err := Paths(test.home)
-			if test.fallback {
-				t.Cleanup(func() { _ = os.RemoveAll(paths.Runtime) })
-			}
-			if err != nil || created != paths {
-				t.Fatalf("startup and discovery resolved different paths: %+v, %+v, %v", paths, created, err)
-			}
-		})
-	}
 }
 
 func TestActiveOwnerPIDDoesNotCreateOrModifyLock(t *testing.T) {
@@ -161,7 +123,7 @@ func TestActiveOwnerPIDRejectsMissingOwnerMetadata(t *testing.T) {
 }
 
 func TestOwnerOnlySocketRefusesUnsafeState(t *testing.T) {
-	paths, err := Paths(t.TempDir())
+	paths, err := daemonconn.Paths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,10 +132,10 @@ func TestOwnerOnlySocketRefusesUnsafeState(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = listener.Close(); _ = os.Remove(paths.Socket) })
-	if _, err := listenLocal(paths); !errors.Is(err, ErrDaemonOwned) {
+	if _, err := listenLocal(paths); !errors.Is(err, daemonconn.ErrDaemonOwned) {
 		t.Fatalf("responsive daemon replacement = %v", err)
 	}
-	conn, err := dialLocal(paths, time.Second)
+	conn, err := daemonconn.DialLocal(paths, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +143,7 @@ func TestOwnerOnlySocketRefusesUnsafeState(t *testing.T) {
 	if err := os.Chmod(paths.Socket, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dialLocal(paths, time.Second); err == nil {
+	if _, err := daemonconn.DialLocal(paths, time.Second); err == nil {
 		t.Fatal("world-accessible socket should be rejected")
 	}
 	if conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(context.Background(), "unix", paths.Socket); err != nil {
@@ -192,7 +154,7 @@ func TestOwnerOnlySocketRefusesUnsafeState(t *testing.T) {
 }
 
 func TestListenLocalReportsStalePathFailures(t *testing.T) {
-	paths, err := Paths(t.TempDir())
+	paths, err := daemonconn.Paths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +172,7 @@ func TestListenLocalReportsStalePathFailures(t *testing.T) {
 	if _, err := listenLocal(paths); err == nil {
 		t.Fatal("socket was created through a missing directory")
 	}
-	if _, err := dialLocal(paths, time.Millisecond); err == nil {
+	if _, err := daemonconn.DialLocal(paths, time.Millisecond); err == nil {
 		t.Fatal("missing socket was dialed")
 	}
 }

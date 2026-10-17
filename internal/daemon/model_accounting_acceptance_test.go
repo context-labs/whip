@@ -61,7 +61,8 @@ func modelAccountingRuntimeAt(t *testing.T, path string, handler http.HandlerFun
 		}
 	}
 	var runtime *RecursiveRuntime
-	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		client := llm.New(provider.URL, "local-test-key")
 		client.MaxRetries = 1
 		value := agent.NewRuntime(client, "root-model", 128, "", tools.NewServices())

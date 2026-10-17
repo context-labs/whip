@@ -1,6 +1,10 @@
 # Whip backend redesign and delivery plan
 
-Status: proposed; implementation has not started under this plan.
+Status: historical proposal; superseded for the current backend cleanup by
+[Backend reorganization with a frozen client contract](backend-reorganization-plan.md).
+The replacement protocol/schema/client scope below is not active for that work.
+
+Original status: proposed; implementation had not started under this plan.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Build a simpler Go backend with explicit ownership, uniform root/child sessions,

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -42,7 +43,7 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 	for _, child := range []bool{false, true} {
 		t.Run(fmt.Sprintf("child=%t", child), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "sessions.db")
-			store, err := Open(path)
+			store, err := Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,7 +86,7 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 			if err := store.Close(); err != nil {
 				t.Fatal(err)
 			}
-			store, err = Open(path)
+			store, err = Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}

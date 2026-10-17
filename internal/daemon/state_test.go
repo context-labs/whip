@@ -14,7 +14,8 @@ import (
 func TestStateWrappersRouteThroughActor(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -77,7 +78,8 @@ func TestBlackboardSubscriptionRoutesThroughActorAndSurvivesRecovery(t *testing.
 	factory := func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	}
-	daemon, err := New(store, factory)
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +123,8 @@ func TestBlackboardSubscriptionRoutesThroughActorAndSurvivesRecovery(t *testing.
 	}
 
 	store = openStore(t, path)
-	daemon, err = New(store, factory)
+	processes = newTestProcesses(t)
+	daemon, err = New(store, processes, factory)
 	if err != nil {
 		t.Fatal(err)
 	}

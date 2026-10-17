@@ -33,7 +33,8 @@ func (r *lifecycleTitleRunner) GenerateTitle(ctx context.Context, prompt string)
 
 func openTitleLifecycle(t *testing.T, store *session.Store, rootID string, runner Runner) (*Daemon, *Session) {
 	t.Helper()
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

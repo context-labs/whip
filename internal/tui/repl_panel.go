@@ -10,14 +10,13 @@ import (
 	"time"
 	"unicode"
 
+	"charm.land/lipgloss/v2"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/tui/ui"
 
-	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -88,7 +87,7 @@ func (m *model) replNow() time.Time {
 
 // replApplySeq folds an event with a known sequence number, skipping ones
 // already seen: live events and later snapshot replays carry the same seq.
-func (m *model) replApplySeq(agentID, kind string, event daemon.StreamEvent, seq int64) {
+func (m *model) replApplySeq(agentID, kind string, event protocol.StreamEvent, seq int64) {
 	if seq > 0 {
 		agent := m.replAgentFor(agentID)
 		if seq <= agent.seq {
@@ -100,7 +99,7 @@ func (m *model) replApplySeq(agentID, kind string, event daemon.StreamEvent, seq
 }
 
 // replApply folds one presentation event into an agent's cell history.
-func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
+func (m *model) replApply(agentID, kind string, event protocol.StreamEvent) {
 	if event.ID == "" {
 		return
 	}
@@ -248,7 +247,7 @@ func (m *model) replRebuild() {
 			if !strings.HasPrefix(event.Kind, "stream.") {
 				continue
 			}
-			var payload daemon.StreamEvent
+			var payload protocol.StreamEvent
 			if json.Unmarshal(event.Payload, &payload) != nil {
 				continue
 			}

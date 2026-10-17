@@ -93,7 +93,8 @@ func browserHarness(t *testing.T) (*Daemon, *Server, string) {
 	t.Helper()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	root := createRoot(t, store)
-	d, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	d, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -838,7 +839,8 @@ func TestBrowserToolHostScreenshotStoredWithOwnAuthority(t *testing.T) {
 	}
 	services := tools.NewServices()
 	services.SetGate(func(context.Context, tools.GateRequest) (tools.GateDecision, string) { return tools.GateAllowOnce, "" })
-	d, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	d, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: NewToolRunner(services)}, nil
 	})
 	if err != nil {

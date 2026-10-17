@@ -20,7 +20,8 @@ func TestColdMetadataReroutesAfterRootOpens(t *testing.T) {
 		fakeRunner: &fakeRunner{}, title: "Generated title",
 		started: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{}),
 	}
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -130,7 +131,8 @@ func TestOpenReloadsMetadataAfterRegistryPublication(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	constructed := make(chan session.Meta, 1)
-	owner, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		constructed <- meta
 		return Components{Runner: &fakeRunner{}}, nil
 	})

@@ -181,8 +181,8 @@ func TestDecayKeepsSpillPath(t *testing.T) {
 		t.Fatalf("decayed placeholder should keep the spill path, got %q", got)
 	}
 	// the referenced file exists and holds the full output
-	i := strings.LastIndex(got, "full output: ")
-	path := strings.TrimSuffix(strings.TrimSpace(got[i+len("full output: "):]), "⟩")
+	_, outputPath, _ := strings.CutLast(got, "full output: ")
+	path := strings.TrimSuffix(strings.TrimSpace(outputPath), "⟩")
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) != 60_000 {
 		t.Errorf("spill file should hold the full 60k output (len=%d, err=%v)", len(data), err)

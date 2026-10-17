@@ -3,6 +3,8 @@ package session
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // The root agent's model, provider, effort and cwd are session facts that
@@ -11,7 +13,7 @@ import (
 // keep the selection they were admitted with.
 func TestRootAgentReadsDeriveSelectionFromSession(t *testing.T) {
 	ctx := t.Context()
-	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

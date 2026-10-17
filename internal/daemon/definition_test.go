@@ -90,7 +90,8 @@ func TestDefinitionSurfaceDisablesAutomaticTitle(t *testing.T) {
 	runner := &titleRunner{fakeRunner: &fakeRunner{}, title: "Never Applied", finished: make(chan struct{})}
 	definition := agentdef.Coding()
 	definition.Surface.AutoTitle = false
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner, Definition: definition}, nil
 	})
 	if err != nil {

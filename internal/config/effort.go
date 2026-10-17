@@ -1,6 +1,9 @@
 package config
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
 // ResolveEffort turns the effort a session was asked for into the concrete
 // value it stores: pinned when set (an explicit config or definition choice is
@@ -28,4 +31,31 @@ func ResolveEffort(catalogs map[string]Catalog, provider, modelID, pinned string
 		}
 	}
 	return "low"
+}
+
+// ValidateConfiguredEffort checks an explicit effort against the configured
+// route and catalog, retaining known fallback values when they are unavailable.
+func ValidateConfiguredEffort(cfg *Config, model, provider, requested string) error {
+	if requested == "off" {
+		return nil
+	}
+	known := slices.Contains([]string{"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}, requested)
+	if cfg != nil {
+		resolved, _, _, apiID, err := cfg.ResolveRoute(model, provider)
+		if err == nil {
+			catalog := LoadCatalogs()[resolved]
+			if info := catalog.Find(apiID); info != nil && len(info.ReasoningEfforts) > 0 {
+				if slices.Contains(info.ReasoningEfforts, requested) {
+					return nil
+				}
+				if known {
+					return fmt.Errorf("%s does not support effort %q", model, requested)
+				}
+			}
+		}
+	}
+	if !known {
+		return fmt.Errorf("unknown effort level %q", requested)
+	}
+	return nil
 }

@@ -147,7 +147,7 @@ Available modules are summarized in [tools.md](tools.md).
   reason on the summary's trace. Cancellation, uncertain completion, partial
   output and accounting/budget failures never cause a second-route replay.
   See [compaction settings](models-providers.md#compaction-model),
-  `cmd/whip/daemon.go`, `internal/agent/agent.go`,
+  `cmd/whip/daemon_runtime.go`, `internal/agent/agent.go`,
   `packages/app/src/settings/configuration.tsx`, and their configuration,
   compaction-fallback and settings regression tests.
 - Large values are immutable, content-addressed, and separately authorized.
@@ -354,7 +354,7 @@ rotation. OpenCode credential/config/database import and desktop probes are remo
 
 Code: `cmd/modelgen`, `internal/config/modelsdev`,
 `internal/config/{modelsdev,provider_credentials,provider_models,revision}.go`,
-`internal/daemon/provider_{discovery,list,configuration,model,service}.go`,
+`internal/provider/provider_{discovery,list,configuration,model,service}.go`,
 `internal/tui/setup.go`, `packages/app/src/provider-setup.tsx`,
 `apps/desktop/src/provider-environment.ts`.
 Tests: importer/presence/pricing tests in `cmd/modelgen` and
@@ -382,11 +382,12 @@ appear in their own Settings group. Disconnect also clears the disabled flag. Mo
 rejects stale route/account responses. Desktop recovers only the supported local
 shell keys, bounded and without forwarding them to remote hosts.
 
-Code: `internal/config/providers.go`, `internal/daemon/provider_{list,disconnect,model}.go`,
+Code: `internal/config/providers.go`, `internal/provider/provider_{list,disconnect,model}.go`,
 `internal/daemon/budget.go`, `packages/app/src/settings/provider-connections.tsx`,
 `packages/app/src/settings/provider-login.tsx`, and `apps/desktop/src/runtime.ts`.
 Tests: `internal/config/providers_test.go`,
-`internal/daemon/provider_connections_test.go`, `packages/sdk/test/services.test.ts`,
+`internal/provider/provider_connections_test.go`, `internal/daemon/provider_connections_test.go`,
+`packages/sdk/test/services.test.ts`,
 `packages/app/test/provider-connections.test.tsx`, `packages/app/test/model-selection.test.tsx`,
 `apps/desktop/tests/provider-environment.test.ts`, and the production
 `apps/web/scripts/provider-connections.mjs` workflow. See the
@@ -440,12 +441,14 @@ cleared by an earlier acceptance. Native **Set up this Mac** composes verified
 backend installation and the existing connection owner in one action. Existing
 installations, advanced diagnostics and remote hosts retain their policies.
 
-Code: `internal/daemon/provider_selection.go`, `internal/daemon/provider_service.go`,
-`internal/tui/{setup,startup}.go`, `internal/daemon/root_client.go`,
+Code: `internal/provider/provider_selection.go`, `internal/provider/provider_service.go`,
+`internal/tui/{setup,startup}.go`, `internal/client/root_client.go`,
 `internal/session/command.go`,
 `packages/app/src/{provider-setup,welcome,welcome-submission,runtime}.ts*`,
 `packages/app/src/host-dialog.tsx`, and `apps/desktop/src/runtime.ts`.
-Tests: `internal/daemon/{provider_selection,root_client}_test.go`,
+Tests: `internal/provider/provider_selection_test.go`,
+`internal/daemon/provider_selection_test.go`, `internal/client/root_client_test.go`,
+`internal/daemon/root_client_test.go` (expired-cursor server integration),
 `internal/tui/{setup,startup,client,cursor}_test.go`,
 `internal/session/command_test.go`, `cmd/whip/daemon_test.go`,
 `packages/app/test/{provider-connections,welcome-submission,sidebar-creation,runtime,local-runtime}.test.ts*`,
@@ -497,10 +500,10 @@ acceptance is implied.
 
 Code: `internal/tui/setup_picker.go`, `internal/tui/ui/list.go`,
 `internal/config/{providers,provider_credentials,provider_models}.go`,
-`internal/daemon/provider_{list,model,service}.go`,
+`internal/provider/provider_{list,model,service}.go`,
 `internal/llm/provider_compatibility.go`, `apps/desktop/src/runtime.ts`.
 Tests: `internal/tui/setup_picker_test.go`, credential/preset model tests under
-`internal/config`, preset discovery/key tests under `internal/daemon`,
+`internal/config`, preset discovery/key tests under `internal/provider`,
 `internal/llm/provider_compatibility_test.go`, and desktop provider environment tests.
 See [picker implementation and evidence](../.ai-docs/plans/tui-provider-configuration/PICKER-REDESIGN.md).
 One-step defaults: `internal/tui/setup_default{,_test}.go`,
@@ -526,11 +529,11 @@ history. Web/desktop inventory sees the same connections. No provider database o
 web custom-provider form is introduced.
 
 Code: `internal/tui/setup_provider.go`, `internal/tui/setup_host.go`,
-`internal/daemon/provider_configuration.go`, `internal/config/providers.go`,
+`internal/provider/provider_configuration.go`, `internal/config/providers.go`,
 `internal/llm/openai.go`, `internal/protocol/provider_types.go`, and
 `packages/sdk/src/services.ts`.
 Tests: `internal/tui/setup_provider_test.go`,
-`internal/daemon/provider_configuration_test.go`,
+`internal/provider/provider_configuration_test.go`, `internal/daemon/provider_configuration_test.go`,
 `internal/config/provider_auth_test.go`, `internal/llm/openai_noauth_test.go`,
 `cmd/whip/acp_test.go`, and `packages/sdk/test/services.test.ts`.
 See [configuration instructions](models-providers.md#supported-provider-types-and-custom-endpoints)
@@ -551,11 +554,12 @@ setup and limits; live acceptance is tracked in the
 [implementation plan](../.ai-docs/plans/openai-subscriptions/README.md).
 
 Code: `internal/openaiauth`, `internal/llm/{subscription,responses}.go`,
-`internal/daemon/provider_{openai,model}.go`, `cmd/whip/auth_openai.go`,
+`internal/provider/provider_{openai,model}.go`, `cmd/whip/auth_openai.go`,
 `internal/tui/auth_cmd.go`, `packages/app/src/settings/providers.tsx`, and
 `packages/app/src/model-options.ts`.
 Tests: `internal/openaiauth/auth_test.go`, `internal/llm/{subscription,responses}_test.go`,
-`internal/daemon/provider_openai_test.go`, `internal/session/continuation_test.go`,
+`internal/provider/provider_openai_test.go`, `internal/daemon/provider_openai_test.go`,
+`internal/session/continuation_test.go`,
 and `packages/app/test/{providers,model-selection}.test.tsx` cover rotation races,
 cross-transport login recovery, secret isolation, stream completion, budgeting,
 model/provider selection and client state. Live Pro-account acceptance also
@@ -615,8 +619,9 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
 - Provider setup/login, versioned configuration updates and completion execute on
   the daemon host. TUI themes/keybindings remain local. Secret credentials and
   ephemeral terminal input are excluded from command journals.
-- Implementation: `internal/protocol`, `internal/daemon/{server,subscription,
-  transport,provider_service,completion}.go`, `internal/webgateway`, `internal/session`, and
+- Implementation: `internal/protocol`, `internal/client`, `internal/daemonconn`,
+  `internal/daemon/{server,subscription,
+  transport,completion}.go`, `internal/provider/provider_service.go`, `internal/webgateway`, `internal/session`, and
   `packages/protocol`. Coverage: `v2_acceptance_test.go`, `runtime_parity_test.go`,
   `transport_test.go`, `client_admission_test.go`, provider/config tests and the
   generated contract/browser interoperability checks. See [protocol-v2.md](protocol-v2.md).
@@ -812,9 +817,9 @@ behavior to its owning code and repeatable validation.
 | Behavior | Implementation | Validation |
 | --- | --- | --- |
 | Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whipcode sessions export` | `internal/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
-| Attach to existing hosts, discover each directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
-| Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
-| Create a folder while choosing a new-session directory: native desktop New Folder, or inline New folder on the selected host; validate one child name, preserve errors, open the created folder, then explicitly Choose folder. Older hosts retain browsing with an update explanation. | `apps/desktop/src/native.ts`, `host.directory.create` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/remote-directory-dialog.tsx` | `apps/desktop/tests/native.test.ts`, `internal/daemon/host_test.go`, `packages/sdk/test/services.test.ts`, `packages/app/test/remote-directory-dialog.test.tsx` |
+| Attach to existing hosts, discover each directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/{host,host_directory}.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
+| Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/protocol/host.go` and `internal/daemon/host_directory.go`, `packages/sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
+| Create a folder while choosing a new-session directory: native desktop New Folder, or inline New folder on the selected host; validate one child name, preserve errors, open the created folder, then explicitly Choose folder. Older hosts retain browsing with an update explanation. | `apps/desktop/src/native.ts`, `host.directory.create` in `internal/protocol/host.go` and `internal/daemon/host_directory.go`, `packages/sdk/src/services.ts`, `packages/app/src/remote-directory-dialog.tsx` | `apps/desktop/tests/native.test.ts`, `internal/daemon/host_test.go`, `packages/sdk/test/services.test.ts`, `packages/app/test/remote-directory-dialog.test.tsx` |
 | Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
 | Search and advisory attention across hosts, source labels/filter, independent bounded pagination and partial failures without root hydration | `packages/app/src/{session-search-dialog,attention}.tsx` | `packages/app/test/multi-host-discovery.test.tsx` |
 | Author data-only agent definitions in Settings (persona, rules, discovery, modules, capabilities, surface), copy built-ins, add revisions to registered ids, and pick the agent a new session runs | `packages/app/src/settings/agents.tsx`, `packages/app/src/definitions.ts`, `packages/app/src/welcome.tsx`, `session-tabs.ts` (`definition`) | `packages/app/test/settings-agents.test.tsx`, `sidebar-creation.test.tsx` (agent picker), `session-tabs.test.ts` |
@@ -1326,7 +1331,7 @@ Other custom origins, wildcards, suffixes, ports and paths remain rejected.
 validation, explicit opt-in and CORS response headers; the daemon no longer
 hosts HTTP handlers.
 
-Code: `internal/config/remote_hosts.go`, `internal/daemon/provider_service.go`,
+Code: `internal/config/remote_hosts.go`, `internal/provider/provider_service.go`,
 `packages/app/src/{hosts,runtime,session-tabs,workspace-views}.ts`,
 `{host-dialog,welcome,settings,session-search-dialog,attention}.tsx`.
 Tests: `internal/config/remote_hosts_test.go`, the remote-host configuration test

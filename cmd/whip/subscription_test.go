@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
+	providersvc "github.com/context-labs/whip/internal/provider"
 )
 
 func TestResolveSubscriptionRouteUsesHostCredentialsAndLimits(t *testing.T) {
@@ -23,7 +23,7 @@ func TestResolveSubscriptionRouteUsesHostCredentialsAndLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.Close()
-	providers := daemon.NewProviderService(t.Context(), "subscription-route")
+	providers := providersvc.NewProviderService(t.Context(), "subscription-route")
 	t.Cleanup(providers.Close)
 	cfg := config.Default()
 	if err := cfg.UpsertOpenAICodex(); err != nil {

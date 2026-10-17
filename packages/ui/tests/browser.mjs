@@ -182,6 +182,7 @@ try {
     await page.keyboard.press('Escape');
 
     await page.getByRole('button', {name: 'Open sheet example'}).click();
+    await expect(popup.getByRole('button', {name: 'Close', exact: true})).toBeFocused();
     const sheet = await popup.boundingBox();
     expect(sheet.y).toBe(0);
     expect(sheet.height).toBe(height);

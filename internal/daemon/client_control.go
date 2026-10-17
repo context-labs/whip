@@ -15,13 +15,17 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/commandpresentation"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/protocol"
+
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/schedule"
+
 	sessionstore "github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
@@ -390,7 +394,7 @@ func (s *Session) clientCommand(ctx context.Context, admission sessionstore.Comm
 				return finish(resolveErr)
 			}
 			result.Result = body
-			result.Output, result.Error = decodeCommandPresentation(operation, body, admitted.Command.Status)
+			result.Output, result.Error = commandpresentation.Decode(operation, body, admitted.Command.Status)
 			return finish(nil)
 		}
 		completionReply := make(chan clientCommandReply, 1)
@@ -492,7 +496,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 			var err error
 			if operation == "compaction.configure" {
 				cfg, _, patchErr := config.UpdateVersioned("", func(cfg *config.Config) error {
-					return s.providers.configureCompaction(cfg, action.Model, action.Provider)
+					return s.providers.ConfigureCompaction(cfg, action.Model, action.Provider)
 				})
 				err = patchErr
 				if err == nil {
@@ -772,7 +776,7 @@ func (s *Session) finishClientCommandInline(ctx context.Context, admission sessi
 		return errors.Join(actionErr, finishErr)
 	}
 	result.Status, result.Operation, result.Result = status, operation, body
-	result.Output, result.Error = decodeCommandPresentation(operation, body, status)
+	result.Output, result.Error = commandpresentation.Decode(operation, body, status)
 
 	return nil
 }
@@ -1565,32 +1569,7 @@ func validateEffort(model, provider, requested string) error {
 	if err != nil {
 		cfg = nil // Validate known fallback values without an unavailable catalog.
 	}
-	return validateConfiguredEffort(cfg, model, provider, requested)
-}
-
-func validateConfiguredEffort(cfg *config.Config, model, provider, requested string) error {
-	if requested == "off" {
-		return nil
-	}
-	known := slices.Contains([]string{"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}, requested)
-	if cfg != nil {
-		resolved, _, _, apiID, err := cfg.ResolveRoute(model, provider)
-		if err == nil {
-			catalog := config.LoadCatalogs()[resolved]
-			if info := catalog.Find(apiID); info != nil && len(info.ReasoningEfforts) > 0 {
-				if slices.Contains(info.ReasoningEfforts, requested) {
-					return nil
-				}
-				if known {
-					return fmt.Errorf("%s does not support effort %q", model, requested)
-				}
-			}
-		}
-	}
-	if !known {
-		return fmt.Errorf("unknown effort level %q", requested)
-	}
-	return nil
+	return config.ValidateConfiguredEffort(cfg, model, provider, requested)
 }
 
 func compatibleEffort(model, provider, current string) string {
@@ -1811,75 +1790,13 @@ func marshalClientOutput(value any, err error) (string, error) {
 	return string(raw), err
 }
 
-func clientProviderCatalogs(ctx context.Context, providers *ProviderService, refresh bool) (string, error) {
+func clientProviderCatalogs(ctx context.Context, providers *providersvc.ProviderService, refresh bool) (string, error) {
 	return clientProviderCatalogsFor(ctx, providers, refresh, "")
 }
 
-func clientProviderCatalogsFor(ctx context.Context, providers *ProviderService, refresh bool, selected string) (string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return "", err
-	}
-	catalogs := providers.CatalogsFor(cfg)
-	failures := map[string]string{}
-	for name, provider := range cfg.EffectiveProviders() {
-		if selected != "" && name != selected {
-			continue
-		}
-		status, err := providers.providerStatus(cfg, name)
-		if err != nil || (status.AuthState != "unchecked" && (status.Available == nil || !*status.Available)) {
-			continue
-		}
-		if cached, ok := catalogs[name]; !refresh && ok && !cached.NeedsDiscovery() {
-			continue
-		}
-		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err = providers.refreshCatalog(fetchCtx, name, provider)
-		cancel()
-		if err != nil {
-			failures[name] = "Model discovery failed; check the provider connection and retry."
-		}
-	}
-	// Account/config changes may have completed while discovery was in flight.
-	cfg, err = config.Load()
-	if err != nil {
-		return "", err
-	}
-	result := ProviderCatalogsResult{Catalogs: providers.CatalogsFor(cfg), Models: map[string]protocol.ModelDescriptor{}, Providers: map[string]protocol.ProviderDescriptor{}, Errors: failures}
-	for name, model := range cfg.Models {
-		result.Models[name] = protocol.ModelDescriptor{Name: model.Name, ID: model.ID, Providers: model.Providers, Context: model.ContextWindow(), Vision: model.Vision}
-		for _, provider := range model.Providers {
-			result.Providers[provider] = protocol.ProviderDescriptor{Available: new(false)}
-		}
-	}
-	for name, provider := range cfg.EffectiveProviders() {
-		status, err := providers.providerStatus(cfg, name)
-		available := err == nil && ((status.Available != nil && *status.Available) || status.AuthState == "unchecked")
-		descriptor := protocol.ProviderDescriptor{Available: new(available)}
-		if available {
-			descriptor.BaseURL = provider.BaseURL
-		} else {
-			delete(result.Catalogs, name)
-		}
-		result.Providers[name] = descriptor
-	}
-	return marshalClientOutput(result, nil)
-}
-
-func modelInfoLites(values []llm.ModelInfo) []config.ModelInfoLite {
-	result := make([]config.ModelInfoLite, 0, len(values))
-	for _, value := range values {
-		var pricing llm.Pricing
-		if value.Pricing != nil {
-			pricing = *value.Pricing
-		}
-		result = append(result, config.ModelInfoLite{
-			ID: value.ID, ContextLength: value.ContextLength, MaxCompletionTokens: value.MaxCompletionTokens,
-			ReasoningEfforts: value.ReasoningEfforts, InputModalities: value.InputModalities,
-			Pricing: pricing,
-		})
-	}
-	return result
+func clientProviderCatalogsFor(ctx context.Context, providers *providersvc.ProviderService, refresh bool, selected string) (string, error) {
+	result, err := providers.ListCatalogs(ctx, refresh, selected)
+	return marshalClientOutput(result, err)
 }
 
 func decodeClientAction(raw json.RawMessage, value *clientActionPayload) error {

@@ -156,7 +156,8 @@ func TestChildCommitFailureInterruptsRootWithoutFalseSuccess(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	targetID, otherID := createRoot(t, store), createRoot(t, store)
 	runtimes := map[string]*RecursiveRuntime{}
-	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 		limits := rlm.DefaultLimits()

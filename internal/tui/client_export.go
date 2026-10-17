@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -22,7 +21,7 @@ type clientExportMsg struct {
 	err  error
 }
 type transcriptExporter interface {
-	HistoryPage(context.Context, daemon.HistoryPageParams) (session.BoundedTranscriptPage, error)
+	HistoryPage(context.Context, protocol.HistoryPageParams) (session.BoundedTranscriptPage, error)
 	ReadContent(context.Context, protocol.ContentReadParams) (protocol.ContentReadResult, error)
 }
 
@@ -37,7 +36,7 @@ func exportHostTranscript(ctx context.Context, host transcriptExporter, path, ro
 	if _, err = io.WriteString(file, "# Session transcript\n\n"); err != nil {
 		return err
 	}
-	params := daemon.HistoryPageParams{RootID: rootID, AgentID: agentID, ThroughSeq: -1, Limit: 64, MaxBytes: 256 << 10}
+	params := protocol.HistoryPageParams{RootID: rootID, AgentID: agentID, ThroughSeq: -1, Limit: 64, MaxBytes: 256 << 10}
 	for {
 		page, err := host.HistoryPage(ctx, params)
 		if err != nil {
@@ -85,7 +84,7 @@ func exportHostTranscript(ctx context.Context, host transcriptExporter, path, ro
 }
 
 func readTranscriptBody(ctx context.Context, host transcriptExporter, rootID, agentID string, body session.RuntimeValue) (*llm.Message, error) {
-	if body.Size < 0 || body.Size > daemon.MaxUploadSize {
+	if body.Size < 0 || body.Size > session.MaxInputPayloadBytes {
 		return nil, errors.New("transcript body exceeds transfer limit")
 	}
 	data := make([]byte, 0, int(body.Size))

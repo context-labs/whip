@@ -14,15 +14,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	acpsdk "github.com/coder/acp-go-sdk"
-
-	"github.com/context-labs/whip/internal/acp"
-	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/openaiauth"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
+
+	acpsdk "github.com/coder/acp-go-sdk"
+	"github.com/context-labs/whip/internal/acp"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/openaiauth"
 )
 
 func acpCLI(args []string) error {
@@ -95,23 +95,23 @@ type acpDaemonBackend struct {
 	provider string
 }
 
-func (b *acpDaemonBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+func (b *acpDaemonBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemonclient.RootClient, error) {
 	return b.root(ctx, "", cwd, servers)
 }
 
-func (b *acpDaemonBackend) LoadRoot(ctx context.Context, rootID, _ string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+func (b *acpDaemonBackend) LoadRoot(ctx context.Context, rootID, _ string, servers map[string]mcp.ServerConfig) (*daemonclient.RootClient, error) {
 	return b.root(ctx, rootID, "", servers)
 }
 
-func (b *acpDaemonBackend) root(ctx context.Context, rootID, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
-	options := daemon.RootClientOptions{
+func (b *acpDaemonBackend) root(ctx context.Context, rootID, cwd string, servers map[string]mcp.ServerConfig) (*daemonclient.RootClient, error) {
+	options := daemonclient.RootClientOptions{
 		ClientID: b.clientID, RootID: rootID,
 		Connector: daemonConnector("acp", b.clientID),
 	}
 	if rootID == "" {
-		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd, Model: b.model, Provider: b.provider}
+		options.Create = &session.CreateSession{Kind: session.SessionKindAgent, CWD: cwd, Model: b.model, Provider: b.provider}
 	}
-	client, err := daemon.NewRootClient(options)
+	client, err := daemonclient.NewRootClient(options)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func (b *acpDaemonBackend) ListSessions(ctx context.Context, limit int) ([]sessi
 	if err != nil {
 		return nil, err
 	}
-	result, err := connection.Command(ctx, daemon.CommandParams{
+	result, err := connection.Command(ctx, protocol.CommandParams{
 		CommandID: daemonCommandID(b.clientID, "list"), Scope: string(session.CommandScopeDaemon),
 		Operation: "session.list", Payload: payload,
 	})

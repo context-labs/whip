@@ -74,22 +74,7 @@ func (c *Control) route(ctx context.Context, work func(context.Context) error) e
 	return <-request.done
 }
 
-type CreateSession struct {
-	ExecutionEngine string `json:"execution_engine,omitempty"`
-	// Definition selects the agent definition; empty means the coding agent.
-	// DefinitionRevision is pinned by the daemon for registered definitions and
-	// is not accepted from clients.
-	Definition         string              `json:"definition,omitempty"`
-	DefinitionRevision string              `json:"definition_revision,omitempty"`
-	Kind               session.SessionKind `json:"kind"`
-	CWD                string              `json:"cwd"`
-	Model              string              `json:"model"`
-	Provider           string              `json:"provider"`
-	// Effort is "off" or a catalog level. Blank asks the daemon to resolve the
-	// definition's default, else the configured default, against the model.
-	Effort         string `json:"effort,omitempty"`
-	PermissionMode string `json:"permission_mode,omitempty"`
-}
+type CreateSession = session.CreateSession
 
 func (c *Control) CreateSession(ctx context.Context, admission session.CommandAdmission, create CreateSession) (record session.CommandRecord, err error) {
 	err = c.route(ctx, func(actorCtx context.Context) error {
@@ -399,14 +384,6 @@ func resolveSessionDefaults(ctx context.Context, source DefinitionSource, create
 	return sessionDefaults(create, definition)
 }
 
-// defaultPermissionMode fails closed for legacy or unrecognized host settings.
-func defaultPermissionMode(cfg *config.Config) string {
-	if cfg.DefaultPermissionMode == session.PermissionModeAutomatic {
-		return session.PermissionModeAutomatic
-	}
-	return session.PermissionModePrompt
-}
-
 // sessionDefaults fills omitted routing from the definition's model defaults,
 // then omitted routing, engine, and permission mode from host configuration.
 func sessionDefaults(create CreateSession, definition agentdef.Definition) (CreateSession, error) {
@@ -427,7 +404,7 @@ func sessionDefaults(create CreateSession, definition agentdef.Definition) (Crea
 		return create, err
 	}
 	if needPermissionMode {
-		create.PermissionMode = defaultPermissionMode(cfg)
+		create.PermissionMode = session.DefaultPermissionMode(cfg.DefaultPermissionMode)
 	}
 	if create.ExecutionEngine == "" {
 		create.ExecutionEngine = cfg.RLM.Engine()
@@ -447,7 +424,7 @@ func sessionDefaults(create CreateSession, definition agentdef.Definition) (Crea
 	}
 	if needEffort {
 		if create.Effort != "" {
-			if err := validateConfiguredEffort(cfg, create.Model, create.Provider, create.Effort); err != nil {
+			if err := config.ValidateConfiguredEffort(cfg, create.Model, create.Provider, create.Effort); err != nil {
 				return create, err
 			}
 		}

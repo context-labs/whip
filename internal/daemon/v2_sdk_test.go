@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
@@ -49,7 +51,7 @@ func TestV2SDKBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths, err := Paths(filepath.Join(directory, "home"))
+	paths, err := daemonconn.Paths(filepath.Join(directory, "home"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +138,7 @@ func TestV2SDKBridge(t *testing.T) {
 		}
 		return Components{Runner: value, Bind: func(_ context.Context, root *Session) error {
 			value.root = root
-			return value.services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority)
+			return value.services.BindDispatcher(root.store, root.store.Workspaces(), root.processes, root.authority)
 		}}, nil
 	}
 	if os.Getenv("WHIP_SDK_AGENTS_FIXTURE") == "1" {
@@ -146,7 +148,8 @@ func TestV2SDKBridge(t *testing.T) {
 		factory, closeModel = sdkAgentsFactory(store)
 		defer closeModel()
 	}
-	owner, err := New(store, factory)
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +209,7 @@ func TestV2SDKBridge(t *testing.T) {
 	gateway := startTestGateway(t, paths, network)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	probe, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "sdk-probe", ClientKind: "automation"})
+	probe, err := daemonclient.DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "sdk-probe", ClientKind: "automation"})
 	if err != nil {
 		t.Fatal(err)
 	}

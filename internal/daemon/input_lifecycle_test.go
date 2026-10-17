@@ -23,7 +23,8 @@ func TestLifecycleBoundaryReadFailurePreservesClaimForRetry(t *testing.T) {
 	dir := t.TempDir()
 	store := openStore(t, filepath.Join(dir, "sessions.db"))
 	rootID := createRoot(t, store)
-	owner, err := New(store, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -120,7 +121,8 @@ func TestLifecycleRootPreservesLargeInput(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &fakeRunner{}
-	owner, err := New(store, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -201,7 +203,8 @@ func TestLifecycleMultipartAndMalformedInput(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &lifecyclePartsRunner{}
-	owner, err := New(store, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -443,7 +446,8 @@ func TestLifecycleUnsupportedPartsNeverReuseRunnerJournal(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	id := createRoot(t, store)
 	runner := &lifecycleJournalRunner{}
-	owner, err := New(store, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, sessionstore.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

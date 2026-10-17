@@ -9,6 +9,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	providersvc "github.com/context-labs/whip/internal/provider"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/terminal"
 )
@@ -23,10 +24,11 @@ type rootEntry struct {
 	err   error
 }
 
-// Daemon owns the durable store and exactly one live actor per opened root.
+// Daemon owns the durable store, shared processes, and one live actor per opened root.
 type Daemon struct {
-	providers        *ProviderService
+	providers        *providersvc.ProviderService
 	store            *session.Store
+	processes        *capability.ProcessManager
 	factory          Factory
 	control          *Control
 	executors        *executorRegistry
@@ -47,9 +49,13 @@ type Daemon struct {
 }
 
 // New applies daemon-startup recovery before any root can be opened.
-func New(store *session.Store, factory Factory, providers ...*ProviderService) (*Daemon, error) {
+// On success it takes ownership of store and processes; failures leave both caller-owned.
+func New(store *session.Store, processes *capability.ProcessManager, factory Factory, providers ...*providersvc.ProviderService) (*Daemon, error) {
 	if store == nil || factory == nil {
 		return nil, errors.New("daemon requires a store and root factory")
+	}
+	if processes == nil {
+		return nil, errors.New("daemon requires a process manager")
 	}
 	if !store.AcquireDaemon() {
 		return nil, errors.New("store already has a daemon owner")
@@ -59,7 +65,7 @@ func New(store *session.Store, factory Factory, providers ...*ProviderService) (
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	daemon := &Daemon{store: store, factory: factory, executors: newExecutorRegistry(), browserProviders: newBrowserProviders(store), terminals: terminal.NewManager(ctx), ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
+	daemon := &Daemon{store: store, processes: processes, factory: factory, executors: newExecutorRegistry(), browserProviders: newBrowserProviders(store), terminals: terminal.NewManager(ctx), ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
 	if len(providers) > 0 {
 		daemon.providers = providers[0]
 	}
@@ -303,7 +309,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 		if components.Runtime != nil {
 			err = errors.Join(err, safeClose("runtime", components.Runtime.Close))
 		}
-		err = errors.Join(err, d.store.Processes().StopRoot(meta.ID))
+		err = errors.Join(err, d.processes.StopRoot(meta.ID))
 		if root != nil {
 			root.supervisor.stop()
 			root.supervisor.wait()
@@ -320,7 +326,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 		// Bind can restore and wake children, so restore their inherited policy first.
 		runner.SetExternalPermissions(mode == session.PermissionModePrompt)
 	}
-	root = newSession(d.store, meta, authority, components, d.factory)
+	root = newSession(d.store, d.processes, meta, authority, components, d.factory)
 	root.providers = d.providers
 	root.titleChanged = d.notifyTitleChanged
 	root.executors = d.executors
@@ -349,7 +355,7 @@ func configureMCP(root *Session, components Components) {
 	if manager, ok := components.MCP.(interface {
 		SetProcessOptions(*capability.ProcessManager, string, string, map[string]string)
 	}); ok {
-		manager.SetProcessOptions(root.store.Processes(), root.id, root.WorkingDirectory(), nil)
+		manager.SetProcessOptions(root.processes, root.id, root.WorkingDirectory(), nil)
 	}
 	if supervised, ok := components.MCP.(interface {
 		SetLauncher(func(string, func()) bool)
@@ -361,7 +367,7 @@ func configureMCP(root *Session, components Components) {
 	}
 }
 
-// Close stops roots outside the registry lock, then closes the shared store.
+// Close stops roots outside the registry lock, then closes shared processes and the store.
 func (d *Daemon) Close() error {
 	d.once.Do(func() {
 		defer d.store.ReleaseDaemon()
@@ -399,7 +405,7 @@ func (d *Daemon) Close() error {
 		}
 		d.wg.Wait()
 		<-d.control.done
-		d.err = d.store.Close()
+		d.err = errors.Join(d.processes.Close(), d.store.Close())
 	})
 	return d.err
 }

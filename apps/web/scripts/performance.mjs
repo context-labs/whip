@@ -5,6 +5,7 @@ import { chromium } from '@playwright/test';
 import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { createSessionView } from '../../../packages/sdk/dist/state.js';
 import { checkComposerReading } from './composer-reading.mjs';
+import { installPerformanceProbes } from './performance-probes.mjs';
 import {
   eventually,
   startFixture,
@@ -90,77 +91,7 @@ const calibrateClock = () =>
     }
     return samples;
   });
-await page.addInitScript(({ desktop, rootId }) => {
-  window.__performanceEventLatency = [];
-  window.__performanceCommitDOM = [];
-  window.__performanceProbeOverflow = false;
-  window.__performanceIPCFrames = 0;
-  window.__performanceContentHandles = [];
-  const pending = [];
-  const receive = data => {
-        try {
-          const message = JSON.parse(data);
-          const handle = message.result?.content ?? (message.result?.reference_id ? message.result : undefined);
-          if (handle?.digest && !window.__performanceContentHandles.some(item => item.reference_id === handle.reference_id)) {
-            if (window.__performanceContentHandles.length >= 16) window.__performanceProbeOverflow = true;
-            else window.__performanceContentHandles.push({ reference_id: handle.reference_id, digest: handle.digest, size: handle.size });
-          }
-          const event = message.params?.event;
-          if (
-            event?.kind !== 'stream.text' || event.root_id !== rootId ||
-            !(
-              event.payload?.text?.includes('delta-') ||
-              event.payload?.text?.includes('commit-probe-')
-            )
-          )
-            return;
-          if (pending.length >= 512) {
-            window.__performanceProbeOverflow = true;
-            return;
-          }
-          pending.push({
-            sequence: event.seq,
-            text: event.payload.text.replaceAll("**", ""),
-            start: performance.now(),
-          });
-        } catch {}
-  };
-  if (desktop) {
-    if (!window.whipDesktop) throw new Error('Desktop performance probe requires the real preload bridge');
-    const stop = window.whipDesktop.onEvent(event => {
-      if (event.kind === 'frame') { window.__performanceIPCFrames++; receive(event.frame); }
-    });
-    window.addEventListener('pagehide', stop, { once: true });
-  } else {
-    const NativeWebSocket = window.WebSocket;
-    window.WebSocket = class extends NativeWebSocket {
-      constructor(...args) { super(...args); this.addEventListener('message', message => receive(message.data)); }
-    };
-  }
-  new MutationObserver(() => {
-    const live = [...document.querySelectorAll('[data-message-id^=\"live:\"]')]
-      .map((element) => element.textContent)
-      .join('\n');
-    for (let index = pending.length - 1; index >= 0; index--) {
-      if (!live.includes(pending[index].text)) continue;
-      const stamp = performance.now();
-      if (pending[index].text.includes('commit-probe-')) {
-        if (window.__performanceCommitDOM.length >= 128)
-          window.__performanceProbeOverflow = true;
-        else
-          window.__performanceCommitDOM.push({
-            sequence: pending[index].sequence,
-            marker: pending[index].text,
-            browser_ms: stamp,
-            received_ms: pending[index].start,
-          });
-      } else if (window.__performanceEventLatency.length < 512) {
-        window.__performanceEventLatency.push(stamp - pending[index].start);
-      } else window.__performanceProbeOverflow = true;
-      pending.splice(index, 1);
-    }
-  }).observe(document, { subtree: true, childList: true, characterData: true });
-}, { desktop, rootId: fixture.info.root_id });
+await page.addInitScript(installPerformanceProbes, { desktop, rootId: fixture.info.root_id });
 const rootRoute = `/h/${fixture.info.runtime_id}/s/${fixture.info.root_id}`;
 const requests = [];
 page.on('pageerror', (error) => errors.push(error.message));

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/context-labs/whip/internal/brandicon"
@@ -18,9 +19,18 @@ import (
 // configuration service rather than among the session-scoped mcp.* actions
 // because the New session screen has a host but no session yet.
 
+// hostMCPService owns host import operations and the lazy icon resolver. Its
+// context is borrowed from provider onboarding so shutdown cancels icon work
+// at the same point as before; it does not own a separate cancel function.
+type hostMCPService struct {
+	ctx       context.Context
+	iconsOnce sync.Once
+	icons     *brandicon.Resolver
+}
+
 // MCPImportCandidates lists the servers other agents configured on this
 // host. It reads files only: no candidate is dialed or launched.
-func (s *ProviderService) MCPImportCandidates(p protocol.MCPImportCandidatesParams) (protocol.MCPImportCandidatesResult, error) {
+func (s *hostMCPService) MCPImportCandidates(p protocol.MCPImportCandidatesParams) (protocol.MCPImportCandidatesResult, error) {
 	if err := validateImportCWD(p.CWD); err != nil {
 		return protocol.MCPImportCandidatesResult{}, err
 	}
@@ -52,7 +62,7 @@ func (s *ProviderService) MCPImportCandidates(p protocol.MCPImportCandidatesPara
 // and records that the offer was answered. A name no source defines fails
 // the whole call before anything is written; names that cannot be imported
 // (already native, unsupported) come back in Skipped.
-func (s *ProviderService) MCPImportApply(p protocol.MCPImportApplyParams) (protocol.MCPImportApplyResult, error) {
+func (s *hostMCPService) MCPImportApply(p protocol.MCPImportApplyParams) (protocol.MCPImportApplyResult, error) {
 	if err := validateImportCWD(p.CWD); err != nil {
 		return protocol.MCPImportApplyResult{}, err
 	}
@@ -84,7 +94,7 @@ func (s *ProviderService) MCPImportApply(p protocol.MCPImportApplyParams) (proto
 // has no bundled mark for. It answers nothing when brandIcons is off in the
 // host config; otherwise DuckDuckGo's icon endpoint is the one party asked,
 // once per domain per month thanks to the resolver's on-disk cache.
-func (s *ProviderService) MCPBrandIcons(p protocol.MCPBrandIconsParams) (protocol.MCPBrandIconsResult, error) {
+func (s *hostMCPService) MCPBrandIcons(p protocol.MCPBrandIconsParams) (protocol.MCPBrandIconsResult, error) {
 	result := protocol.MCPBrandIconsResult{Icons: map[string]string{}}
 	if len(p.Keys) > 64 {
 		return result, errors.New("too many keys")

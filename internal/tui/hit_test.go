@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
-	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/context-labs/whip/internal/protocol"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -87,7 +87,7 @@ func TestLayoutFrameOracle(t *testing.T) {
 		{"thought", func(m *model) { m.curThink = "considering the options" }},
 		{"current", func(m *model) { m.current = "streaming partial answer" }},
 		{"plan", func(m *model) {
-			m.plan = []daemon.PlanItem{{Content: "one", Status: "pending"}, {Content: "two", Status: "done"}}
+			m.plan = []protocol.PlanItem{{Content: "one", Status: "pending"}, {Content: "two", Status: "done"}}
 		}},
 		{"permission", func(m *model) { m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1", Rule: "x"}} }},
 		{"interactive", func(m *model) { m.iactive = &interactive{output: "$ ls\nfoo\n"} }},
@@ -252,7 +252,7 @@ func TestLayoutRectsPartitionMainColumn(t *testing.T) {
 		{"rewind", func(m *model) { m.rew = &rewindState{entries: []rewindEntry{{cut: 0, text: "x"}}} }},
 		{"name-prompt", func(m *model) { m.openNamePrompt("name:", "", func(string) {}) }},
 		{"tall-input", func(m *model) { m.input.SetValue("one\ntwo\nthree\nfour") }},
-		{"plan", func(m *model) { m.plan = []daemon.PlanItem{{Content: "one", Status: "pending"}} }},
+		{"plan", func(m *model) { m.plan = []protocol.PlanItem{{Content: "one", Status: "pending"}} }},
 		{"permission", func(m *model) { m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1", Rule: "x"}} }},
 		{"interactive", func(m *model) { m.iactive = &interactive{output: "$ ls\nfoo\n"} }},
 	} {

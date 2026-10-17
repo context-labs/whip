@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 // TestMCPPaletteRowsFollowDaemonState: rows offer only what the daemon can
@@ -14,7 +14,7 @@ func TestMCPPaletteRowsFollowDaemonState(t *testing.T) {
 	if len(empty) != 1 || empty[0].command != "/mcp status" {
 		t.Fatalf("empty inventory rows = %+v", empty)
 	}
-	rows := mcpPaletteRows([]daemon.MCPStatusResult{
+	rows := mcpPaletteRows([]protocol.MCPStatusResult{
 		{Name: "docs", Status: "ready"},
 		{Name: "slow", Status: "connecting"},
 		{Name: "off", Status: "disabled"},
