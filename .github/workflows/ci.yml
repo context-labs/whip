@@ -70,7 +70,7 @@ jobs:
           # Pinned: "latest" is a moving target and older releases can't parse
           # Go 1.27 export data. Bump deliberately alongside the Go toolchain.
           # The enabled linters live in .golangci.yml (repo source of truth).
-          version: v2.13.1
+          version: v2.14.0
 
       - name: go mod tidy is a no-op
         run: |
