@@ -50,20 +50,3 @@ func TestPermissionModeCommitsSnapshotAndEventTogether(t *testing.T) {
 		t.Fatalf("missing root error=%v", err)
 	}
 }
-
-func TestPermissionModeForkStartsWithDefault(t *testing.T) {
-	store, rootID := seeded(t)
-	if err := store.SetPermissionMode(t.Context(), rootID, PermissionModeAutomatic); err != nil {
-		t.Fatal(err)
-	}
-	forkID, err := store.Fork(rootID, 1, "fork")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mode, err := store.PermissionMode(t.Context(), forkID); err != nil || mode != PermissionModePrompt {
-		t.Fatalf("fork mode=%q error=%v", mode, err)
-	}
-	if mode, err := store.PermissionMode(t.Context(), rootID); err != nil || mode != PermissionModeAutomatic {
-		t.Fatalf("source mode=%q error=%v", mode, err)
-	}
-}

@@ -9,7 +9,9 @@
 driver/.build/
 internal/tui/whip-transcript-*.md
 
-# TypeScript clients: generated contracts are tracked, build output is not.
+# Cloud builds generate protocol artifacts from the included Go sources.
+/packages/protocol/schema/
+/packages/protocol/generated/
 node_modules/
 packages/sdk/dist/
 packages/sdk/build/

@@ -88,12 +88,11 @@ it('keeps the ready composer focused and saves model/effort choices to this draf
   expect(f.raw.configuration.update).not.toHaveBeenCalled();
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Explain the code');
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/project/whip', model: 'gpt-5.5', provider: 'openai', permission_mode: 'prompt', execution_engine: 'starlark' })));
+  await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/project/whip', model: 'gpt-5.5', provider: 'openai', effort: 'high', permission_mode: 'prompt', execution_engine: 'starlark' })));
   await screen.findByText('Promoted to created');
   expect(f.raw.session).toHaveBeenCalledWith('created');
-  expect(f.raw.session.mock.results[0]!.value.command).toHaveBeenCalledWith('session.effort', { effort: 'high', persist_default: false });
-  expect(f.raw.session.mock.results[1]!.value.submit).toHaveBeenCalledWith({ text: 'Explain the code' });
-  expect(f.run.mock.calls.map(call => call[1])).toEqual(['Create session', 'Set initial reasoning effort', 'Send first message']);
+  expect(f.raw.session.mock.results[0]!.value.submit).toHaveBeenCalledWith({ text: 'Explain the code' });
+  expect(f.run.mock.calls.map(call => call[1])).toEqual(['Create session', 'Send first message']);
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('');
 });
 
@@ -156,7 +155,8 @@ it('keeps an unsupported saved effort visible and requires an explicit replaceme
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Default' }));
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
   await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledOnce());
-  await waitFor(() => expect(f.raw.session.mock.results[0]!.value.command).toHaveBeenCalledWith('session.effort', { effort: 'off', persist_default: false }));
+  // "Default" clears the draft choice; the daemon resolves the effort at creation.
+  expect(f.raw.sessions.create.mock.calls[0]![0]).not.toHaveProperty('effort');
 });
 
 it('preserves the collapsed provider top spacing while expanded and restores centering on collapse', async () => {

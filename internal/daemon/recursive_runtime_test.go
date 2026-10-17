@@ -64,7 +64,8 @@ func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int, engi
 		t.Fatal(err)
 	}
 	var runtime *RecursiveRuntime
-	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(client, "model", 1024, "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 		limits := rlm.DefaultLimits()
@@ -76,7 +77,7 @@ func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int, engi
 		if runtimeErr != nil {
 			return Components{}, runtimeErr
 		}
-		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +125,9 @@ func TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth(t *testing.T) {
 	waitAgentIdle(t, child)
 
 	for _, node := range []*AgentSession{runtime.rootNode, child, grandchild} {
+		if options := node.agent.Services.ProcessOptions(); options.Processes != root.processes || options.RootID != root.ID() {
+			t.Fatalf("agent %q process scope = %p %q", node.name, options.Processes, options.RootID)
+		}
 		all := node.agent.AllTools()
 		if len(all) != 1 || all[0].Def.Function.Name != "rlm_exec" {
 			t.Fatalf("agent %q tools = %#v", node.name, all)
@@ -460,7 +464,8 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 	rootID := createRoot(t, store)
 	makeOwner := func(store *session.Store) (*Daemon, **RecursiveRuntime) {
 		var runtime *RecursiveRuntime
-		owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 			limits := rlm.DefaultLimits()
@@ -471,7 +476,7 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -502,6 +507,10 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 	if err != nil || len(transcript) == 0 {
 		t.Fatalf("first transcript = %+v, %v", transcript, err)
 	}
+	stamp := transcript[len(transcript)-1].SentAt
+	if stamp == nil || stamp.IsZero() {
+		t.Fatalf("child response recording timestamp missing: %+v", transcript)
+	}
 	waitAgentIdle(t, first.agents[childID])
 	if err := owner.Close(); err != nil {
 		t.Fatal(err)
@@ -519,11 +528,18 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 	if restored == nil {
 		t.Fatalf("retained child %q was not restored", childID)
 	}
+	for _, node := range []*AgentSession{second.rootNode, restored} {
+		if options := node.agent.Services.ProcessOptions(); options.Processes != secondOwner.processes || options.RootID != secondRoot.ID() {
+			t.Fatalf("restored agent %q process scope = %p %q", node.name, options.Processes, options.RootID)
+		}
+	}
 	if all := restored.agent.AllTools(); len(all) != 1 || all[0].Def.Function.Name != "rlm_exec" {
 		t.Fatalf("restored tools = %#v", all)
 	}
 	if history := restored.agent.MessagesSnapshot(); len(history) < 2 || !strings.Contains(history[len(history)-1].Content, "remembered child turn") {
 		t.Fatalf("restored history = %+v", history)
+	} else if got := history[len(history)-1].SentAt; got == nil || !got.Equal(*stamp) {
+		t.Fatalf("child timestamp changed on restore: %v, want %v", got, stamp)
 	}
 	runs := &sync.Map{}
 	second.setRunTurnHook(observeRunTurn(runs))
@@ -560,7 +576,8 @@ func TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce(t *testing.T) {
 	}
 	makeOwner := func(store *session.Store) (*Daemon, **RecursiveRuntime) {
 		var runtime *RecursiveRuntime
-		owner, ownerErr := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		owner, ownerErr := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 			limits := rlm.DefaultLimits()
@@ -572,7 +589,7 @@ func TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if ownerErr != nil {
 			t.Fatal(ownerErr)
@@ -897,7 +914,8 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 	}
 	makeOwner := func(store *session.Store) (*Daemon, **RecursiveRuntime) {
 		var runtime *RecursiveRuntime
-		owner, ownerErr := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+		processes := newTestProcesses(t)
+		owner, ownerErr := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 			var runtimeErr error
@@ -907,7 +925,7 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if ownerErr != nil {
 			t.Fatal(ownerErr)

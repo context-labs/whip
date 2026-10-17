@@ -49,7 +49,8 @@ func TestSchedulerClaimsDueFireWithoutClient(t *testing.T) {
 		fired <- authored
 		return "done", nil
 	}}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	daemon, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {

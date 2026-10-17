@@ -63,6 +63,10 @@ jobs:
       - run: npm ci
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Initialize protocol artifacts and SDK
+        run: |
+          npm run generate
+          npm run build
       - run: node node_modules/electron/install.js
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:

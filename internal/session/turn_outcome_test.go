@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func queueOutcomeTurn(t *testing.T, store *Store, root, child, turn string) {
@@ -120,7 +122,7 @@ func TestTurnOutcomeSubtreeInterruption(t *testing.T) {
 
 func TestLegacyTurnOutcomeMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +186,7 @@ func TestLegacyTurnOutcomeMigration(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +204,7 @@ func TestLegacyTurnOutcomeMigration(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

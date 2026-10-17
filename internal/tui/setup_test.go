@@ -7,18 +7,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
 )
 
 type setupTestHost struct {
 	setupHost
 	list                            protocol.ProviderList
-	flows                           []daemon.ProviderLoginStatus
-	writes                          []daemon.ConfigurationUpdate
+	flows                           []protocol.ProviderLoginStatus
+	writes                          []protocol.ConfigurationUpdate
 	key                             string
 	began                           []string
 	cancelled                       []string
@@ -41,16 +41,16 @@ func (h *setupTestHost) DiscoverProviders(ctx context.Context, model, provider s
 	return h.ListProvidersFor(ctx, model, provider)
 }
 
-func (h *setupTestHost) ListLogins(context.Context) (daemon.ProviderLoginList, error) {
-	return daemon.ProviderLoginList{Flows: h.flows}, nil
+func (h *setupTestHost) ListLogins(context.Context) (protocol.ProviderLoginList, error) {
+	return protocol.ProviderLoginList{Flows: h.flows}, nil
 }
 
-func (h *setupTestHost) UpdateConfiguration(_ context.Context, p daemon.ConfigurationUpdate) (daemon.RuntimeConfiguration, error) {
+func (h *setupTestHost) UpdateConfiguration(_ context.Context, p protocol.ConfigurationUpdate) (protocol.RuntimeConfiguration, error) {
 	h.writes = append(h.writes, p)
-	return daemon.RuntimeConfiguration{}, h.writeErr
+	return protocol.RuntimeConfiguration{}, h.writeErr
 }
 
-func (h *setupTestHost) SetProviderKey(_ context.Context, p daemon.ProviderKeySetup) (daemon.RuntimeConfiguration, error) {
+func (h *setupTestHost) SetProviderKey(_ context.Context, p protocol.ProviderKeySetup) (protocol.RuntimeConfiguration, error) {
 	h.key = p.Key
 	for i := range h.list.Providers {
 		if h.list.Providers[i].ID == p.Provider {
@@ -60,19 +60,19 @@ func (h *setupTestHost) SetProviderKey(_ context.Context, p daemon.ProviderKeySe
 		}
 	}
 	h.list.Revision = "after-key"
-	return daemon.RuntimeConfiguration{Revision: h.list.Revision}, nil
+	return protocol.RuntimeConfiguration{Revision: h.list.Revision}, nil
 }
 
-func (h *setupTestHost) BeginProviderLogin(_ context.Context, provider string) (daemon.ProviderLoginStatus, error) {
+func (h *setupTestHost) BeginProviderLogin(_ context.Context, provider string) (protocol.ProviderLoginStatus, error) {
 	h.began = append(h.began, provider)
-	flow := daemon.ProviderLoginStatus{Provider: provider, FlowID: "flow", State: "pending"}
+	flow := protocol.ProviderLoginStatus{Provider: provider, FlowID: "flow", State: "pending"}
 	h.flows = append(h.flows, flow)
 	return flow, nil
 }
 
-func (h *setupTestHost) CancelLogin(_ context.Context, id string) (daemon.ProviderLoginStatus, error) {
+func (h *setupTestHost) CancelLogin(_ context.Context, id string) (protocol.ProviderLoginStatus, error) {
 	h.cancelled = append(h.cancelled, id)
-	return daemon.ProviderLoginStatus{FlowID: id, State: "cancelled"}, nil
+	return protocol.ProviderLoginStatus{FlowID: id, State: "cancelled"}, nil
 }
 
 func (h *setupTestHost) ProviderCatalogsFor(_ context.Context, provider string, _ bool) (protocol.ProviderCatalogsResult, error) {
@@ -275,7 +275,7 @@ func TestSetupEscClosesDialogWithoutCreatingOrConfiguringSession(t *testing.T) {
 }
 
 func TestSetupReusesActiveLoginAndCancelsOnlyThatFlow(t *testing.T) {
-	h := &setupTestHost{list: setupFixture(), flows: []daemon.ProviderLoginStatus{{Provider: "openai-codex", FlowID: "existing", State: "pending"}}}
+	h := &setupTestHost{list: setupFixture(), flows: []protocol.ProviderLoginStatus{{Provider: "openai-codex", FlowID: "existing", State: "pending"}}}
 	s := newTestSetup(t, h, true)
 	applySetupCommand(t, s, s.Init())
 	applySetupCommand(t, s, s.connect(s.list.Providers[2]))
@@ -292,7 +292,7 @@ func TestSetupStaleRepliesCannotRestoreClosedOrReplacedFlow(t *testing.T) {
 	s := newTestSetup(t, &setupTestHost{list: setupFixture()}, true)
 	s.request = 2
 	s.mode = "providers"
-	s.Update(setupReply{owner: s, request: 1, kind: "login", login: daemon.ProviderLoginStatus{State: "pending", FlowID: "old"}})
+	s.Update(setupReply{owner: s, request: 1, kind: "login", login: protocol.ProviderLoginStatus{State: "pending", FlowID: "old"}})
 	if s.mode != "providers" || s.login.FlowID != "" {
 		t.Fatal("stale reply restored old flow")
 	}
@@ -449,7 +449,7 @@ func TestSetupDelayedPollCannotReplaceNewLogin(t *testing.T) {
 	s := newTestSetup(t, h, true)
 	s.list = h.list
 	s.request = 1
-	s.login = daemon.ProviderLoginStatus{FlowID: "old", State: "pending"}
+	s.login = protocol.ProviderLoginStatus{FlowID: "old", State: "pending"}
 	s.mode = "login"
 	late := setupPoll{owner: s, request: s.request, flowID: s.login.FlowID}
 	applySetupCommand(t, s, s.keypress(setupKey("esc")))
@@ -522,8 +522,8 @@ func TestSetupChoiceListsKeepSelectionVisibleOnSmallTerminals(t *testing.T) {
 					name := fmt.Sprintf("Option %02d", i)
 					s.list.Providers = append(s.list.Providers, protocol.ProviderEntry{ID: name, Name: name})
 					s.catalogs.Models[name] = protocol.ModelDescriptor{Providers: []string{"test"}}
-					s.login.Teams = append(s.login.Teams, daemon.ProviderChoice{ID: name, Name: name})
-					s.login.Projects = append(s.login.Projects, daemon.ProviderChoice{ID: name, Name: name})
+					s.login.Teams = append(s.login.Teams, protocol.ProviderChoice{ID: name, Name: name})
+					s.login.Projects = append(s.login.Projects, protocol.ProviderChoice{ID: name, Name: name})
 				}
 				s.selected = 39
 				rows := s.rows(m)

@@ -268,6 +268,11 @@ func TestCurrentTurnHistorySurvivesCompactionAndCommitsOnce(t *testing.T) {
 	if len(rows.Messages) != 4 || rows.Messages[0].Message.Content != original {
 		t.Fatalf("journal rows=%d", len(rows.Messages))
 	}
+	for _, row := range rows.Messages {
+		if row.Message.Role == "assistant" && (row.Message.SentAt == nil || row.Message.SentAt.IsZero()) {
+			t.Fatalf("root journal lost assistant recording timestamp: %+v", row)
+		}
+	}
 	// A fork reads the same original from its own durable source after reopen.
 	fork, err := store.Fork(root.ID(), rows.ThroughSeq, "fork")
 	if err != nil {
@@ -276,7 +281,7 @@ func TestCurrentTurnHistorySurvivesCompactionAndCommitsOnce(t *testing.T) {
 	if _, err := store.EnsureAuthority(t.Context(), fork); err != nil {
 		t.Fatal(err)
 	}
-	forkNode := &AgentSession{id: fork, root: &Session{store: store, meta: sessionstore.Meta{ID: fork}}, agent: runtime.rootNode.agent}
+	forkNode := &AgentSession{id: fork, root: &Session{store: store, id: fork}, agent: runtime.rootNode.agent}
 	forkHost := &recursiveHost{session: forkNode}
 	forkResult := historyCall(t, forkHost, "search", map[string]any{"query": needle})
 	if len(forkResult["matches"].([]map[string]any)) != 1 {

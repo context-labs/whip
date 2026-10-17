@@ -5,7 +5,7 @@ import { MoreHorizontal, Plus, Activity } from 'lucide-react';
 import { expect, userEvent, within, waitFor } from 'storybook/test';
 import { Accordion, CodeBlock, Alert, AlertDialog, Avatar, Badge, Breadcrumbs, Button, ButtonGroup, Checkbox, Collapsible, Combobox, CommandPicker, ContextMenu, CopyButton, Dialog, EmptyState, ErrorState, Field, Fieldset, IconButton, Input, Kbd, Label, Link, Menu, Meter, NumberField, Panel, Popover, Progress, RadioGroup, Row, ScrollArea, Select, Separator, SettingsRow, Sheet, Skeleton, Spinner, Stack, StatusIndicator, Switch, Tabs, Textarea, ThemePicker, ThemePreview, ToggleGroup, Tooltip, useToast, useTheme, themeCatalog, VisuallyHidden } from '../src';
 
-const storyStyles = stylex.create({narrow: {maxWidth: 390}, width: (value: number) => ({width: value})});
+const storyStyles = stylex.create({narrow: {maxWidth: 390}, width: (value: number) => ({width: value}), scrollPage: {minHeight: 2000}, boundedDialog: {height: 'min(560px, calc(100dvh - 48px))', overflow: 'hidden'}, boundedBody: {flex: 1, minHeight: 0, overflowY: 'auto'}});
 const options = [{value: 'balanced', label: 'Balanced', description: 'Steady progress within a bounded budget'}, {value: 'fast', label: 'Fast'}, {value: 'thorough', label: 'Thorough'}, {value: 'unavailable', label: 'Unavailable on this host', disabled: true}];
 function Actions() {
   const toast = useToast();
@@ -20,6 +20,21 @@ function Overlays() {
   const items = [{id: 'rename', label: 'Rename session', onSelect: () => setDialog(true)}, {id: 'delete', label: 'Delete session', danger: true, onSelect: () => setAlert(true)}];
   return <Stack><Row><Button onClick={() => setDialog(true)}>Open dialog</Button><Button onClick={() => setSheet(true)}>Open sheet</Button><Button onClick={() => setCommands(true)}>Find command</Button><Menu trigger={<IconButton label="Session menu"><MoreHorizontal size={16}/></IconButton>} items={items}/><Popover title="Agent status" trigger={<Button>Popover</Button>}><p>The child agent is waiting for input.</p></Popover></Row><ContextMenu items={items}><Panel>Right-click this session summary.</Panel></ContextMenu><Dialog open={dialog} onOpenChange={setDialog} title="Session settings" description="Updates are shared with other clients." footer={<Button onClick={() => setDialog(false)}>Save changes</Button>}><Field label="Name"><Input defaultValue="Inspect queue lifecycle"/></Field><Menu trigger={<Button>More actions</Button>} items={items}/><Button onClick={() => setAlert(true)}>Open nested confirmation</Button><ThemePicker/></Dialog><Sheet open={sheet} onOpenChange={setSheet} title="Agent details"><p>Read-only activity and context live here.</p></Sheet><AlertDialog open={alert} onOpenChange={setAlert} title="Delete this session?" description="This removes its conversation history." confirmLabel="Delete session" danger onConfirm={() => setAlert(false)}/><CommandPicker open={commands} onOpenChange={setCommands} items={options} onSelect={() => {}}/></Stack>;
 }
+function DialogScrollingExample() {
+  const [kind, setKind] = useState<'short' | 'tall' | 'bounded' | 'sheet' | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const Popup = kind === 'sheet' ? Sheet : Dialog;
+  return <div {...stylex.props(storyStyles.scrollPage)}>
+    <Row>{(['short', 'tall', 'bounded', 'sheet'] as const).map(value => <Button key={value} onClick={() => setKind(value)}>Open {value} example</Button>)}</Row>
+    <Popup open={kind !== null} onOpenChange={open => {if (!open) setKind(null);}} title="Scrolling example"
+      xstyle={kind === 'bounded' && storyStyles.boundedDialog} bodyXstyle={kind === 'bounded' && storyStyles.boundedBody}
+      footer={<Button onClick={() => setKind(null)}>Finish example</Button>}>
+      <Button onClick={() => setConfirm(true)}>Open confirmation</Button>
+      {Array.from({length: kind === 'short' ? 1 : 40}, (_, index) => <p key={index}>Section {index + 1}. The whole dialog surface should move together over the background, without an inner scrollbar.</p>)}
+      <AlertDialog open={confirm} onOpenChange={setConfirm} title="Nested confirmation" onConfirm={() => setConfirm(false)}/>
+    </Popup>
+  </div>;
+}
 function Content() {
   const [tab, setTab] = useState('conversation');
   return <Stack><Breadcrumbs><Link href="#">Session</Link><span aria-hidden>/</span><span>Explore</span></Breadcrumbs><Row><Avatar name="Explore agent"/><StatusIndicator tone="success">Completed</StatusIndicator><Badge tone="warning">Waiting for input</Badge><Badge tone="error">Interrupted</Badge><Badge tone="info">Reconnecting</Badge><Spinner/><VisuallyHidden>Loading the latest state</VisuallyHidden></Row><Progress label="Context use" value={42}/><Meter label="Budget consumed" value={18} max={100}/><Tabs value={tab} onValueChange={setTab} items={[{value: 'conversation', label: 'Conversation', content: <p>Your agent has finished the focused check.</p>}, {value: 'activity', label: 'Activity', content: <p>Three child agents are still working.</p>}]}/><Collapsible title="Read tool output"><pre>Stable, bounded tool output.</pre></Collapsible><Accordion items={[{id: 'reasoning', title: 'Reasoning', content: 'Inspect assumptions before making changes.'}]}/><Alert title="Reconnecting" tone="info">Your accepted work continues on the host.</Alert><Skeleton/><SettingsRow label="Show reasoning" description="Keep longer explanations collapsed."><Switch aria-label="Show reasoning"/></SettingsRow><Separator/><ScrollArea aria-label="Long output"><p>Scroll regions retain native keyboard and touch behavior.</p></ScrollArea><EmptyState title="Your work stays on the host" description="Choose a conversation or begin a new one." icon={<Activity size={24}/>} action={<Button>New session</Button>}/><ErrorState error={new Error('The host is temporarily unavailable.')} action={<Button>Try again</Button>}/></Stack>;
@@ -30,6 +45,7 @@ type Story = StoryObj<typeof meta>;
 export const ActionStates: Story = {render: () => <Actions/>};
 export const FormStates: Story = {render: () => <Controls/>};
 export const OverlayStates: Story = {render: () => <Overlays/>, play: async ({canvasElement}) => {const canvas = within(canvasElement); await userEvent.click(canvas.getByRole('button', {name: 'Open dialog'})); const body = within(canvasElement.ownerDocument.body); await expect(body.getByRole('dialog')).toBeVisible(); await waitFor(() => expect(body.getByRole('dialog').contains(canvasElement.ownerDocument.activeElement)).toBe(true)); await userEvent.keyboard('{Escape}'); await waitFor(() => expect(canvas.getByRole('button', {name: 'Open dialog'})).toHaveFocus()); canvasElement.dataset.playComplete = 'true';}};
+export const DialogScrolling: Story = {render: () => <DialogScrollingExample/>};
 export const ContentStates: Story = {render: () => <Content/>};
 export const Appearance: Story = {render: () => <Stack><ThemePicker/><ThemePreview/><Actions/><Controls/></Stack>};
 export const NarrowLayout: Story = {render: () => <div {...stylex.props(storyStyles.narrow)}><Stack><Actions/><Controls/><Content/></Stack></div>};

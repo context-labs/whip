@@ -40,6 +40,7 @@ whip defaults to inference.net models; the `inf` CLI provisions the key:
 ```sh
 git clone --branch main https://github.com/context-labs/whip && cd whip
 npm ci
+task generate                       # protocol artifacts and SDK
 task install                        # packaged whipcode; Go 1.27+, Node 24, Task
 
 bun add -g @inference/cli           # the inf CLI

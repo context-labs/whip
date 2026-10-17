@@ -14,7 +14,7 @@ import (
 )
 
 func (s *Session) AdmitAgent(ctx context.Context, admission sessionstore.AgentAdmission) error {
-	admission.RootID = s.meta.ID
+	admission.RootID = s.id
 	_, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (int64, error) {
 		return s.store.AdmitAgent(actorCtx, admission)
 	})
@@ -24,13 +24,13 @@ func (s *Session) AdmitAgent(ctx context.Context, admission sessionstore.AgentAd
 // StartAgentTurn claims work only; the worker owns settlement before resolving input.
 func (s *Session) StartAgentTurn(ctx context.Context, agentID, turnID string) (sessionstore.AgentTurnStart, error) {
 	return routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (sessionstore.AgentTurnStart, error) {
-		return s.store.StartAgentTurn(actorCtx, s.meta.ID, agentID, turnID)
+		return s.store.StartAgentTurn(actorCtx, s.id, agentID, turnID)
 	})
 }
 
 func (s *Session) FinishAgentTurn(ctx context.Context, agentID string, commit sessionstore.AgentTurnCommit) error {
 	_, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (struct{}, error) {
-		return struct{}{}, s.store.FinishAgentTurn(actorCtx, s.meta.ID, agentID, commit)
+		return struct{}{}, s.store.FinishAgentTurn(actorCtx, s.id, agentID, commit)
 	})
 	return err
 }
@@ -42,7 +42,7 @@ func (s *Session) SendMailboxMessage(ctx context.Context, senderAgentID, recipie
 		var message sessionstore.MailboxMessage
 		err := s.consumeBudgets(actorCtx, senderAgentID, durableReservations(len(send.Subject)+len(send.Body)), func() error {
 			var err error
-			message, err = s.store.SendMailboxMessage(actorCtx, s.meta.ID, senderAgentID, recipientAgentID, send)
+			message, err = s.store.SendMailboxMessage(actorCtx, s.id, senderAgentID, recipientAgentID, send)
 			return err
 		})
 		if err == nil {
@@ -54,7 +54,7 @@ func (s *Session) SendMailboxMessage(ctx context.Context, senderAgentID, recipie
 
 func (s *Session) ListMailboxMessages(ctx context.Context, agentID, status, sender string, limit int) ([]sessionstore.MailboxMessage, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.MailboxMessage, error) {
-		return s.store.ListMailboxMessages(actorCtx, s.meta.ID, agentID, status, sender, limit)
+		return s.store.ListMailboxMessages(actorCtx, s.id, agentID, status, sender, limit)
 	})
 }
 
@@ -64,13 +64,13 @@ func (s *Session) ReadMailboxMessage(ctx context.Context, agentID, id string) (s
 		body    []byte
 	}
 	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
-		message, err := s.store.ReadMailboxMessage(actorCtx, s.meta.ID, agentID, id)
+		message, err := s.store.ReadMailboxMessage(actorCtx, s.id, agentID, id)
 		if err != nil {
 			return result{}, err
 		}
 		body := append([]byte(nil), message.Body.Inline...)
 		if message.Body.ReferenceID != "" {
-			body, _, err = s.store.ReadContent(actorCtx, message.Body.ReferenceID, s.meta.ID, agentID, 0, sessionstore.MaxContentRead)
+			body, _, err = s.store.ReadContent(actorCtx, message.Body.ReferenceID, s.id, agentID, 0, sessionstore.MaxContentRead)
 		}
 		return result{message, body}, err
 	})
@@ -80,7 +80,7 @@ func (s *Session) ReadMailboxMessage(ctx context.Context, agentID, id string) (s
 func (s *Session) CompleteMailboxMessages(ctx context.Context, agentID string, receipts []sessionstore.MailboxReceipt) (int64, error) {
 	receipts = slices.Clone(receipts)
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (int64, error) {
-		return s.store.CompleteMailboxMessages(actorCtx, s.meta.ID, agentID, receipts)
+		return s.store.CompleteMailboxMessages(actorCtx, s.id, agentID, receipts)
 	})
 }
 
@@ -89,7 +89,7 @@ func (s *Session) CompleteMailboxMessages(ctx context.Context, agentID string, r
 // daemon restarts first.
 func (s *Session) DeferMailboxMessage(ctx context.Context, agentID string, receipt sessionstore.MailboxReceipt, until time.Time) (int64, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (int64, error) {
-		revision, err := s.store.DeferMailboxMessage(actorCtx, s.meta.ID, agentID, receipt, until)
+		revision, err := s.store.DeferMailboxMessage(actorCtx, s.id, agentID, receipt, until)
 		if err == nil {
 			time.AfterFunc(max(time.Until(until), 0)+time.Second, func() { s.wakeAgent(agentID) })
 		}
@@ -99,19 +99,19 @@ func (s *Session) DeferMailboxMessage(ctx context.Context, agentID string, recei
 
 func (s *Session) MailboxSummary(ctx context.Context, agentID string) (sessionstore.MailboxSummary, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.MailboxSummary, error) {
-		return s.store.MailboxSummary(actorCtx, s.meta.ID, agentID)
+		return s.store.MailboxSummary(actorCtx, s.id, agentID)
 	})
 }
 
 func (s *Session) ReadMailboxDigest(ctx context.Context, agentID string) (sessionstore.MailboxDigest, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.MailboxDigest, error) {
-		return s.store.ReadMailboxDigest(actorCtx, s.meta.ID, agentID, time.Now())
+		return s.store.ReadMailboxDigest(actorCtx, s.id, agentID, time.Now())
 	})
 }
 
 func (s *Session) AgentWorkStatus(ctx context.Context, agentID string) (sessionstore.AgentWork, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.AgentWork, error) {
-		return s.store.AgentWorkStatus(actorCtx, s.meta.ID, agentID, time.Now())
+		return s.store.AgentWorkStatus(actorCtx, s.id, agentID, time.Now())
 	})
 }
 
@@ -123,13 +123,13 @@ func (s *Session) HasAgentWork(ctx context.Context, agentID string) (bool, error
 
 func (s *Session) ClaimSteers(ctx context.Context, agentID, turnID string) ([]sessionstore.InboxItem, error) {
 	return routeControlOwnedValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.InboxItem, error) {
-		return s.store.ClaimSteers(actorCtx, s.meta.ID, agentID, turnID)
+		return s.store.ClaimSteers(actorCtx, s.id, agentID, turnID)
 	})
 }
 
 func (s *Session) RejectTurnInput(ctx context.Context, agentID, turnID string, seq int64, cause error) error {
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
-		if err := s.store.RejectTurnInput(actorCtx, s.meta.ID, agentID, turnID, seq, cause.Error()); err != nil {
+		if err := s.store.RejectTurnInput(actorCtx, s.id, agentID, turnID, seq, cause.Error()); err != nil {
 			return err
 		}
 		if agentID == s.authority.AgentID {
@@ -148,7 +148,7 @@ func (s *Session) SubmitAgentInput(ctx context.Context, callerAgentID, agentID, 
 		err := s.consumeBudgets(actorCtx, callerAgentID, durableReservations(len(text)), func() error {
 			var err error
 			sequence, err = s.store.EnqueueInbox(actorCtx, sessionstore.InboxEnqueue{
-				RootID: s.meta.ID, AgentID: agentID, Kind: kind,
+				RootID: s.id, AgentID: agentID, Kind: kind,
 				Payload:      sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: source},
 				ParentSpanID: cause.SpanID, SpanTraceID: cause.TraceID,
 			})
@@ -169,7 +169,7 @@ func (s *Session) LoadAgentScratch(ctx context.Context, agentID string) (string,
 		manifest []byte
 	}
 	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
-		snapshot, manifest, err := s.store.LoadAgentScratch(actorCtx, s.meta.ID, agentID)
+		snapshot, manifest, err := s.store.LoadAgentScratch(actorCtx, s.id, agentID)
 		return result{snapshot, manifest}, err
 	})
 	return value.snapshot, value.manifest, err
@@ -178,7 +178,7 @@ func (s *Session) LoadAgentScratch(ctx context.Context, agentID string) (string,
 func (s *Session) SaveAgentScratch(ctx context.Context, agentID, snapshot string, manifest []byte) error {
 	manifest = slices.Clone(manifest)
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.store.SaveAgentScratch(actorCtx, s.meta.ID, agentID, snapshot, manifest)
+		return s.store.SaveAgentScratch(actorCtx, s.id, agentID, snapshot, manifest)
 	})
 }
 
@@ -190,7 +190,7 @@ func (s *Session) RecordScratchRestore(ctx context.Context, agentID string, repo
 		notRestored = append(notRestored, sessionstore.ScratchSkip{Name: item.Name, Reason: item.Reason})
 	}
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
-		_, err := s.store.RecordScratchRestore(actorCtx, s.meta.ID, agentID, report.Restored, notRestored)
+		_, err := s.store.RecordScratchRestore(actorCtx, s.id, agentID, report.Restored, notRestored)
 		return err
 	})
 }
@@ -219,13 +219,13 @@ func (s *Session) reconcileAgentWork() {
 
 func (s *Session) LoadAgentTranscript(ctx context.Context, agentID string) ([]llm.Message, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]llm.Message, error) {
-		return s.store.LoadAgentTranscript(actorCtx, s.meta.ID, agentID)
+		return s.store.LoadAgentTranscript(actorCtx, s.id, agentID)
 	})
 }
 
 func (s *Session) LoadRetainedAgents(ctx context.Context) ([]sessionstore.RuntimeAgent, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.RuntimeAgent, error) {
-		return s.store.LoadRetainedAgents(actorCtx, s.meta.ID)
+		return s.store.LoadRetainedAgents(actorCtx, s.id)
 	})
 }
 
@@ -235,7 +235,7 @@ func (s *Session) LoadAgentAuthority(ctx context.Context, agentID string) (capab
 		names     []string
 	}
 	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
-		authority, names, err := s.store.LoadAgentAuthority(actorCtx, s.meta.ID, agentID)
+		authority, names, err := s.store.LoadAgentAuthority(actorCtx, s.id, agentID)
 		return result{authority, names}, err
 	})
 	return value.authority, value.names, err
@@ -243,13 +243,13 @@ func (s *Session) LoadAgentAuthority(ctx context.Context, agentID string) (capab
 
 func (s *Session) ListAgentRelatives(ctx context.Context, callerAgentID string) (sessionstore.AgentRelatives, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.AgentRelatives, error) {
-		return s.store.ListAgentRelatives(actorCtx, s.meta.ID, callerAgentID)
+		return s.store.ListAgentRelatives(actorCtx, s.id, callerAgentID)
 	})
 }
 
 func (s *Session) TerminalizeSubtree(ctx context.Context, callerAgentID, targetAgentID, status string) error {
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
-		_, err := s.store.TerminalizeSubtree(actorCtx, s.meta.ID, callerAgentID, targetAgentID, status)
+		_, err := s.store.TerminalizeSubtree(actorCtx, s.id, callerAgentID, targetAgentID, status)
 		return err
 	})
 }
@@ -267,7 +267,7 @@ func (s *Session) StoreContent(ctx context.Context, callerAgentID string, payloa
 		var value sessionstore.RuntimeValue
 		err := s.consumeBudgets(actorCtx, callerAgentID, durableReservations(len(payload.Data)), func() error {
 			var err error
-			value, err = s.store.StoreContent(actorCtx, sessionstore.ContentGrant{RootID: s.meta.ID, AgentID: callerAgentID, Scope: sessionstore.ContentGrantAgent}, payload)
+			value, err = s.store.StoreContent(actorCtx, sessionstore.ContentGrant{RootID: s.id, AgentID: callerAgentID, Scope: sessionstore.ContentGrantAgent}, payload)
 			return err
 		})
 		return value, err
@@ -280,7 +280,7 @@ func (s *Session) ReadContent(ctx context.Context, callerAgentID, referenceID st
 		metadata sessionstore.ContentMetadata
 	}
 	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
-		body, metadata, err := s.store.ReadContent(actorCtx, referenceID, s.meta.ID, callerAgentID, offset, length)
+		body, metadata, err := s.store.ReadContent(actorCtx, referenceID, s.id, callerAgentID, offset, length)
 		return result{body, metadata}, err
 	})
 	return value.body, value.metadata, err
@@ -292,7 +292,7 @@ func (s *Session) AddSchedule(ctx context.Context, expression, prompt string, an
 		var id int
 		err := s.consumeBudgets(actorCtx, s.authority.AgentID, reservations, func() error {
 			var err error
-			id, err = s.store.AddSchedule(s.meta.ID, expression, prompt, anchor)
+			id, err = s.store.AddSchedule(s.id, expression, prompt, anchor)
 			return err
 		})
 		return id, err
@@ -301,12 +301,12 @@ func (s *Session) AddSchedule(ctx context.Context, expression, prompt string, an
 
 func (s *Session) ListSchedules(ctx context.Context) ([]sessionstore.Schedule, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.Schedule, error) {
-		return s.store.SchedulesContext(actorCtx, s.meta.ID)
+		return s.store.SchedulesContext(actorCtx, s.id)
 	})
 }
 
 func (s *Session) CancelSchedule(ctx context.Context, id int) error {
-	return s.routeControl(ctx, func(context.Context) error { return s.store.DeleteSchedule(s.meta.ID, id) })
+	return s.routeControl(ctx, func(context.Context) error { return s.store.DeleteSchedule(s.id, id) })
 }
 
 func (s *Session) LaunchRuntimeWorker(kind string, work func()) bool {

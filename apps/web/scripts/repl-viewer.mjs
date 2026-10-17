@@ -60,7 +60,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(page.locator('html')).toHaveAttribute('data-theme', /claude-code|light|dark/);
   };
   const action = async (id, label) => {
-    await page.locator(`[data-workspace-tab="${id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
+    await page.locator(`[data-workspace-tab="${id}"]`).getByRole('tab').click({ button: 'right' });
     await page.getByRole('menuitem', { name: label, exact: true }).click();
     await page.getByRole('menu').waitFor({ state: 'hidden' });
   };
@@ -142,8 +142,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.ok(chatAnchor, 'Chat has no readable anchor');
     const initialSnapshots = frames.filter(frame => frame.method === 'root.snapshot').length;
     const initialHistory = frames.filter(frame => frame.method === 'history.page').length;
-    await page.locator(`[data-workspace-tab="${root}"]`).getByRole('button', { name: /^Tab actions for / }).focus();
-    await page.keyboard.press('Enter');
+    await page.locator(`[data-workspace-tab="${root}"]`).getByRole('tab').focus();
+    await page.keyboard.press('Shift+F10');
     await page.getByRole('menuitem', { name: 'Open REPL', exact: true }).press('Enter');
     const repl = leaves((await workspace()).layout)[0].selected;
     assert.notEqual(repl, root);

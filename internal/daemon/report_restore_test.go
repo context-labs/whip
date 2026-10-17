@@ -36,7 +36,8 @@ func TestReportModeRestoresIdentityAndCompletionBehavior(t *testing.T) {
 			rootID := createRoot(t, store)
 			makeOwner := func(store *session.Store) (*Daemon, *Session, *RecursiveRuntime) {
 				var runtime *RecursiveRuntime
-				owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+				processes := newTestProcesses(t)
+				owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 					value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 					value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 					limits := rlm.DefaultLimits()
@@ -47,7 +48,7 @@ func TestReportModeRestoresIdentityAndCompletionBehavior(t *testing.T) {
 					if err != nil {
 						return Components{}, err
 					}
-					return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+					return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 				})
 				if err != nil {
 					t.Fatal(err)

@@ -16,7 +16,7 @@ import (
 // idempotency boundary as every other user action.
 func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionstore.CommandAdmission, permissionID string, decision capability.Decision) (capability.Ticket, error) {
 	command.Scope = sessionstore.CommandScopeRoot
-	command.RootID = s.meta.ID
+	command.RootID = s.id
 	command.AgentID = s.authority.AgentID
 	command.Kind = "permission.decide"
 	command.Payload.Data = slices.Clone(command.Payload.Data)
@@ -39,7 +39,7 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 			if admitted.Command.Status == "queued" || admitted.Command.Status == "running" || admitted.Command.Status == "waiting" {
 				return finish(errors.New("permission decision is still running"))
 			}
-			body, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.meta.ID, admitted.Command.Outcome)
+			body, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.id, admitted.Command.Outcome)
 			if resolveErr != nil {
 				return finish(resolveErr)
 			}
@@ -49,7 +49,7 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 			return finish(json.Unmarshal(body, &ticket))
 		}
 		admission, decisionErr := s.store.Pending(actorCtx, permissionID)
-		if decisionErr == nil && admission.Request.RootID != s.meta.ID {
+		if decisionErr == nil && admission.Request.RootID != s.id {
 			decisionErr = capability.ErrDenied
 		}
 		var rules []string
@@ -132,7 +132,7 @@ func (s *Session) resolvePermission(ctx context.Context, admission capability.Ad
 // fails to resolve simply stays pending for the human.
 func (s *Session) rememberPermissionRules(ctx context.Context, permissionID, operation string, rules []string, decision capability.Decision) error {
 	for _, rule := range rules {
-		if _, err := s.store.AddPermissionRule(ctx, s.meta.ID, operation, rule, decision.PrincipalID); err != nil {
+		if _, err := s.store.AddPermissionRule(ctx, s.id, operation, rule, decision.PrincipalID); err != nil {
 			return err
 		}
 	}
@@ -155,7 +155,7 @@ func (s *Session) rememberPermissionRules(ctx context.Context, permissionID, ope
 		}
 		s.store.SetGlobalPermissionRules(cfg.Permissions.Allow)
 	}
-	pending, err := s.store.ListPendingPermissions(ctx, s.meta.ID)
+	pending, err := s.store.ListPendingPermissions(ctx, s.id)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (s *Session) rememberPermissionRules(ctx context.Context, permissionID, ope
 		if !ok {
 			continue
 		}
-		if source, err := s.store.PermissionRuleSource(ctx, s.meta.ID, operation, promptRules); err != nil || source == "" {
+		if source, err := s.store.PermissionRuleSource(ctx, s.id, operation, promptRules); err != nil || source == "" {
 			continue
 		}
 		_, _ = s.resolvePermission(ctx, admission, prompt.ID, covered)
@@ -200,7 +200,7 @@ func (s *Session) DecidePermission(ctx context.Context, permissionID string, dec
 		if err != nil {
 			return capability.Ticket{}, err
 		}
-		if admission.Request.RootID != s.meta.ID {
+		if admission.Request.RootID != s.id {
 			return capability.Ticket{}, capability.ErrDenied
 		}
 		return s.store.Decide(actorCtx, admission, permissionID, decision)
@@ -210,7 +210,7 @@ func (s *Session) DecidePermission(ctx context.Context, permissionID string, dec
 func (s *Session) InspectPermission(ctx context.Context, permissionID string) (capability.Admission, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (capability.Admission, error) {
 		admission, err := s.store.Pending(actorCtx, permissionID)
-		if err == nil && admission.Request.RootID != s.meta.ID {
+		if err == nil && admission.Request.RootID != s.id {
 			return capability.Admission{}, capability.ErrDenied
 		}
 		return admission, err
@@ -219,7 +219,7 @@ func (s *Session) InspectPermission(ctx context.Context, permissionID string) (c
 
 func (s *Session) InspectCapability(ctx context.Context, callerAgentID, capabilityID string) (sessionstore.CapabilityRecord, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.CapabilityRecord, error) {
-		return s.store.InspectCapability(actorCtx, s.meta.ID, callerAgentID, capabilityID)
+		return s.store.InspectCapability(actorCtx, s.id, callerAgentID, capabilityID)
 	})
 }
 
@@ -228,7 +228,7 @@ func (s *Session) DelegateCapability(ctx context.Context, callerAgentID string, 
 	delegation.Scopes = slices.Clone(delegation.Scopes)
 	delegation.MCP = slices.Clone(delegation.MCP)
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.CapabilityRecord, error) {
-		return s.store.DelegateCapability(actorCtx, s.meta.ID, callerAgentID, delegation)
+		return s.store.DelegateCapability(actorCtx, s.id, callerAgentID, delegation)
 	})
 }
 
@@ -239,16 +239,16 @@ func (s *Session) RevokeCapability(ctx context.Context, callerAgentID, capabilit
 }
 
 func (s *Session) revokeCapability(ctx context.Context, callerAgentID, capabilityID string) (sessionstore.CapabilityRecord, error) {
-	pending, err := s.store.ListPendingPermissions(ctx, s.meta.ID)
+	pending, err := s.store.ListPendingPermissions(ctx, s.id)
 	if err != nil {
 		return sessionstore.CapabilityRecord{}, err
 	}
-	record, err := s.store.RevokeCapabilityFor(ctx, s.meta.ID, callerAgentID, capabilityID)
+	record, err := s.store.RevokeCapabilityFor(ctx, s.id, callerAgentID, capabilityID)
 	if err != nil {
 		return record, err
 	}
 	if s.browserProviders != nil {
-		s.browserProviders.invalidateRevoked(ctx, s.meta.ID)
+		s.browserProviders.invalidateRevoked(ctx, s.id)
 	}
 	for _, prompt := range pending {
 		if _, err := s.store.Pending(ctx, prompt.ID); !errors.Is(err, capability.ErrDenied) {

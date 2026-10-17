@@ -140,16 +140,20 @@ catalogs refer to the execution computer, not the phone filesystem.
 
 ## Development
 
-Use the repository's Node 24/npm workspace and root lockfile:
+Use Node 24, the Go toolchain in `go.mod`, Task, and the root npm lockfile:
 
 ```sh
 npm ci
-npm run build
+task generate
 npm run check:mobile
 npm run test:mobile
 npm run export:mobile
 npm run dev:mobile
 ```
+
+`task generate` prepares the ignored protocol artifacts and SDK. Rerun it after
+pulling, switching branches, or editing protocol source; rerun `npm ci` first
+when dependencies change. Mobile commands consume the initialized workspace.
 
 Use a development client, not Expo Go: SQLCipher, Expo UI and the private storage
 module require a native build. From `apps/mobile`, `npx expo run:ios` or

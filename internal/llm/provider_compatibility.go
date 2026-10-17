@@ -17,6 +17,11 @@ func hasThinking(msgs []Message) bool {
 }
 
 func (c *Client) encodeChatRequest(req Request) ([]byte, error) {
+	// "off" is the explicit no-reasoning level everywhere else in whip; the
+	// wire contract expresses it by omitting the parameter.
+	if req.ReasoningEffort == "off" {
+		req.ReasoningEffort = ""
+	}
 	// Chat-completions has no thinking-block shape; replaying captured
 	// Anthropic thinking there is at best ignored and at worst a strict
 	// provider's rejection. Only the messages flavor replays thinking.

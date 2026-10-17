@@ -48,7 +48,7 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
   const roots = useMemo(() => traceRoots(state), [state]);
   const [picked, setPicked] = useState<string>();
   const traceId = picked && (picked === ALL_TRACES || roots.some(root => root.traceId === picked)) ? picked : roots[0]?.traceId ?? '';
-  const spans = useMemo(() => traceSpans(state, traceId === ALL_TRACES ? undefined : traceId) as readonly TraceSpan[], [state, traceId]);
+  const spans = useMemo(() => traceSpans(state, traceId === ALL_TRACES ? undefined : traceId), [state, traceId]);
   const running = connected && spans.some(isSpanInFlight);
   const motion = useTranscriptMotion();
   const [now, setNow] = useState(() => serverNowMs(evidence));
@@ -263,6 +263,11 @@ function SpanDetails({ width, view, node, domainStartMs, now, agents }: { width:
         <dl {...stylex.props(styles.stats)}>
           {stats.map(([label, value]) => <div key={label} {...stylex.props(styles.stat)}><dt {...stylex.props(styles.statLabel)}>{label}</dt><dd {...stylex.props(styles.statValue)}>{value}</dd></div>)}
         </dl>
+        {span.kind === 'llm' && text(attrs.purpose) === 'compaction' && <div {...stylex.props(styles.section)}>
+          <span {...stylex.props(styles.sectionLabel)}>Summary route</span>
+          <p {...stylex.props(styles.notice)}>{text(attrs.model) || span.name} · {text(attrs.provider) || 'Provider not recorded'}</p>
+          {text(attrs.compaction_fallback) && <p {...stylex.props(styles.notice)}>{text(attrs.compaction_fallback)}</p>}
+        </div>}
         {bodies.map(([label, value]) => <div key={label} {...stylex.props(styles.section)}>
           <CodeBlock code={value} label={label} xstyle={styles.code} />
         </div>)}

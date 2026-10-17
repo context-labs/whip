@@ -23,7 +23,8 @@ func TestModelSelectionAppliesAndPersistsEffortTogether(t *testing.T) {
 	rootID := createRoot(t, store)
 	var mu sync.Mutex
 	var built []session.Meta
-	owner, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		mu.Lock()
 		built = append(built, meta)
 		mu.Unlock()
@@ -68,7 +69,8 @@ func TestModelSelectionAppliesAndPersistsEffortTogether(t *testing.T) {
 	}
 	closed = true
 	store = openStore(t, path)
-	resumed, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+	processes = newTestProcesses(t)
+	resumed, err := New(store, processes, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
 		if meta.Model != "gpt-6-astra" || meta.Provider != "openai" || meta.Effort != "high" {
 			t.Errorf("resume lost selection: %+v", meta)
 		}

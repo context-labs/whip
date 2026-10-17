@@ -11,11 +11,13 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestFreshStoreUsesOnlyRecursiveSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +61,7 @@ func TestIncompatibleDevelopmentStoreIsRejectedWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Open(path)
+	_, err = Open(path, capability.NewWorkspaces())
 	if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "archive or remove") {
 		t.Fatalf("incompatible error=%v", err)
 	}
@@ -91,7 +93,7 @@ func TestVersionFiveStoreIsRejectedWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(path); err == nil {
+	if _, err := Open(path, capability.NewWorkspaces()); err == nil {
 		t.Fatal("v5 database opened under current runtime")
 	}
 	after, err := os.ReadFile(path)
@@ -131,7 +133,7 @@ func TestPhaseFourAndFiveStoresAreRejectedWithoutMutation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if opened, err := Open(path); err == nil {
+			if opened, err := Open(path, capability.NewWorkspaces()); err == nil {
 				opened.Close()
 				t.Fatal("incompatible phase schema accepted")
 			}
@@ -147,7 +149,7 @@ func TestPhaseFourAndFiveStoresAreRejectedWithoutMutation(t *testing.T) {
 }
 
 func TestSessionKindsEnforceModelContract(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +206,7 @@ func TestVersionTenUpgradePreservesStateAndRestarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for attempt := range 2 {
-		store, err := Open(path)
+		store, err := Open(path, capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -272,7 +274,7 @@ func TestVersionTwelveUpgradePersistsPermissionMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	for attempt, want := range []string{PermissionModePrompt, PermissionModeAutomatic, PermissionModePrompt} {
-		store, err := Open(path)
+		store, err := Open(path, capability.NewWorkspaces())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,7 +319,7 @@ func TestVersionTenUpgradeRollsBackAndCanRetry(t *testing.T) {
 	if _, err := db.ExecContext(t.Context(), `DROP TRIGGER session_catalog_update`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(path); err == nil {
+	if _, err := Open(path, capability.NewWorkspaces()); err == nil {
 		t.Fatal("upgrade with missing v10 trigger succeeded")
 	}
 	var version, columns int
@@ -338,7 +340,7 @@ func TestVersionTenUpgradeRollsBackAndCanRetry(t *testing.T) {
  BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;`); err != nil {
 		t.Fatal(err)
 	}
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +353,7 @@ func TestVersionTwelveUpgradeRollsBackAndRetries(t *testing.T) {
 		BEGIN SELECT RAISE(ABORT,'upgrade failed'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if store, err := Open(path); err == nil {
+	if store, err := Open(path, capability.NewWorkspaces()); err == nil {
 		_ = store.Close()
 		t.Fatal("upgrade unexpectedly succeeded")
 	}
@@ -368,7 +370,7 @@ func TestVersionTwelveUpgradeRollsBackAndRetries(t *testing.T) {
 	if _, err := db.ExecContext(t.Context(), `DROP TRIGGER reject_mode_upgrade`); err != nil {
 		t.Fatal(err)
 	}
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +391,7 @@ func TestVersionTwelveUpgradePreservesEventRetention(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

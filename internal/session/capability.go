@@ -31,9 +31,8 @@ type storedCapabilityScopes struct {
 	BrowserDelegationOnly   bool                     `json:"browser_delegation_only,omitempty"`
 }
 
+// Workspaces returns the coordinator borrowed from the store's caller.
 func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
-
-func (s *Store) Processes() *capability.ProcessManager { return s.processes }
 
 // EnsureAuthority installs the root agent and its initial grants once.
 // EnsureAuthority bootstraps or reloads a root with full grants: every file,
@@ -393,8 +392,7 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM agents WHERE id=? AND root_id=?`, authority.AgentID, rootID).Scan(&status); err != nil {
 		return capability.Authority{}, err
 	}
-	switch status {
-	case "failed", "stopped", "cancelled", "interrupted", "deleted", "succeeded":
+	if isTerminalAgentStatus(status) {
 		return capability.Authority{}, ErrRootTerminal
 	}
 	for _, grant := range []struct {

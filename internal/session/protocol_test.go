@@ -5,11 +5,13 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestDaemonGenerationIsDurable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +25,7 @@ func TestDaemonGenerationIsDurable(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,7 @@ func TestDaemonGenerationIsDurable(t *testing.T) {
 
 func TestFormerApprovalTableDoesNotRequireDatabaseReset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +61,7 @@ func TestFormerApprovalTableDoesNotRequireDatabaseReset(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +74,7 @@ func TestFormerApprovalTableDoesNotRequireDatabaseReset(t *testing.T) {
 
 func TestRuntimeIDAndCommandOperationSurviveReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
-	store, err := Open(path)
+	store, err := Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +92,7 @@ func TestRuntimeIDAndCommandOperationSurviveReopen(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(path)
+	store, err = Open(path, capability.NewWorkspaces())
 	if err != nil {
 		t.Fatal(err)
 	}

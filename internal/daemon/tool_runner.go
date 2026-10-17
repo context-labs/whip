@@ -35,7 +35,7 @@ func (r *toolRunner) bind(root *Session) error {
 		}
 		return value.ReferenceID, nil
 	})
-	return r.services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority)
+	return r.services.BindDispatcher(root.store, root.store.Workspaces(), root.processes, root.authority)
 }
 
 func (*toolRunner) Turn(context.Context, string, bool, func(), func(string)) (string, error) {

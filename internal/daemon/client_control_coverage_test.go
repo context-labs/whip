@@ -31,7 +31,7 @@ func controlBoundarySession(t *testing.T) *Session {
 	}
 	supervisor := newSupervisor()
 	t.Cleanup(supervisor.stop)
-	return &Session{store: store, meta: meta, authority: authority, supervisor: supervisor}
+	return &Session{store: store, id: meta.ID, kind: meta.Kind, engine: meta.ExecutionEngine, definitionRevision: meta.DefinitionRevision, model: meta.Model, provider: meta.Provider, effort: meta.Effort, authority: authority, supervisor: supervisor}
 }
 
 func TestClientCommandsSettleWhenWorkerAdmissionCloses(t *testing.T) {

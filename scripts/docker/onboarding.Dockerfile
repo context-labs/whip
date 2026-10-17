@@ -2,18 +2,26 @@
 ARG NODE_VERSION=24
 ARG GO_VERSION=1.27.0
 
+FROM golang:${GO_VERSION}-bookworm AS go-toolchain
+
 FROM node:${NODE_VERSION}-bookworm-slim AS web
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+COPY --from=go-toolchain /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ENV PATH=/usr/local/go/bin:$PATH GOPATH=/go
 WORKDIR /src
 # Preserve workspace paths while caching installation independently of source edits.
 COPY --parents package.json package-lock.json packages/*/package.json apps/*/package.json examples/*/package.json ./
 RUN --mount=type=cache,target=/root/.npm \
     ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund
 COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    npm run generate && npm run build
 ARG WHIP_RENDERER_LOCAL_SOURCE
-RUN WHIP_RENDERER_LOCAL_SOURCE="$WHIP_RENDERER_LOCAL_SOURCE" npm run build:web \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    WHIP_RENDERER_LOCAL_SOURCE="$WHIP_RENDERER_LOCAL_SOURCE" npm run build:web \
     && node scripts/pack-web.mjs
 
-FROM golang:${GO_VERSION}-bookworm AS build
+FROM go-toolchain AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

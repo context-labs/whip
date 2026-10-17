@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -42,7 +43,8 @@ func (r *permissionModeRunner) ResolvePermission(permissionID string, decision c
 
 func TestTrustedClientPermissionIdentityMethodsAreRemoved(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -75,7 +77,8 @@ func TestTrustedClientPermissionDecisionsAreScopedAndIdempotent(t *testing.T) {
 			store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 			rootID := createRoot(t, store)
 			otherRootID := createRoot(t, store)
-			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			processes := newTestProcesses(t)
+			value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 				return Components{Runner: &fakeRunner{}}, nil
 			})
 			if err != nil {
@@ -101,7 +104,7 @@ func TestTrustedClientPermissionDecisionsAreScopedAndIdempotent(t *testing.T) {
 			_, err = dispatcher.Dispatch(t.Context(), capability.Request{
 				RootID: rootID, AgentID: root.authority.AgentID, CapabilityID: root.authority.Files.ID,
 				CapabilityGeneration: root.authority.Files.Generation, OperationID: "pending-operation", Operation: "write",
-				Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+				Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 			})
 			pending, ok := errors.AsType[*capability.PermissionPendingError](err)
 			if !ok {
@@ -150,7 +153,7 @@ func TestTrustedClientPermissionDecisionsAreScopedAndIdempotent(t *testing.T) {
 			if _, err := competing.DecidePermission(t.Context(), decision); err == nil {
 				t.Fatal("another client's command namespace reused a resolved permission")
 			}
-			if _, err := os.Stat(filepath.Join(root.meta.CWD, "approved.txt")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(root.WorkingDirectory(), "approved.txt")); !os.IsNotExist(err) {
 				t.Fatalf("permission approval bypassed operation ownership: %v", err)
 			}
 		})
@@ -161,7 +164,8 @@ func TestTrustedClientPermissionModesUseOrdinaryCommands(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &permissionModeRunner{fakeRunner: &fakeRunner{}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
 	if err != nil {
@@ -205,7 +209,8 @@ func TestTrustedClientPermissionModesUseOrdinaryCommands(t *testing.T) {
 func TestRootSnapshotIsACompleteAuthoritativeClientView(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	value, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
@@ -234,7 +239,7 @@ func TestRootSnapshotIsACompleteAuthoritativeClientView(t *testing.T) {
 	_, err = dispatcher.Dispatch(t.Context(), capability.Request{
 		RootID: rootID, AgentID: root.authority.AgentID, CapabilityID: root.authority.Files.ID,
 		CapabilityGeneration: root.authority.Files.Generation, OperationID: "snapshot-operation", Operation: "write",
-		Arguments: json.RawMessage(`{"secret":"` + secretArgument + `"}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+		Arguments: json.RawMessage(`{"secret":"` + secretArgument + `"}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 	})
 	var pending *capability.PermissionPendingError
 	if !errors.As(err, &pending) {
@@ -265,11 +270,11 @@ func TestRootSnapshotIsACompleteAuthoritativeClientView(t *testing.T) {
 	}
 }
 
-func pipeClient(t *testing.T, server *Server, initialize InitializeParams) *Client {
+func pipeClient(t *testing.T, server *Server, initialize InitializeParams) *daemonclient.Client {
 	t.Helper()
 	serverConn, clientConn := net.Pipe()
 	go server.serveConn(serverConn)
-	client, err := NewClient(context.Background(), clientConn, initialize)
+	client, err := daemonclient.NewClient(context.Background(), clientConn, initialize)
 	if err != nil {
 		t.Fatal(err)
 	}

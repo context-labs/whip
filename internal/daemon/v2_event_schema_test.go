@@ -137,7 +137,7 @@ func TestV2ReferencedEventPayloadMatchesSchema(t *testing.T) {
 
 func TestV2LargeStreamEventsPreserveCallIdentity(t *testing.T) {
 	fixture := newV2Fixture(t, &fakeRunner{})
-	root := &Session{store: fixture.store, meta: session.Meta{ID: fixture.rootID}, supervisor: newSupervisor()}
+	root := &Session{store: fixture.store, id: fixture.rootID, supervisor: newSupervisor()}
 	defer root.supervisor.cancel()
 	for _, kind := range []string{"stream.tool.call", "stream.tool.started", "stream.tool.completed"} {
 		event := StreamEvent{AgentID: "child", TurnID: "child:turn:1", ID: "call-1", Name: "rlm_exec"}

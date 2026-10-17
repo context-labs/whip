@@ -333,9 +333,20 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 	return eventSeq, nil
 }
 
+// rootSelectionColumns reads the root agent's model, provider, effort and cwd
+// from its session row, where session.model, session.effort and workspace.set
+// write them; the copy on the root's agents row is only refreshed at open.
+// Children keep the selection they were admitted with. Requires the query to
+// join `agents a` with `sessions s`.
+const rootSelectionColumns = `CASE WHEN a.parent_id IS NULL THEN s.model ELSE a.model END,` +
+	`CASE WHEN a.parent_id IS NULL THEN s.provider ELSE a.provider END,` +
+	`CASE WHEN a.parent_id IS NULL THEN s.effort ELSE a.effort END,` +
+	`CASE WHEN a.parent_id IS NULL THEN s.cwd ELSE a.cwd END`
+
 func loadAgentTx(ctx context.Context, tx *sql.Tx, rootID, agentID string) (RuntimeAgent, error) {
 	var agent RuntimeAgent
-	err := tx.QueryRowContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status,last_turn,(SELECT execution_engine FROM sessions WHERE id=agents.root_id) FROM agents WHERE root_id=? AND id=?`, rootID, agentID).
+	err := tx.QueryRowContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,`+rootSelectionColumns+`,a.report,a.status,a.last_turn,s.execution_engine
+		FROM agents a JOIN sessions s ON s.id=a.root_id WHERE a.root_id=? AND a.id=?`, rootID, agentID).
 		Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status, &agent.LastTurn, &agent.ExecutionEngine)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RuntimeAgent{}, ErrAgentAccess

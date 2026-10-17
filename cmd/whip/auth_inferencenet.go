@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 // authInferenceNetCLI implements `whipcode auth inference-net …`: first-class
@@ -121,7 +121,7 @@ func providerDeviceLogin(provider string, lifetime time.Duration) error {
 			}
 			status, err = client.SelectLoginTeam(ctx, status.FlowID, id)
 		case "choose_project":
-			choices := append(append([]daemon.ProviderChoice{}, status.Projects...), daemon.ProviderChoice{ID: "", Name: "+ Create new project"})
+			choices := append(append([]protocol.ProviderChoice{}, status.Projects...), protocol.ProviderChoice{ID: "", Name: "+ Create new project"})
 			id, chooseErr := chooseProviderID("project", choices)
 			if chooseErr != nil {
 				return chooseErr
@@ -162,7 +162,7 @@ func providerDeviceLogin(provider string, lifetime time.Duration) error {
 	}
 }
 
-func chooseProviderID(kind string, choices []daemon.ProviderChoice) (string, error) {
+func chooseProviderID(kind string, choices []protocol.ProviderChoice) (string, error) {
 	if len(choices) == 0 {
 		return "", errors.New("provider returned no choices")
 	}
@@ -240,7 +240,7 @@ func providerAccountCLI(operation string) error {
 		return err
 	}
 	defer func() { _ = client.Close() }()
-	var status daemon.ProviderStatus
+	var status protocol.ProviderStatus
 	switch operation {
 	case "status":
 		status, err = client.ProviderStatus(ctx, config.InferenceNetProvider)

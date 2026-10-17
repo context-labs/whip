@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -39,13 +39,13 @@ func (c *fakeCaller) Call(_ context.Context, method string, params, result any) 
 }
 
 func TestReadExportContentPagesThroughTheReference(t *testing.T) {
-	payload := []byte(strings.Repeat("x", daemon.MaxContentChunk*2+17))
+	payload := []byte(strings.Repeat("x", daemonconn.MaxContentChunk*2+17))
 	caller := &fakeCaller{data: payload}
-	data, err := readExportContent(context.Background(), caller, "root", daemon.ContentHandle{ReferenceID: "ref", Size: int64(len(payload))})
+	data, err := readExportContent(context.Background(), caller, "root", protocol.ContentHandle{ReferenceID: "ref", Size: int64(len(payload))})
 	if err != nil || string(data) != string(payload) || caller.calls != 3 {
 		t.Fatalf("paged read: %d bytes over %d calls, err=%v", len(data), caller.calls, err)
 	}
-	if _, err := readExportContent(context.Background(), caller, "root", daemon.ContentHandle{}); err == nil {
+	if _, err := readExportContent(context.Background(), caller, "root", protocol.ContentHandle{}); err == nil {
 		t.Fatal("an empty reference must be an error, not an empty export")
 	}
 }

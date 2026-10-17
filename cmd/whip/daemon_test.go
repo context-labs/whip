@@ -18,9 +18,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
+	daemonclient "github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/daemonconn"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/webgateway"
@@ -59,15 +64,15 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, nil) }()
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var client *daemon.Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: version, ClientID: "daemon-test", ClientKind: "test",
+		client, err = daemonclient.DialClient(context.Background(), paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, BuildID: version, ClientID: "daemon-test", ClientKind: "test",
 		})
 		if err == nil {
 			break
@@ -124,7 +129,7 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 		})
 	}
 	badModel, _ := json.Marshal(map[string]string{"kind": string(session.SessionKindAgent), "cwd": home, "model": "missing", "provider": "inference-net"})
-	badCreated, err := client.Command(context.Background(), daemon.CommandParams{
+	badCreated, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "bad-model", Scope: "daemon", Operation: "session.create", Payload: badModel,
 	})
 	if err != nil {
@@ -136,7 +141,7 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	payload, _ := json.Marshal(map[string]string{
 		"kind": string(session.SessionKindAgent), "cwd": home, "model": "kimi-k3-fast", "provider": "inference-net",
 	})
-	created, err := client.Command(context.Background(), daemon.CommandParams{
+	created, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "create", Scope: "daemon", Operation: "session.create", Payload: payload,
 	})
 	if err != nil || created.Output == "" || created.Status != "succeeded" {
@@ -165,21 +170,6 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	}
 }
 
-func TestResolvedRuntimeEffortPreservesExplicitOffAndInheritance(t *testing.T) {
-	catalogs := map[string]config.Catalog{"provider": {
-		Models: []config.ModelInfoLite{{ID: "model", ReasoningEfforts: []string{"low", "high"}}},
-	}}
-	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "off", "high"); got != "" {
-		t.Fatalf("explicit off resolved to %q", got)
-	}
-	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "", "high"); got != "high" {
-		t.Fatalf("inherited effort resolved to %q", got)
-	}
-	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "low", "high"); got != "low" {
-		t.Fatalf("session override resolved to %q", got)
-	}
-}
-
 func TestRunDaemonRejectsInvalidArguments(t *testing.T) {
 	if err := daemonCLI([]string{"unexpected"}); err == nil {
 		t.Fatal("hidden daemon accepted positional arguments")
@@ -193,6 +183,9 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 		var input llm.Request
 		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if respondToTitleRequest(t, w, input) {
 			return
 		}
 		requests <- input
@@ -229,15 +222,15 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, nil) }()
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var client *daemon.Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: version, ClientID: "rlm-only", ClientKind: "test",
+		client, err = daemonclient.DialClient(context.Background(), paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, BuildID: version, ClientID: "rlm-only", ClientKind: "test",
 		})
 		if err == nil {
 			break
@@ -259,14 +252,14 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 		t.Fatalf("daemon did not become ready: %v", err)
 	}
 	createPayload, _ := json.Marshal(map[string]string{"kind": string(session.SessionKindAgent), "cwd": home, "model": "test-model", "provider": "test-provider"})
-	created, err := client.Command(context.Background(), daemon.CommandParams{
+	created, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "rlm-create", Scope: "daemon", Operation: "session.create", Payload: createPayload,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	turnPayload, _ := json.Marshal(map[string]string{"text": "try the runtime"})
-	turn, err := client.Command(context.Background(), daemon.CommandParams{
+	turn, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "rlm-turn", Scope: "root", RootID: created.Output, Operation: "submit", Payload: turnPayload,
 	})
 	if err != nil || turn.Output != "rlm done" || calls.Load() != 2 {
@@ -371,35 +364,138 @@ func TestResolveRuntimeModelUsesSelectedProviderPricing(t *testing.T) {
 	}
 }
 
-func TestRuntimeModelDoesNotRouteBuiltinCompactionToAnotherProvider(t *testing.T) {
+func TestConfigureRuntimeCompactionAutomaticUsesConversation(t *testing.T) {
+	for _, name := range []string{"first run", "openai only", "blank with stale provider"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
+			cfg := config.Default()
+			if name != "first run" {
+				cfg = &config.Config{
+					DefaultModel: "host-default", DefaultProvider: "openai",
+					Providers: map[string]config.Provider{
+						"openai": {BaseURL: "https://api.openai.com/v1", APIKey: "fixture"},
+					},
+					Models: map[string]config.Model{
+						"host-default": {Providers: []string{"openai"}},
+					},
+				}
+			}
+			if name == "blank with stale provider" {
+				cfg.CompactProvider = "missing-provider"
+			}
+			client := &llm.Client{BaseURL: "https://conversation.test/v1"}
+			ag := &agent.Agent{Client: client, Model: "conversation-model", Provider: "conversation-provider"}
+			configureRuntimeCompaction(ag, cfg, agentdef.CompactionDefaults{}, nil)
+			if ag.CompactClient != nil || ag.CompactModel != "" || ag.CompactProvider != "" || ag.CompactFallback != "" {
+				t.Fatalf("automatic mode resolved a separate route: model=%q provider=%q fallback=%q",
+					ag.CompactModel, ag.CompactProvider, ag.CompactFallback)
+			}
+			if ag.Client != client || ag.Model != "conversation-model" || ag.Provider != "conversation-provider" {
+				t.Fatal("automatic compaction changed the conversation route")
+			}
+			if ag.CompactThreshold != 0.5 {
+				t.Fatalf("automatic threshold = %v, want 0.5", ag.CompactThreshold)
+			}
+		})
+	}
+}
+
+func TestConfigureRuntimeCompactionCustomRoute(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	t.Setenv(config.InferenceNetEnvVar, "")
-	cfg := config.Default()
-	cfg.DefaultModel, cfg.DefaultProvider = "router-coding", "openrouter"
-	cfg.Providers["openrouter"] = config.Provider{BaseURL: "https://router.test/v1", APIKey: "fixture"}
-	cfg.Models["router-coding"] = config.Model{Providers: []string{"openrouter"}, Context: 8192}
-	if err := config.SaveCatalogs(map[string]config.Catalog{"openrouter": {BaseURL: "https://router.test/v1", Models: []config.ModelInfoLite{{ID: "router-coding"}}}}); err != nil {
+	price := llm.Pricing{Prompt: "0.000002", Completion: "0.000004"}
+	cfg := &config.Config{
+		Providers: map[string]config.Provider{"custom": {BaseURL: "https://custom.test/v1", APIKey: "fixture"}},
+		Models: map[string]config.Model{
+			"summarizer":             {ID: "summary-api", Providers: []string{"custom"}},
+			"deepseek-v4-flash-0731": {Providers: []string{"custom"}, Context: 16000, MaxOut: 1200},
+		},
+		CompactModel: "summarizer", CompactProvider: "custom", CompactPct: 65,
+	}
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"custom": {BaseURL: "https://custom.test/v1", Models: []config.ModelInfoLite{
+			{ID: "summary-api", ContextLength: 32000, MaxCompletionTokens: 2048, Pricing: price},
+		}},
+	}); err != nil {
 		t.Fatal(err)
 	}
-	main, _, err := resolveRuntimeModel(cfg, "", "")
-	if err != nil || main.Model != "router-coding" || main.Provider != "openrouter" {
-		t.Fatalf("main route: %+v, %v", main, err)
+	ag := &agent.Agent{}
+	configureRuntimeCompaction(ag, cfg, agentdef.CompactionDefaults{}, nil)
+	if ag.CompactClient == nil || ag.CompactModel != "summary-api" || ag.CompactProvider != "custom" {
+		t.Fatalf("custom route = %q %q", ag.CompactModel, ag.CompactProvider)
 	}
-	if _, _, err := resolveRuntimeModel(cfg, cfg.CompactModel, cfg.CompactProvider); err == nil {
-		t.Fatal("built-in Inference compaction model was routed to OpenRouter; factory must retain main-model fallback")
+	if ag.CompactContextLimit != 32000 || ag.CompactMaxTokens != 2048 || ag.CompactPricing != price {
+		t.Fatalf("custom limits/pricing = %d %d %+v", ag.CompactContextLimit, ag.CompactMaxTokens, ag.CompactPricing)
 	}
-	// A deliberately configured auxiliary model on this provider still works.
-	cfg.CompactModel = "router-coding"
-	compact, _, err := resolveRuntimeModel(cfg, cfg.CompactModel, cfg.CompactProvider)
-	if err != nil || compact.Model != main.Model || compact.Provider != main.Provider {
-		t.Fatalf("configured compaction: %+v, %v", compact, err)
+	if ag.CompactThreshold != 0.65 || ag.CompactFallback != "" {
+		t.Fatalf("custom settings = %v %q", ag.CompactThreshold, ag.CompactFallback)
+	}
+
+	// An explicitly stored former default remains a custom model; definitions
+	// take precedence over host settings without guessing at user intent.
+	ag = &agent.Agent{}
+	configureRuntimeCompaction(ag, cfg, agentdef.CompactionDefaults{
+		Model: "deepseek-v4-flash-0731", Provider: "custom", Threshold: 0.3,
+	}, nil)
+	if ag.CompactModel != "deepseek-v4-flash-0731" || ag.CompactThreshold != 0.3 || ag.CompactMaxTokens != 1200 {
+		t.Fatalf("definition override = %q %v %d", ag.CompactModel, ag.CompactThreshold, ag.CompactMaxTokens)
+	}
+}
+
+func TestConfigureRuntimeCompactionMissingCustomFallsBack(t *testing.T) {
+	for _, name := range []string{"missing route", "missing credentials", "disabled provider"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("WHIPCODE_HOME", t.TempDir())
+			t.Setenv("WHIP_TEST_MISSING_COMPACTION_KEY", "")
+			cfg := &config.Config{
+				CompactModel: "deepseek-v4-flash-0731", CompactProvider: "custom",
+				Providers: map[string]config.Provider{}, Models: map[string]config.Model{},
+			}
+			if name != "missing route" {
+				cfg.Models[cfg.CompactModel] = config.Model{Providers: []string{"custom"}}
+				cfg.Providers["custom"] = config.Provider{
+					BaseURL: "https://custom.test/v1", APIKeyEnv: "WHIP_TEST_MISSING_COMPACTION_KEY",
+				}
+			}
+			if name == "disabled provider" {
+				cfg.Providers["custom"] = config.Provider{BaseURL: "https://custom.test/v1", Auth: "none"}
+				cfg.DisabledProviders = []string{"custom"}
+			}
+			ag := &agent.Agent{Model: "conversation-model", Provider: "openai"}
+			configureRuntimeCompaction(ag, cfg, agentdef.CompactionDefaults{}, nil)
+			if ag.CompactClient != nil || ag.CompactModel != "" || ag.Model != "conversation-model" || ag.Provider != "openai" {
+				t.Fatal("unavailable custom route did not retain conversation fallback")
+			}
+			if ag.CompactFallback != "Custom summarizer unavailable; using this conversation’s model." {
+				t.Fatalf("fallback = %q", ag.CompactFallback)
+			}
+		})
+	}
+}
+
+func TestConfigureRuntimeCompactionClampsLegacyThresholds(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		percent int
+		want    float64
+	}{
+		{name: "automatic", want: 0.5},
+		{name: "legacy low", percent: 5, want: 0.1},
+		{name: "legacy high", percent: 95, want: 0.9},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ag := &agent.Agent{}
+			configureRuntimeCompaction(ag, &config.Config{CompactPct: test.percent}, agentdef.CompactionDefaults{}, nil)
+			if ag.CompactThreshold != test.want {
+				t.Fatalf("threshold = %v, want %v", ag.CompactThreshold, test.want)
+			}
+		})
 	}
 }
 
 func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +503,7 @@ func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runDaemon(context.Background(), nil); !errors.Is(err, daemon.ErrDaemonOwned) {
+	if err := runDaemon(context.Background(), nil); !errors.Is(err, daemonconn.ErrDaemonOwned) {
 		t.Fatalf("second daemon owner = %v", err)
 	}
 	_ = owner.Close()
@@ -422,7 +518,7 @@ func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,11 +528,11 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 	t.Cleanup(func() { restartDaemonBinary = previousRestart })
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(context.Background(), nil) }()
-	var client *daemon.Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, ClientID: "restart-test", ClientKind: "automation",
+		client, err = daemonclient.DialClient(context.Background(), paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, ClientID: "restart-test", ClientKind: "automation",
 		})
 		if err == nil {
 			break
@@ -447,13 +543,13 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(map[string]string{"reason": "test"})
-	result, err := client.Command(context.Background(), daemon.CommandParams{
+	result, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "checkpoint", Scope: "daemon", Operation: "daemon.checkpoint", Payload: payload,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var notice daemon.RestartNotice
+	var notice protocol.RestartNotice
 	if err := json.Unmarshal([]byte(result.Output), &notice); err != nil {
 		t.Fatal(err)
 	}
@@ -468,17 +564,17 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", home)
-	paths, err := daemon.Paths(home)
+	paths, err := daemonconn.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(context.Background(), nil) }()
-	var client *daemon.Client
+	var client *daemonclient.Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, ClientID: "stop-test", ClientKind: "automation",
+		client, err = daemonclient.DialClient(context.Background(), paths, protocol.InitializeParams{
+			ProtocolMajor: protocol.Major, ClientID: "stop-test", ClientKind: "automation",
 		})
 		if err == nil {
 			break
@@ -489,13 +585,13 @@ func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(map[string]string{"reason": "test"})
-	result, err := client.Command(context.Background(), daemon.CommandParams{
+	result, err := client.Command(context.Background(), protocol.CommandParams{
 		CommandID: "checkpoint-stop", Scope: "daemon", Operation: "daemon.checkpoint", Payload: payload,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var notice daemon.RestartNotice
+	var notice protocol.RestartNotice
 	if err := json.Unmarshal([]byte(result.Output), &notice); err != nil {
 		t.Fatal(err)
 	}

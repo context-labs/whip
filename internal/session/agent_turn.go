@@ -162,7 +162,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 // success, failure, cancellation, and interruption all return it to idle.
 func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, commit AgentTurnCommit) error {
 	status := commit.Status
-	if status != "succeeded" && status != "failed" && status != "cancelled" && status != "interrupted" {
+	if !IsTerminalTurnStatus(status) {
 		return fmt.Errorf("invalid turn status %q", status)
 	}
 	if commit.TurnID == "" {

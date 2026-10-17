@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	acpsdk "github.com/coder/acp-go-sdk"
+	daemonclient "github.com/context-labs/whip/internal/client"
 
-	"github.com/context-labs/whip/internal/daemon"
+	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/context-labs/whip/internal/mcp"
 )
 
@@ -15,11 +15,11 @@ type seededACPBackend struct {
 	id string
 }
 
-func (b *seededACPBackend) NewRoot(ctx context.Context, _ string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+func (b *seededACPBackend) NewRoot(ctx context.Context, _ string, servers map[string]mcp.ServerConfig) (*daemonclient.RootClient, error) {
 	return b.fakeACPBackend.LoadRoot(ctx, b.id, "", servers)
 }
 
-func (b *seededACPBackend) LoadRoot(ctx context.Context, _, _ string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+func (b *seededACPBackend) LoadRoot(ctx context.Context, _, _ string, servers map[string]mcp.ServerConfig) (*daemonclient.RootClient, error) {
 	return b.NewRoot(ctx, "", servers)
 }
 

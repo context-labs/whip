@@ -61,7 +61,8 @@ func modelAccountingRuntimeAt(t *testing.T, path string, handler http.HandlerFun
 		}
 	}
 	var runtime *RecursiveRuntime
-	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		client := llm.New(provider.URL, "local-test-key")
 		client.MaxRetries = 1
 		value := agent.NewRuntime(client, "root-model", 128, "", tools.NewServices())
@@ -79,7 +80,7 @@ func modelAccountingRuntimeAt(t *testing.T, path string, handler http.HandlerFun
 		if err != nil {
 			return Components{}, err
 		}
-		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -557,8 +558,11 @@ func TestModelAccountingAcceptanceAutomaticAndUnfundedTitles(t *testing.T) {
 		value.CompactClient, value.CompactModel, value.CompactProvider = value.Client, "title-model", "title-provider"
 		value.CompactPricing = llm.Pricing{Prompt: "0.1", Completion: "0.2"}
 	})
-	if result := clientCommand(t, root, "tui", "enable-title", "session.autotitle", protocol.EmptyParams{}); result.Status != "succeeded" {
-		t.Fatalf("enable title: %+v", result)
+	if err := root.routeControl(t.Context(), func(context.Context) error {
+		root.definition.Surface.AutoTitle = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 	receipt, err := root.Submit(t.Context(), "Inspect model accounting")
 	if err != nil || waitReceipt(t, receipt).Err != nil {
@@ -585,7 +589,7 @@ func TestModelAccountingAcceptanceAutomaticAndUnfundedTitles(t *testing.T) {
 	if err := store.SetBudgetLimit(t.Context(), root.ID(), "", session.BudgetTokens, 31); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := runtime.rootNode.GenerateTitle(t.Context()); err == nil {
+	if _, _, err := runtime.rootNode.GenerateTitle(t.Context(), "Inspect model accounting"); err == nil {
 		t.Fatal("unfunded title made a provider request")
 	}
 	if titleRequests.Load() != 1 {

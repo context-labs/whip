@@ -381,10 +381,11 @@ configuration. A configured route alone does not mean an account is connected.
 Sign-in preserves current model defaults. Select an advertised subscription
 model explicitly, for example `/model gpt-5.5 openai-codex`. The new-session
 and conversation model menus include discovered models and identify the provider
-for each choice, including when API and subscription routes share a model name. To use the
-subscription for titles and compaction as well, select it under Settings →
-Agents & execution → Context compaction. Existing compaction settings still
-apply independently to every conversation.
+for each choice, including when API and subscription routes share a model name.
+Automatic compaction and titles follow the conversation's subscription route.
+Existing saved custom compaction routes remain separate overrides; reset Summary
+model to Conversation Model under Settings → Agents & execution → Context compaction to
+follow the conversation again.
 
 The adapter uses streamed Responses with `store:false`. Text, images on
 advertised vision models, reasoning summaries, and `rlm_exec` tool round trips
@@ -503,11 +504,46 @@ a charge or the route is known to be free.
 
 ## Compaction model
 
-Compaction summarizes with a separate, cheaper model:
-`compactModel`/`compactProvider` in config, defaulting to
-`deepseek-v4-flash-0731` (`config.DefaultCompactModel`), falling back to the
-conversation's own model. `/compact <model> [provider]` picks the summarizer
-by hand. Mechanics: [agent-loop.md](agent-loop.md#compaction).
+Compaction uses **Conversation Model** by default: each agent summarizes older active
+context using its own conversation model and provider. It needs no additional
+provider connection and does not delete the raw transcript. Automatic session
+titles use the same route selection.
+
+An empty or omitted `compactModel` selects **Conversation Model**; `compactProvider`
+is then ignored. Existing explicitly saved models, including the former DeepSeek
+default, remain custom overrides. In Settings → Agents & execution, **Summary
+model** directly selects Conversation Model or a connected model/provider pair
+from the catalog picker. There is no Advanced disclosure or separate mode switch.
+Settings saves are revision-checked and apply when a runtime is created or
+reloaded; the session inspector can save the same host defaults and reload its
+idle session. Agent-definition overrides still take precedence. The /compact
+command also selects a custom summarizer.
+
+Update the execution host together with this UI. Older hosts interpreted an empty
+summary model as the built-in DeepSeek route; the current protocol/build metadata
+does not reliably distinguish those semantics. A compatibility note remains visible
+when Conversation Model is selected. Do not reset explicit DeepSeek configurations
+merely because that model was once the default.
+
+`compactPct: 0` (or omitted) uses the default, currently **50%** of the conversation
+model's context window. **Compact at** offers 10%, 20%, … 90%. Existing saved
+non-ten percentages remain visible and unchanged until explicitly edited, and
+out-of-range values display their clamped effective threshold. The API continues
+to accept any integer in 10–90%, or zero for the default. Unrelated saves preserve
+the raw zero/legacy values. An explicit new 50% selection saves 50 unless returning
+to the unchanged zero default. This is a trigger, not a compression ratio.
+Provider-reported prompt usage drives the
+trigger, with an estimate when usage is unavailable. If the context window is
+unknown, only reactive context-limit recovery applies.
+
+A custom route that cannot be resolved falls back to the conversation route.
+Compaction also checks a custom route's known context capacity before sending the
+summary. Runtime fallback is bounded and only follows a definite safe rejection,
+not uncertain completion, partial output, cancellation, or accounting/budget
+failure. Both attempted routes retain normal accounting. A notice explains a
+fallback, and the successful summary's trace records the actual model/provider
+and fallback reason. Conversation Model never selects another vendor or ranks models by
+price. Mechanics: [agent-loop.md](agent-loop.md#context-focusing).
 
 ## Read next
 

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 func TestUpcomingSchedulesOffsetAndFractionalOccurrence(t *testing.T) {
@@ -14,7 +16,7 @@ func TestUpcomingSchedulesOffsetAndFractionalOccurrence(t *testing.T) {
 		{"whole second", "2026-09-20T17:00:00-06:00", "2026-09-20T23:00:00.000000000Z"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+			store, err := Open(filepath.Join(t.TempDir(), "runtime.db"), capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}

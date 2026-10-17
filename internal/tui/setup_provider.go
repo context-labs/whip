@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/tui/ui"
 )
 
@@ -503,7 +503,7 @@ func (s *providerSetup) setProviderDisabled(disabled bool) tea.Cmd {
 		if disabled {
 			providers = append(providers, provider)
 		}
-		_, err = host.UpdateConfiguration(ctx, daemon.ConfigurationUpdate{Revision: revision, DisabledProviders: &providers})
+		_, err = host.UpdateConfiguration(ctx, protocol.ConfigurationUpdate{Revision: revision, DisabledProviders: &providers})
 		return setupReply{err: err}
 	})
 }

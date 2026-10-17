@@ -8,13 +8,12 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
+	"github.com/context-labs/whip/internal/protocol"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/context-labs/whip/internal/tui/ui"
-
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/tui/ui"
 )
 
 var errProviderReadinessUnavailable = errors.New("this execution host cannot report provider readiness; update Whip on the host and restart it, then reconnect")
@@ -36,7 +35,7 @@ type providerSetup struct {
 	model, provider                   string
 	list                              protocol.ProviderList
 	catalogs                          protocol.ProviderCatalogsResult
-	login                             daemon.ProviderLoginStatus
+	login                             protocol.ProviderLoginStatus
 	loginFeedback                     string
 	openedURL                         string
 	mode                              string
@@ -64,7 +63,7 @@ type setupReply struct {
 	kind          string
 	list          protocol.ProviderList
 	catalogs      protocol.ProviderCatalogsResult
-	login         daemon.ProviderLoginStatus
+	login         protocol.ProviderLoginStatus
 	err           error
 	configuration protocol.ProviderConfiguration
 	model         string
@@ -348,7 +347,7 @@ func (s *providerSetup) connectMethod(entry protocol.ProviderEntry, method strin
 	s.provider, s.model, s.effort, s.selected = entry.ID, "", "", 0
 	s.autoModel = false
 	s.notice, s.message, s.loginFeedback = "", "", ""
-	s.login, s.openedURL = daemon.ProviderLoginStatus{}, ""
+	s.login, s.openedURL = protocol.ProviderLoginStatus{}, ""
 	s.pickKey = false
 	s.input.Reset()
 	s.input.EchoMode = textinput.EchoNormal
@@ -385,7 +384,7 @@ func setupLoginActive(state string) bool {
 	return state != "succeeded" && state != "failed" && state != "expired" && state != "cancelled" && state != "interrupted"
 }
 
-func (s *providerSetup) applyLogin(status daemon.ProviderLoginStatus) tea.Cmd {
+func (s *providerSetup) applyLogin(status protocol.ProviderLoginStatus) tea.Cmd {
 	s.login = status
 	if status.VerificationURL != "" && s.openedURL != status.VerificationURL {
 		s.openedURL = status.VerificationURL
@@ -423,7 +422,7 @@ func (s *providerSetup) poll() tea.Cmd {
 func (s *providerSetup) chooseLogin(choice string, project bool) tea.Cmd {
 	host, id := s.host, s.login.FlowID
 	return s.call("login", func(ctx context.Context) setupReply {
-		var status daemon.ProviderLoginStatus
+		var status protocol.ProviderLoginStatus
 		var err error
 		if project {
 			status, err = host.SelectLoginProject(ctx, id, choice)
@@ -451,7 +450,7 @@ func (s *providerSetup) useModel() tea.Cmd {
 		if !persist {
 			return setupReply{}
 		}
-		_, err := host.UpdateConfiguration(ctx, daemon.ConfigurationUpdate{
+		_, err := host.UpdateConfiguration(ctx, protocol.ConfigurationUpdate{
 			Revision: revision, DefaultModel: &model, DefaultProvider: &provider,
 			DefaultEffort: effort,
 		})
@@ -598,7 +597,7 @@ func (s *providerSetup) keypress(msg tea.KeyPressMsg) tea.Cmd {
 			}
 			host, revision, provider := s.host, s.list.Revision, s.provider
 			return s.call("key", func(ctx context.Context) setupReply {
-				_, err := host.SetProviderKey(ctx, daemon.ProviderKeySetup{Revision: revision, Provider: provider, Key: key})
+				_, err := host.SetProviderKey(ctx, protocol.ProviderKeySetup{Revision: revision, Provider: provider, Key: key})
 				return setupReply{err: err}
 			})
 		case "teams":

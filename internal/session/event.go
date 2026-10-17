@@ -398,9 +398,9 @@ func readSnapshotMessages(ctx context.Context, tx *sql.Tx, rootID string, snapsh
 }
 
 func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
-	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,a.model,a.provider,a.effort,a.cwd,a.report,a.status,a.last_turn,
+	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,`+rootSelectionColumns+`,a.report,a.status,a.last_turn,
 		(SELECT count(*) FROM agent_messages m WHERE m.root_id=a.root_id AND m.recipient_agent_id=a.id AND m.status='pending')
-		FROM agents a WHERE a.root_id=? ORDER BY a.created_at,a.id LIMIT ?`, rootID, snapshot.collectionLimit())
+		FROM agents a JOIN sessions s ON s.id=a.root_id WHERE a.root_id=? ORDER BY a.created_at,a.id LIMIT ?`, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
 	}

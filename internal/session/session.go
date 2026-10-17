@@ -8,15 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"time"
 
-	_ "modernc.org/sqlite"
-
-	"github.com/context-labs/whip/internal/capability"
-	contentstore "github.com/context-labs/whip/internal/content"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -57,61 +51,6 @@ type Meta struct {
 	UsageCached        int         `json:"usage_cached"` // of UsageIn, tokens served from the provider's prompt cache
 	UsageOut           int         `json:"usage_out"`    // cumulative output tokens
 	UpdatedAt          time.Time   `json:"updated_at"`
-}
-
-type Store struct {
-	db          *sql.DB
-	content     *contentstore.Store
-	workspaces  *capability.Workspaces
-	processes   *capability.ProcessManager
-	daemonOwned atomic.Bool
-	globalRules atomic.Pointer[[]string] // config permissions.allow, "operation:rule" entries
-}
-
-// AcquireDaemon is the in-process guard for one Daemon per Store. The runtime
-// also holds the cross-process socket/file lock before constructing the Store.
-func (s *Store) AcquireDaemon() bool { return s.daemonOwned.CompareAndSwap(false, true) }
-func (s *Store) ReleaseDaemon()      { s.daemonOwned.Store(false) }
-
-// Open opens (creating if needed) the sessions database at path.
-func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	failed := true
-	defer func() {
-		if failed {
-			_ = db.Close()
-		}
-	}()
-	if _, err := db.ExecContext(context.Background(), "PRAGMA busy_timeout=5000"); err != nil {
-		return nil, err
-	}
-	if err := migrate(context.Background(), db, path); err != nil {
-		return nil, err
-	}
-	for _, pragma := range []string{
-		"PRAGMA journal_mode=WAL",   // faster commits, no read/write blocking
-		"PRAGMA synchronous=NORMAL", // safe in WAL; skips per-commit fsync
-		"PRAGMA temp_store=MEMORY",
-		"PRAGMA foreign_keys=ON",
-	} {
-		if _, err := db.ExecContext(context.Background(), pragma); err != nil {
-			return nil, err
-		}
-	}
-	content, err := contentstore.New(filepath.Dir(path))
-	if err != nil {
-		return nil, err
-	}
-	store := &Store{
-		db: db, content: content,
-		workspaces: capability.NewWorkspaces(), processes: capability.NewProcessManager(),
-	}
-	failed = false
-	return store, nil
 }
 
 // SetGoal stores the session's active goal ("" clears it).
@@ -167,8 +106,6 @@ func (s *Store) SetUsage(id string, in, cached, out int) error {
 	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET usage_in=?, usage_cached=?, usage_out=? WHERE id=?`, in, cached, out, id)
 	return err
 }
-
-func (s *Store) Close() error { return errors.Join(s.processes.Close(), s.db.Close()) }
 
 // stampLayout is RFC 3339 with a fixed nine-digit fraction: stored stamps
 // keep nanoseconds, sort lexicographically as text, and still parse with
@@ -246,6 +183,8 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 			return err
 		}
 	}
+	// Legacy bulk-history writers have no input admission boundary. The actor
+	// runtime initializes titles at admission instead of using this fallback.
 	title := ProvisionalTitle(msgs)
 	if _, err := tx.ExecContext(context.Background(), `UPDATE sessions SET updated_at=?, model=?, provider=?, title=CASE WHEN title='' THEN ? ELSE title END WHERE id=?`,
 		now(), model, provider, title, id); err != nil {
@@ -261,27 +200,35 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 
 // Load resolves idOrPrefix to a session and returns its metadata and messages.
 func (s *Store) Load(idOrPrefix string) (Meta, []llm.Message, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at,execution_engine,definition,definition_revision FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
+	meta, err := s.LoadMeta(idOrPrefix)
 	if err != nil {
 		return Meta{}, nil, err
 	}
-	metas, err := scanMetas(rows)
-	if err != nil {
-		return Meta{}, nil, err
-	}
-	switch len(metas) {
-	case 0:
-		return Meta{}, nil, fmt.Errorf("no session matching %q", idOrPrefix)
-	case 1:
-	default:
-		return Meta{}, nil, fmt.Errorf("session id %q is ambiguous", idOrPrefix)
-	}
-	meta := metas[0]
 	msgs, err := s.loadMessages(meta.ID)
 	if err != nil {
 		return Meta{}, nil, err
 	}
 	return meta, msgs, nil
+}
+
+// LoadMeta resolves a session ID or unique prefix without reading its transcript.
+func (s *Store) LoadMeta(idOrPrefix string) (Meta, error) {
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at,execution_engine,definition,definition_revision FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
+	if err != nil {
+		return Meta{}, err
+	}
+	metas, err := scanMetas(rows)
+	if err != nil {
+		return Meta{}, err
+	}
+	switch len(metas) {
+	case 0:
+		return Meta{}, fmt.Errorf("no session matching %q", idOrPrefix)
+	case 1:
+	default:
+		return Meta{}, fmt.Errorf("session id %q is ambiguous", idOrPrefix)
+	}
+	return metas[0], nil
 }
 
 // loadMessages reads one root session's full message log by exact id after
@@ -922,9 +869,11 @@ func (s *Store) SetTitle(id, title string) error {
 	return err
 }
 
-// SetTitleIf preserves an explicit /rename that races automatic title work.
-func (s *Store) SetTitleIf(id, current, title string) (bool, error) {
-	result, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET title=? WHERE id=? AND title=?`, title, id, current)
+// SetTitleIfContext conditionally retitles a session with the caller's persistence
+// deadline. The caller must separately invalidate work on an explicit rename,
+// including a rename back to the same text. Deleted sessions are a no-op.
+func (s *Store) SetTitleIfContext(ctx context.Context, id, current, title string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE sessions SET title=? WHERE id=? AND title=?`, title, id, current)
 	if err != nil {
 		return false, err
 	}
@@ -934,7 +883,8 @@ func (s *Store) SetTitleIf(id, current, title string) (bool, error) {
 
 // Fork copies a session's stored rows with seq <= uptoSeq (pass len(msgs)
 // for a full copy — one past the last row) into a new session titled title,
-// carrying over cwd/model/provider/goal, and returns the new id. seq equals
+// carrying over cwd/model/provider/goal and the permission mode, and returns
+// the new id. seq equals
 // the conversation index (the system prompt is never persisted). The source
 // session is untouched. The fork also gets a snapshot of active content grants
 // readable by the source root. It shares immutable references, preserving their
@@ -949,8 +899,8 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	result, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort,execution_engine,definition,definition_revision)
-		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort,execution_engine,definition,definition_revision FROM sessions WHERE id=? AND kind='agent'`,
+	result, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort,permission_mode,execution_engine,definition,definition_revision)
+		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort,permission_mode,execution_engine,definition,definition_revision FROM sessions WHERE id=? AND kind='agent'`,
 		newID, now(), now(), title, srcID, uptoSeq, srcID)
 	if err != nil {
 		return "", err

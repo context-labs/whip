@@ -23,43 +23,43 @@ func (s *Session) mutateState(ctx context.Context, callerAgentID string, payload
 
 func (s *Session) GetPrivateState(ctx context.Context, callerAgentID, key string) (sessionstore.StateValue, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.StateValue, error) {
-		return s.store.GetPrivateState(actorCtx, s.meta.ID, callerAgentID, key)
+		return s.store.GetPrivateState(actorCtx, s.id, callerAgentID, key)
 	})
 }
 
 func (s *Session) ListPrivateState(ctx context.Context, callerAgentID string) ([]sessionstore.StateValue, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.StateValue, error) {
-		return s.store.ListPrivateState(actorCtx, s.meta.ID, callerAgentID)
+		return s.store.ListPrivateState(actorCtx, s.id, callerAgentID)
 	})
 }
 
 func (s *Session) SetPrivateState(ctx context.Context, callerAgentID, key string, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
 	return s.mutateState(ctx, callerAgentID, payload, func(actorCtx context.Context, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
-		return s.store.SetPrivateState(actorCtx, s.meta.ID, callerAgentID, key, payload)
+		return s.store.SetPrivateState(actorCtx, s.id, callerAgentID, key, payload)
 	})
 }
 
 func (s *Session) AppendPrivateState(ctx context.Context, callerAgentID, key string, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
 	return s.mutateState(ctx, callerAgentID, payload, func(actorCtx context.Context, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
-		return s.store.AppendPrivateState(actorCtx, s.meta.ID, callerAgentID, key, payload)
+		return s.store.AppendPrivateState(actorCtx, s.id, callerAgentID, key, payload)
 	})
 }
 
 func (s *Session) CompareAndSwapPrivateState(ctx context.Context, callerAgentID, key string, expectedVersion int64, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
 	return s.mutateState(ctx, callerAgentID, payload, func(actorCtx context.Context, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
-		return s.store.CompareAndSwapPrivateState(actorCtx, s.meta.ID, callerAgentID, key, expectedVersion, payload)
+		return s.store.CompareAndSwapPrivateState(actorCtx, s.id, callerAgentID, key, expectedVersion, payload)
 	})
 }
 
 func (s *Session) GetBlackboard(ctx context.Context, callerAgentID, key string) (sessionstore.StateValue, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.StateValue, error) {
-		return s.store.GetBlackboard(actorCtx, s.meta.ID, callerAgentID, key)
+		return s.store.GetBlackboard(actorCtx, s.id, callerAgentID, key)
 	})
 }
 
 func (s *Session) SetBlackboard(ctx context.Context, callerAgentID, key string, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
 	return s.mutateState(ctx, callerAgentID, payload, func(actorCtx context.Context, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
-		value, err := s.store.SetBlackboard(actorCtx, s.meta.ID, callerAgentID, key, payload)
+		value, err := s.store.SetBlackboard(actorCtx, s.id, callerAgentID, key, payload)
 		if err == nil {
 			s.wakeSubscribers(key)
 		}
@@ -69,7 +69,7 @@ func (s *Session) SetBlackboard(ctx context.Context, callerAgentID, key string, 
 
 func (s *Session) AppendBlackboard(ctx context.Context, callerAgentID, key string, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
 	return s.mutateState(ctx, callerAgentID, payload, func(actorCtx context.Context, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
-		value, err := s.store.AppendBlackboard(actorCtx, s.meta.ID, callerAgentID, key, payload)
+		value, err := s.store.AppendBlackboard(actorCtx, s.id, callerAgentID, key, payload)
 		if err == nil {
 			s.wakeSubscribers(key)
 		}
@@ -79,7 +79,7 @@ func (s *Session) AppendBlackboard(ctx context.Context, callerAgentID, key strin
 
 func (s *Session) CompareAndSwapBlackboard(ctx context.Context, callerAgentID, key string, expectedVersion int64, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
 	return s.mutateState(ctx, callerAgentID, payload, func(actorCtx context.Context, payload sessionstore.RuntimePayload) (sessionstore.StateValue, error) {
-		value, err := s.store.CompareAndSwapBlackboard(actorCtx, s.meta.ID, callerAgentID, key, expectedVersion, payload)
+		value, err := s.store.CompareAndSwapBlackboard(actorCtx, s.id, callerAgentID, key, expectedVersion, payload)
 		if err == nil {
 			s.wakeSubscribers(key)
 		}
@@ -91,7 +91,7 @@ func (s *Session) CompareAndSwapBlackboard(ctx context.Context, callerAgentID, k
 // row was committed with the mutation; the durable inbox is the truth and a
 // spurious wake is harmless.
 func (s *Session) wakeSubscribers(key string) {
-	ids, err := s.store.SubscribedAgents(context.Background(), s.meta.ID, key)
+	ids, err := s.store.SubscribedAgents(context.Background(), s.id, key)
 	if err != nil {
 		return
 	}
@@ -102,7 +102,7 @@ func (s *Session) wakeSubscribers(key string) {
 
 func (s *Session) BlackboardHistory(ctx context.Context, callerAgentID, key string) ([]sessionstore.StateValue, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.StateValue, error) {
-		return s.store.BlackboardHistory(actorCtx, s.meta.ID, callerAgentID, key)
+		return s.store.BlackboardHistory(actorCtx, s.id, callerAgentID, key)
 	})
 }
 
@@ -114,7 +114,7 @@ func (s *Session) CreateBlackboardSubscription(ctx context.Context, callerAgentI
 		var subscription sessionstore.BlackboardSubscription
 		err := s.consumeBudgets(actorCtx, callerAgentID, reservations, func() error {
 			var err error
-			subscription, err = s.store.CreateBlackboardSubscription(actorCtx, s.meta.ID, callerAgentID, key)
+			subscription, err = s.store.CreateBlackboardSubscription(actorCtx, s.id, callerAgentID, key)
 			return err
 		})
 		return subscription, err
@@ -123,12 +123,12 @@ func (s *Session) CreateBlackboardSubscription(ctx context.Context, callerAgentI
 
 func (s *Session) ListBlackboardSubscriptions(ctx context.Context, callerAgentID string) ([]sessionstore.BlackboardSubscription, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.BlackboardSubscription, error) {
-		return s.store.ListBlackboardSubscriptions(actorCtx, s.meta.ID, callerAgentID)
+		return s.store.ListBlackboardSubscriptions(actorCtx, s.id, callerAgentID)
 	})
 }
 
 func (s *Session) CancelBlackboardSubscription(ctx context.Context, callerAgentID, subscriptionID string) error {
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.store.CancelBlackboardSubscription(actorCtx, s.meta.ID, callerAgentID, subscriptionID)
+		return s.store.CancelBlackboardSubscription(actorCtx, s.id, callerAgentID, subscriptionID)
 	})
 }

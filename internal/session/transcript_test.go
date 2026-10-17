@@ -9,7 +9,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -23,7 +25,7 @@ func transcriptCommit(t *testing.T, store *Store, rootID, agentID string, turn i
 		if err := store.StartRootTurn(t.Context(), rootID, agentID, item.InboxSeq); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.CommitRootTurn(t.Context(), RootTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: item.InboxSeq, Messages: messages, Compactions: compactions, Model: "model", Provider: "provider"}); err != nil {
+		if err := store.CommitRootTurn(t.Context(), RootTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: item.InboxSeq, Messages: messages, Compactions: compactions}); err != nil {
 			t.Fatal(err)
 		}
 		return
@@ -41,7 +43,7 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 	for _, child := range []bool{false, true} {
 		t.Run(fmt.Sprintf("child=%t", child), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "sessions.db")
-			store, err := Open(path)
+			store, err := Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -61,6 +63,7 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 			image := llm.ContentPart{Type: "image_url", W: 17, H: 29, ImageURL: &struct {
 				URL string `json:"url"`
 			}{URL: "data:image/png;base64,aW1hZ2U="}}
+			stamp := time.Date(2025, 6, 1, 14, 30, 0, 123, time.UTC)
 			raw := []llm.Message{
 				{Role: "user", Content: "original instruction", Authored: true, Parts: []llm.ContentPart{{Type: "text", Text: "original instruction"}, image}},
 				{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Function: struct {
@@ -68,11 +71,11 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 					Arguments string `json:"arguments"`
 				}{Name: "exec", Arguments: `{"code":"print('precise args')"}`}}}},
 				{Role: "tool", ToolCallID: "call-1", Name: "exec", Content: strings.Repeat("large result Ω ", 200000)},
-				{Role: "assistant", Content: "first answer"},
+				{Role: "assistant", Content: "first answer", SentAt: &stamp},
 				{Role: "user", Content: "second instruction"},
 				{Role: "assistant", Content: "second answer"},
 				{Role: "user", Content: "third instruction"},
-				{Role: "assistant", Content: "third answer"},
+				{Role: "assistant", Content: "third answer", SentAt: &stamp},
 			}
 			raw[1].Continuation = llm.ResponseContinuation{AccountID: "account", Model: "model", Items: `[{"type":"reasoning","encrypted_content":"opaque-model-state"}]`}
 			transcriptCommit(t, store, rootID, agentID, 1, raw[:4])
@@ -83,7 +86,7 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 			if err := store.Close(); err != nil {
 				t.Fatal(err)
 			}
-			store, err = Open(path)
+			store, err = Open(path, capability.NewWorkspaces())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,6 +115,17 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 				}
 				cursor = page.NextSeq
 			}
+			if !child {
+				for i := range restoredRaw {
+					if restoredRaw[i].Role == "user" {
+						wantTurn := map[int]int64{0: 1, 4: 2, 6: 3}[i]
+						if restoredRaw[i].Presentation == nil || restoredRaw[i].Presentation.TurnID != rootTurnID(agentID, wantTurn) {
+							t.Fatal("root input lost its turn provenance")
+						}
+						restoredRaw[i].Presentation = raw[i].Presentation
+					}
+				}
+			}
 			want, _ := json.Marshal(raw)
 			got, _ := json.Marshal(restoredRaw)
 			if string(got) != string(want) {
@@ -125,6 +139,9 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 			}
 			if err != nil || len(view) != 3 || !strings.Contains(view[0].Content, "second summary") || view[0].RawSequence != 6 || view[1].RawSequence != 7 || view[2].Content != "third answer" {
 				t.Fatalf("derived view = %+v, %v", view, err)
+			}
+			if view[0].SentAt != nil || view[1].SentAt != nil || view[2].SentAt == nil || !view[2].SentAt.Equal(stamp) {
+				t.Fatalf("compaction/restoration changed timestamps: %+v", view)
 			}
 		})
 	}
@@ -307,7 +324,7 @@ func TestTranscriptRawCutoffUsesSequenceAndCompactionFailureIsAtomic(t *testing.
 		t.Fatal(err)
 	}
 	cutoff := 3
-	commit := RootTurnCommit{RootID: rootID, AgentID: rootAgentID, InboxSeq: item.InboxSeq, Messages: []llm.Message{{Role: "user", Content: "four"}}, Compactions: []RootCompaction{{Summary: "one and three", RawCutoff: &cutoff}}, Model: "model", Provider: "provider"}
+	commit := RootTurnCommit{RootID: rootID, AgentID: rootAgentID, InboxSeq: item.InboxSeq, Messages: []llm.Message{{Role: "user", Content: "four"}}, Compactions: []RootCompaction{{Summary: "one and three", RawCutoff: &cutoff}}}
 	commitFailure := errors.New("injected after all transcript writes")
 	if err := store.commitRootTurn(t.Context(), commit, func() error { return commitFailure }); !errors.Is(err, commitFailure) {
 		t.Fatalf("injected failure = %v", err)

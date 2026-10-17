@@ -206,6 +206,23 @@ it('names a fold "compaction" and offers the interned prompt and summary for rea
   expect(screen.queryByText(/recorded no excerpt/)).toBeNull();
 });
 
+it.each([
+  ['openai', 'Custom summarizer unavailable; using this conversation’s model.'],
+  ['openai', ''],
+  ['', ''],
+])('shows the recorded compaction route and fallback without consulting saved defaults (%s, %s)', async (provider, fallback) => {
+  const compact = span({ id: 'compact-route', parentId: 'turn', kind: 'llm', name: 'Context summary',
+    attrs: { purpose: 'compaction', model: 'conversation-model', provider, compaction_fallback: fallback } });
+  const f = fixture({ spans: { turn: spans[0]!, [compact.id]: compact } });
+  render(f.app());
+  fireEvent.click(await screen.findByRole('treeitem', { name: /Context summary/ }));
+  const details = screen.getByRole('complementary', { name: 'Span details' });
+  expect(details.textContent).toContain('Summary route');
+  expect(details.textContent).toContain('conversation-model · ' + (provider || 'Provider not recorded'));
+  if (fallback) expect(details.textContent).toContain(fallback);
+  else expect(details.textContent).not.toContain('Custom summarizer unavailable');
+});
+
 it('explains loading, disconnected, truncated and failed evidence without inventing spans', async () => {
   const f = fixture({ loaded: false, loading: true, spans: {} });
   const mounted = render(f.app());

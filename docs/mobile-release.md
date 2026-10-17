@@ -53,7 +53,7 @@ is the toolchain reference; current attempt results belong in the evidence recor
 
 [mobile.yml](../.github/workflows/mobile.yml) runs on the root CI workflow and
 contributes to its required `go` aggregate gate. It has read-only repository
-permissions, uses Node 24 and the root npm lockfile, and runs mobile TypeScript,
+permissions, uses Node 24, Go from `go.mod` and the root npm lockfile, and runs mobile TypeScript,
 Jest, pinned Expo Doctor 1.20.4 and production Metro exports for both platforms.
 It can also be dispatched manually. It does not contact a Whip host, provision
 Tailscale, start an EAS build or submit a binary.
@@ -62,11 +62,16 @@ Reproduce from the repository root:
 
 ```sh
 npm ci
+task generate
 npm run check:mobile
 npm run test:mobile
 npm exec --yes --package=expo-doctor@1.20.4 -- expo-doctor apps/mobile
 npm run export:mobile
 ```
+
+CI initializes the protocol artifacts and SDK once after dependency installation,
+using the same generation/build commands as `task generate`. Refresh local output
+after pulling, switching branches, or changing protocol source before these checks.
 
 Exports prove JavaScript bundling and package resolution. They do not compile
 Swift/Kotlin/C++, test SQLCipher on a device, exercise the native UI or establish
@@ -99,9 +104,14 @@ See [Expo's local development commands](https://docs.expo.dev/more/expo-cli/).
 ## EAS profiles and reproducibility
 
 [eas.json](../apps/mobile/eas.json) pins EAS CLI 23.2.0 and Node 24.14.1. Always run
-EAS from `apps/mobile`. The app's `eas-build-post-install` hook builds `@whip/sdk`
-before Metro uses its generated exports; a clean cloud checkout has no local
-`packages/sdk/dist`. Preserve the root lockfile and this workspace build step.
+EAS from `apps/mobile`. The app's `eas-build-post-install` hook runs
+[`scripts/eas-build-post-install.mjs`](../apps/mobile/scripts/eas-build-post-install.mjs)
+after dependency installation. It uses the exact Go version from `go.mod`,
+downloading an official archive and verifying its checksum/version when the
+installed version does not match. It then runs root `npm run generate` and
+`npm run build` before Metro consumes the protocol and SDK exports. A downloaded
+toolchain is temporary and removed afterward. Preserve the root lockfile and this
+initialization step; it does not reinstall dependencies or add a root npm hook.
 See [monorepo setup](https://docs.expo.dev/build-reference/build-with-monorepos/)
 and [build lifecycle hooks](https://docs.expo.dev/build-reference/npm-hooks/).
 
@@ -122,9 +132,11 @@ npx --yes eas-cli@23.2.0 build:inspect --platform ios --profile preview-simulato
 ```
 
 Run this from `apps/mobile` and choose an unused output directory. Confirm the
-root lockfile, all workspace sources and local native module are included, while
-generated native projects, nested native-module build output, credentials and
-local test data are excluded. EAS runs
+root lockfile, all workspace sources, local native module, `go.mod`, `go.sum`,
+Go generator and its module sources are included.
+Both `packages/protocol/schema/` and `packages/protocol/generated/`, SDK build
+output, generated native projects, nested native-module build output, credentials
+and local test data must be excluded. EAS runs
 Prebuild on the uploaded source; it does not use the local ignored Xcode project.
 See [EAS upload exclusions](https://docs.expo.dev/build-reference/easignore/).
 

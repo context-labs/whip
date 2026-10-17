@@ -24,6 +24,7 @@ func TestRootMailboxFailureRequiresExplicitInputAcrossRestart(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), "sessions.db")
 			store := openStore(t, dbPath)
 			rootID := createRoot(t, store)
+			processes := newTestProcesses(t)
 			open := func() (*Daemon, *Session, *fakeRunner) {
 				runner := &fakeRunner{turn: func(_ context.Context, input string, _ bool) (string, error) {
 					if input == "resume successfully" {
@@ -31,7 +32,7 @@ func TestRootMailboxFailureRequiresExplicitInputAcrossRestart(t *testing.T) {
 					}
 					return "", failure
 				}}
-				owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+				owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 					return Components{Runner: runner}, nil
 				})
 				if err != nil {
@@ -86,6 +87,7 @@ func TestRootMailboxFailureRequiresExplicitInputAcrossRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			store = openStore(t, dbPath)
+			processes = newTestProcesses(t)
 			_, root, runner = open()
 			for range 10 {
 				root.notify()
@@ -142,7 +144,8 @@ func mailboxDeliveryFixture(t *testing.T) (*session.Store, *Session, *AgentSessi
 	t.Helper()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+	processes := newTestProcesses(t)
+	owner, err := New(store, processes, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
 	})
 	if err != nil {
