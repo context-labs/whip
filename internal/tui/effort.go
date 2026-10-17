@@ -6,10 +6,6 @@ import (
 	"github.com/context-labs/whip/internal/config"
 )
 
-// defaultEfforts are the fallback levels when the provider doesn't advertise
-// supported reasoning efforts. "off" sends no reasoning parameter.
-var defaultEfforts = []string{"off", "low", "medium", "high"}
-
 // effortCands completes /effort for models without advertised levels.
 var effortCands = []cand{
 	{"off", "No reasoning effort parameter sent"},
@@ -17,6 +13,16 @@ var effortCands = []cand{
 	{"medium", "Balanced reasoning"},
 	{"high", "Deep reasoning, slower"},
 }
+
+// defaultEfforts uses the same fallback levels and order as completion.
+// "off" sends no reasoning parameter.
+var defaultEfforts = func() []string {
+	levels := make([]string, len(effortCands))
+	for i, candidate := range effortCands {
+		levels[i] = candidate.Text
+	}
+	return levels
+}()
 
 // effortsFor returns the cycle of effort levels available for the current
 // model: the provider-advertised levels if known (each prefixed by off), else

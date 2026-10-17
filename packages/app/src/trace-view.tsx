@@ -48,7 +48,7 @@ export function TraceView({ view, state, runtimeId, viewId, connected }: {
   const roots = useMemo(() => traceRoots(state), [state]);
   const [picked, setPicked] = useState<string>();
   const traceId = picked && (picked === ALL_TRACES || roots.some(root => root.traceId === picked)) ? picked : roots[0]?.traceId ?? '';
-  const spans = useMemo(() => traceSpans(state, traceId === ALL_TRACES ? undefined : traceId) as readonly TraceSpan[], [state, traceId]);
+  const spans = useMemo(() => traceSpans(state, traceId === ALL_TRACES ? undefined : traceId), [state, traceId]);
   const running = connected && spans.some(isSpanInFlight);
   const motion = useTranscriptMotion();
   const [now, setNow] = useState(() => serverNowMs(evidence));

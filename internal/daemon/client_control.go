@@ -1272,14 +1272,7 @@ func (s *Session) clientMCP(ctx context.Context, operation string, payload clien
 		statuses := append(manager.Statuses(), manager.Blocked()...)
 		statuses = append(statuses, manager.SourceErrors()...)
 		slices.SortFunc(statuses, func(a, b mcp.Server) int { return strings.Compare(a.Name, b.Name) })
-		result := make([]MCPStatusResult, 0, len(statuses))
-		for _, status := range statuses {
-			result = append(result, MCPStatusResult{
-				Name: status.Name, Status: status.Status.String(), Note: status.Note,
-				Error: status.Err, Tools: status.Tools, Source: status.Source,
-			})
-		}
-		return marshalClientOutput(result, nil)
+		return marshalClientOutput(mcp.ServerStatuses(statuses), nil)
 	}
 	return applyMCPAction(manager, operation, payload.Name)
 }

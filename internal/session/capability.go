@@ -392,8 +392,7 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM agents WHERE id=? AND root_id=?`, authority.AgentID, rootID).Scan(&status); err != nil {
 		return capability.Authority{}, err
 	}
-	switch status {
-	case "failed", "stopped", "cancelled", "interrupted", "deleted", "succeeded":
+	if isTerminalAgentStatus(status) {
 		return capability.Authority{}, ErrRootTerminal
 	}
 	for _, grant := range []struct {
