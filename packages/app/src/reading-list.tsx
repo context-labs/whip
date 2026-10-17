@@ -492,6 +492,9 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
       finally { setLoadingLatest(false); }
       if (request !== latestIntent.current || !viewport.current) return;
     }
+    // The history read can start a new insertion-anchor restore while awaited.
+    // The explicit Latest action supersedes that older reading position.
+    stopRestore();
     intent.current = undefined;
     const root = viewport.current;
     jumping.current = animate && chatFollow && motion && !!root && root.scrollHeight - root.scrollTop - root.clientHeight > 2;
