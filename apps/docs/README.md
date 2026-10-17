@@ -20,6 +20,11 @@ npm run storybook:docs            # http://localhost:6007
 npm run build:storybook:docs
 ```
 
+On a clean checkout, run `npm run generate` with the Go version in `go.mod`
+before `test:docs`. The published SDK examples are typechecked against the actual
+SDK source and its generated protocol declarations. This test prerequisite does
+not add an SDK or daemon dependency to the deployed site.
+
 Install Chromium once with `npx playwright install chromium` (CI uses
 `--with-deps`). Browser tests require a completed `build:docs`, build Storybook
 automatically, and start static servers on ports 3101 and 6008. Content-independent

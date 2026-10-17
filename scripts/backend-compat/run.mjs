@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { compare } from './compare.mjs';
+import { comparePRBase } from './release-transition.mjs';
 import { loadSDK, smoke, lifecycle, rollback } from './scenarios.mjs';
 
 const { values } = parseArgs({ options: { candidate: { type: 'string' }, base: { type: 'string' }, output: { type: 'string' } } });
@@ -83,7 +84,7 @@ try {
   for (const path of manifest.generatedPaths) compare(await tree(join(baseline, path)), await tree(join(candidate, path)), `fresh generated ${path}`);
   compare(await tree(join(baseline, 'packages/sdk/dist')), await tree(join(candidate, 'packages/sdk/dist')), 'compiled SDK artifact freeze');
   evidence.artifacts = { baselineBinary: digest(await readFile(baseBinary)), parentBinary: digest(await readFile(parentBinary)), candidateBinary: digest(await readFile(candidateBinary)), sdk: await tree(join(baseline, 'packages/sdk/dist')), protocol: await tree(join(baseline, 'packages/protocol/generated')), lockfile: digest(await readFile(join(baseline, 'package-lock.json'))) };
-  await command(process.execPath, ['--test', fileURLToPath(new URL('./compare.test.mjs', import.meta.url))]);
+  await command(process.execPath, ['--test', ...['compare.test.mjs', 'release-transition.test.mjs'].map(name => fileURLToPath(new URL(name, import.meta.url)))]);
   const sdk = await loadSDK(baseline);
   // Every invocation gets new state, including repeated calibration runs.
   const runs = await mkdtemp(join(output, 'runs-'));
@@ -103,7 +104,10 @@ try {
     compare(reference, actual, `${transport} fixed-SDK differential`);
     const parentTranscript = parentBinary === baseBinary ? reference : await smoke(sdk, parentBinary, join(runs, `parent-${transport}`), transport);
     await writeFile(join(runs, `parent-${transport}.json`), JSON.stringify(parentTranscript, null, 2));
-    compare(parentTranscript, actual, `${transport} immediate-PR-base differential`);
+    evidence.results[`${transport}PRBase`] = comparePRBase(parentTranscript, actual, {
+      baseRevision: evidence.parentRevision, baselineRevision: manifest.revision,
+      baseline: reference, label: `${transport} immediate-PR-base differential`,
+    });
     evidence.results[transport] = 'passed: calibrated response/error/event transcript';
   }
   for (const [name, binary] of [['baseline', baseBinary], ['candidate', candidateBinary]]) {
