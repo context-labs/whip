@@ -816,11 +816,11 @@ func procHasAncestor(pid int, want string) bool {
 		// ppid is field 4 of /proc/PID/stat; the (comm) field before it may
 		// contain spaces/parens, so split after the LAST ')'. Fields after it
 		// are: state ppid ... — ppid is fields[1] of the remainder.
-		idx := bytes.LastIndexByte(stat, ')')
-		if idx < 0 {
+		_, remainder, found := bytes.CutLast(stat, []byte(")"))
+		if !found {
 			return false
 		}
-		fields := strings.Fields(string(stat[idx+1:]))
+		fields := strings.Fields(string(remainder))
 		if len(fields) < 2 {
 			return false
 		}
@@ -968,9 +968,9 @@ func detectColorScheme() string {
 // Pure so the no-query-reply behavior is unit-testable: inside tmux the ONLY
 // acceptable outcomes are COLORFGBG or neutral, never a dark assumption.
 func fallbackScheme(inTmux bool, colorfgbg string) (light, ok bool, how string) {
-	if i := strings.LastIndex(colorfgbg, ";"); i >= 0 {
+	if _, background, found := strings.CutLast(colorfgbg, ";"); found {
 		var bg int
-		if _, err := fmt.Sscanf(colorfgbg[i+1:], "%d", &bg); err == nil {
+		if _, err := fmt.Sscanf(background, "%d", &bg); err == nil {
 			// standard palette: 0-6 dark, 7+ light (15 = white)
 			return bg == 7 || bg >= 8, true, "COLORFGBG (query failed)"
 		}

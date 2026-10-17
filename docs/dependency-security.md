@@ -7,6 +7,11 @@ remain unchanged.
 
 - Go 1.27.2 replaces 1.27.0. The refreshed `govulncheck` reports no reachable
   vulnerabilities; findings in unused dependency code remain visible.
+- `golang.org/x/tools` 0.50.0 and `golangci-lint` 2.14.0 support the patched
+  compiler's export format. Older versions fail before running the analyzers.
+  The corresponding Go module minimums move with `x/tools`; analyzer rules and
+  coverage requirements remain unchanged. Four equivalent `CutLast` replacements
+  satisfy newly reported modernization findings in the agent tests and TUI.
 - TanStack Start 1.168.60 applies the same targeted version update proposed by
   [#328](https://github.com/context-labs/whip/pull/328). The docs router is aligned
   to Start's matching 1.170.41 version so prerendering resolves compatible SSR
