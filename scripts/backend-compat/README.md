@@ -62,6 +62,15 @@ forces two separate fixture fragments; smaller fragments could validly coalesce
 and would be a poor exact-event regression oracle. Comparator tests prove that
 response, omission, error, cursor, event order/count and identity mutations fail.
 
+The release from main `88764670` to the pre-reorganization development baseline
+has an explicit, commit-scoped expectation for previously reviewed protocol 6.8
+→ 6.9 features. See [release readiness](../../docs/release-readiness.md) for the
+source commits and every expected difference. The gate checks those exact old
+values and requires the result to match both the frozen reference and candidate.
+It does not skip the immediate-base comparison or normalize away changed fields.
+All other base revisions retain strict equality, and all rollback checks remain
+enabled. The frozen baseline and source/artifact freeze are unchanged.
+
 This is a cross-cutting regression gate, not exhaustive behavioral equivalence.
 It does not replace existing provider encoding/retry tests, detailed trace body
 and pagination tests, REPL/mail/budget tests, or product acceptance. Add focused
