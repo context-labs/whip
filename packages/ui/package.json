@@ -13,6 +13,7 @@
     "./reset.css": "./src/reset.css",
     "./fonts.css": "./src/fonts.css",
     "./tokens.stylex": "./src/tokens.stylex.ts",
+    "./scrollbar.stylex": "./src/scrollbar.stylex.ts",
     "./package.json": "./package.json",
     "./theme-data": "./src/theme-data.ts"
   },
@@ -30,6 +31,7 @@
     "test:tabs": "node tests/workspace-tabs.mjs",
     "test:layout": "node tests/workspace-layout.mjs",
     "test:csp": "node tests/csp.mjs",
+    "test:scrollbars": "node tests/scrollbars.mjs",
     "test:mermaid": "node tests/mermaid.mjs",
     "test:packed": "node tests/packed.mjs",
     "test:visual": "node tests/visual.mjs",

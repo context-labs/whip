@@ -50,7 +50,7 @@ export const styles = stylex.create({
   moreButton: { minHeight: 0, paddingInline: 10, color: colors.muted },
   primaryDestination: { color: colors.foreground },
   footer: { minHeight: 48, display: 'flex', alignItems: 'center', flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, marginTop: 'auto', paddingBlock: 8 },
-  list: { overflowAnchor: 'none', overscrollBehaviorY: 'contain', scrollbarWidth: 'thin', marginInline: -8, marginBottom: -8, paddingInline: 8, paddingBottom: 8 },
+  list: { overflowAnchor: 'none', overscrollBehaviorY: 'contain', marginInline: -8, marginBottom: -8, paddingInline: 8, paddingBottom: 8 },
   group: { display: 'flex', alignItems: 'end', paddingBottom: 2, gap: 2 },
   groupButton: { height: { default: 28, [scale.touch]: 44 }, fontSize: typography.size12, fontWeight: 500, gap: 6, paddingInline: 8, backgroundColor: { default: 'transparent', ':hover': 'transparent' } },
   icon: { minHeight: { default: 28, [scale.touch]: 44 }, height: { default: 28, [scale.touch]: 44 }, width: { default: 28, [scale.touch]: 44 }, minWidth: { default: 28, [scale.touch]: 44 }, padding: 0, justifyContent: 'center', flexShrink: 0, color: surface.secondaryText },

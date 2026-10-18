@@ -2424,6 +2424,20 @@ backdrop. Short dialogs remain centered; tall dialogs retain the former top
 spacing. Sheet and explicitly bounded picker compositions keep their own internal
 scrolling. Consumers should not add wrappers to implement default dialog scrolling.
 
+Native scrollbar visuals are shared by `@whip/ui/scrollbar.stylex`: a 9px
+track with a rounded thumb, a transparent 2px inset, and theme-foreground color at
+25% opacity (40% on thumb hover). Transparent tracks blend into the owning
+surface. Apply `scrollbarStyles.native` to the existing scrolling element, not a
+new wrapper; shared ScrollArea, dialog viewports, workspace content, the session
+sidebar and ReadingList already do this. Scroll ownership, virtualization, and
+chat follow/reading-position behavior stay unchanged. Fine-pointer browsers use
+WebKit pseudo-elements where supported; only the fallback uses standard
+`scrollbar-width/color`, since non-auto values override the pseudo-elements.
+Coarse pointers and forced-colors mode keep platform defaults. Tab strips retain
+intentionally hidden scrollbars. The Scrollbars story and
+`npm run test:scrollbars -w @whip/ui` cover both axes, themes, hover, keyboard/wheel
+scrolling, platform fallbacks, and strict CSP in production-extracted CSS.
+
 Use `stylex.create` and `stylex.props` for authored visuals and import shared
 variables from `@whip/ui/tokens.stylex`. The `.stylex` suffix is required for
 cross-package static resolution. Do not add Tailwind, CSS-in-JS runtime injection,

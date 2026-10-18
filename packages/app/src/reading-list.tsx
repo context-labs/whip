@@ -4,6 +4,7 @@ import { Button } from '@whip/ui';
 import { ArrowDown } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { scale } from '@whip/ui/tokens.stylex';
+import { scrollbarStyles } from '@whip/ui/scrollbar.stylex';
 import { useRuntime } from './context';
 import { readingTarget } from './reading-positions';
 import { layout } from './styles';
@@ -514,7 +515,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
       )}
       <div
         ref={viewport}
-        {...stylex.props(styles.viewport, chatFollow ? styles.chatEdges : styles.topEdge)}
+        {...stylex.props(styles.viewport, scrollbarStyles.native, chatFollow ? styles.chatEdges : styles.topEdge)}
         role="region"
         tabIndex={0}
         aria-label={label}

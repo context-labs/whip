@@ -9,6 +9,7 @@ import { useQueries } from '@tanstack/react-query';
 import { Button, IconButton, Menu, ContextMenu, Spinner, WhipcodeWordmark, Tooltip, Popover } from '@whip/ui';
 import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquare, MessageSquareWarning, Archive, Folder, Globe, RotateCw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
+import { scrollbarStyles } from '@whip/ui/scrollbar.stylex';
 import { styles, sessionMarker, directoryMarker } from './session-sidebar.stylex';
 import { layout } from './styles';
 import { useAppState, useRuntime, useSessionTabs } from './context';
@@ -42,7 +43,7 @@ export function SessionSidebar(props: SidebarProps) {
       <SidebarHeader onNavigate={props.onNavigate} headerAction={props.headerAction} inset={props.inset} />
       <span aria-hidden="true" data-sidebar-scroll-edge {...stylex.props(styles.scrollEdge, scrolled && styles.scrollEdgeVisible)} />
     </div>
-    <div ref={scroll} aria-label="Saved sessions" onScroll={event => setScrolled(event.currentTarget.scrollTop > 0)} {...stylex.props(layout.sessionList, styles.list)}>
+    <div ref={scroll} aria-label="Saved sessions" onScroll={event => setScrolled(event.currentTarget.scrollTop > 0)} {...stylex.props(layout.sessionList, styles.list, scrollbarStyles.native)}>
       <div ref={content} {...stylex.props(styles.scrollContent)}>
         <nav aria-label="Main navigation" {...stylex.props(styles.destinations)}>
           <button onClick={props.onSearch} {...stylex.props(styles.destination, styles.primaryDestination)}><Search size={16} />Search sessions</button>
