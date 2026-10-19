@@ -20,7 +20,7 @@
     "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.3",
     "expo-linking": "~57.0.9",
-    "expo-router": "~57.0.19",
+    "expo-router": "~58.0.21",
     "expo-secure-store": "~57.0.3",
     "expo-splash-screen": "~57.0.8",
     "expo-sqlite": "~57.0.2",
