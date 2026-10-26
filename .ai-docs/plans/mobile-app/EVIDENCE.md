@@ -12,7 +12,7 @@ The [phased plan](IMPLEMENTATION.md) is the delivery checklist.
 
 The owner reports the signed preview running on the iPhone. The correct remote
 host is `gpu-4090-sam` (`sam@kuzco-gpu-2`), now serving
-`https://kuzco-gpu-2.tail7524e6.ts.net`. HTTPS certificate verification, SDK WSS
+`https://gpu-b.example.ts.net`. HTTPS certificate verification, SDK WSS
 initialization and mobile-facing reads pass from the Mac. The runtime is fresh
 and still needs provider credentials. Physical-phone workflows remain open.
 The earlier `kuzco-4090` preparation below is historical and was rolled back.
@@ -566,7 +566,7 @@ network transition tests and TestFlight remain open.
 The owner subsequently reports the app running on the selected iPhone and asks
 to connect it to the existing daemon on `kuzco-4090`. This establishes an
 owner-reported phone launch, not yet observed physical workflow acceptance.
-Read-only Tailscale discovery found `kuzco-4090.tail7524e6.ts.net` online;
+Read-only Tailscale discovery found `gpu-a.example.ts.net` online;
 HTTPS port 443 refused the connection. The Mac's default SSH username was
 rejected, so the current daemon listener/Serve configuration is not yet inspected.
 No remote daemon restart or network configuration mutation was performed.
@@ -595,8 +595,8 @@ Tailscale's installed-version reverse proxy preserves the incoming Host header.
 Before restarting, the SDK verified all seven sessions idle, no active turns and
 no pending agent mail. The existing `control.py` was backed up to
 `control.py.before-mobile-https-20260908T144509Z`, and only the allowlists were
-extended with `kuzco-4090.tail7524e6.ts.net`, its explicit `:443` form, and
-`https://kuzco-4090.tail7524e6.ts.net`. The existing addresses/origins, listener,
+extended with `gpu-a.example.ts.net`, its explicit `:443` form, and
+`https://gpu-a.example.ts.net`. The existing addresses/origins, listener,
 binary, data home, provider and controller behavior were preserved.
 
 The controller stopped idle PID 671494 and started PID **800249**. The SDK
@@ -614,7 +614,7 @@ The owner must enter the remote Linux sudo password in the terminal. An attempt
 to open a terminal password prompt through computer use was blocked because that
 tool does not allow Ghostty; no alternate UI bypass was attempted. After Serve is
 enabled, verify actual TLS/WSS and enter
-`https://kuzco-4090.tail7524e6.ts.net` in the phone app with Tailscale connected.
+`https://gpu-a.example.ts.net` in the phone app with Tailscale connected.
 The HTTPS endpoint is not yet established; the daemon preparation alone is not a
 completed phone-to-host acceptance test.
 
@@ -623,7 +623,7 @@ completed phone-to-host acceptance test.
 
 The owner corrected the target to the configured SSH alias `gpu-4090-sam`, which
 resolves to `sam@kuzco-gpu-2`, Tailscale IPv4 `100.80.110.112` and DNS name
-`kuzco-gpu-2.tail7524e6.ts.net`. The supplied interactive credential was used for
+`gpu-b.example.ts.net`. The supplied interactive credential was used for
 SSH and sudo authentication, without installing keys or changing sudo/operator
 permissions. Temporary SSH multiplexing and a root shell were used for setup.
 
