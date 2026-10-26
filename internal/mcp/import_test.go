@@ -205,7 +205,7 @@ func TestBrandKey(t *testing.T) {
 		{ServerConfig{URL: "http://127.0.0.1:4789/mcp"}, ""},
 		{ServerConfig{URL: "http://[::1]:8080/mcp"}, ""},
 		{ServerConfig{URL: "http://localhost:3000/mcp"}, ""},
-		{ServerConfig{URL: "https://kuzco-4090.tail7524e6.ts.net/mcp"}, ""},
+		{ServerConfig{URL: "https://whip.example.ts.net/mcp"}, ""},
 		{ServerConfig{URL: "http://nas.local/mcp"}, ""},
 		{ServerConfig{URL: "http://mcp.corp.internal/"}, ""},
 		{ServerConfig{URL: "https://com/"}, ""},

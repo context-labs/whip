@@ -70,7 +70,7 @@ The SSH alias `gpu-4090-sam` reaches `sam@kuzco-gpu-2`. Enter this base address
 in the phone app while Tailscale is connected:
 
 ```text
-https://kuzco-gpu-2.tail7524e6.ts.net
+https://whip.example.ts.net
 ```
 
 The `whip-sam.service` system service starts at boot and runs
