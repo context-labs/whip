@@ -361,10 +361,14 @@ func TestResponsesSSEFramingAndUsage(t *testing.T) {
 	if err != nil || message.Content != "ok" || usage.HasUsage() {
 		t.Fatalf("multiline frame/missing usage: %+v %+v %v", message, usage, err)
 	}
-	for _, raw := range []string{`{"input_tokens":1}`, `{"input_tokens":-1,"output_tokens":2}`, `{"input_tokens":2,"output_tokens":1,"output_tokens_details":{"reasoning_tokens":5}}`} {
+	for _, raw := range []string{`{"input_tokens":1}`, `{"input_tokens":-1,"output_tokens":2}`} {
 		if _, err := responseUsage(json.RawMessage(raw)); err == nil {
 			t.Fatalf("accepted invalid usage: %s", raw)
 		}
+	}
+	usage, err = responseUsage(json.RawMessage(`{"input_tokens":2,"output_tokens":1,"output_tokens_details":{"reasoning_tokens":5}}`))
+	if err != nil || usage.CompletionTokensDetails == nil || usage.CompletionTokensDetails.ReasoningTokens != 5 {
+		t.Fatalf("independent reasoning usage=%+v err=%v", usage, err)
 	}
 	if _, _, err := decodeFixture(""); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("missing completion was accepted: %v", err)

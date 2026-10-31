@@ -333,7 +333,7 @@ func (s *Store) SettleModelCall(ctx context.Context, rootID, callID string, resu
 	// Stop releases capacity before a cancelled provider necessarily returns.
 	// Its estimate may be corrected once by that attempt's real outcome.
 	status := "succeeded"
-	if result.Failed || result.Usage.Validate() != nil {
+	if result.Failed || result.Usage.ValidateOpenAICompatible() != nil {
 		status = "failed"
 	}
 	if !result.Dispatched {
@@ -506,7 +506,7 @@ func (s *Store) settleModelCallTx(ctx context.Context, tx *sql.Tx, call storedMo
 func validModelUsage(usage llm.Usage) llm.Usage {
 	cost := usage.Cost
 	usage.Cost = nil
-	if usage.Validate() != nil {
+	if usage.ValidateOpenAICompatible() != nil {
 		usage = llm.Usage{}
 	}
 	if cost != nil && *cost >= 0 && !math.IsNaN(*cost) && !math.IsInf(*cost, 0) {

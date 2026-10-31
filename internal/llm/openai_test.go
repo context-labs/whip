@@ -336,7 +336,7 @@ func TestStreamUsageParsed(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&reqSeen)
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"hi"}}]}`+"\n\n")
-		fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":45,"prompt_tokens_details":{"cached_tokens":800}}}`+"\n\n")
+		fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":45,"prompt_tokens_details":{"cached_tokens":800},"completion_tokens_details":{"reasoning_tokens":50}}}`+"\n\n")
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer srv.Close()
@@ -345,7 +345,7 @@ func TestStreamUsageParsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.PromptTokens != 1200 || u.CompletionTokens != 45 || u.Cached() != 800 {
+	if u.PromptTokens != 1200 || u.CompletionTokens != 45 || u.Cached() != 800 || u.CompletionTokensDetails.ReasoningTokens != 50 {
 		t.Fatalf("usage: %+v", u)
 	}
 	if reqSeen.StreamOptions == nil || !reqSeen.StreamOptions.IncludeUsage {
@@ -355,7 +355,7 @@ func TestStreamUsageParsed(t *testing.T) {
 
 func TestCompleteUsageParsed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":4}}}`))
+		w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":6}}}`))
 	}))
 	defer srv.Close()
 
@@ -363,7 +363,7 @@ func TestCompleteUsageParsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.PromptTokens != 10 || u.CompletionTokens != 5 || u.Cached() != 4 {
+	if u.PromptTokens != 10 || u.CompletionTokens != 5 || u.Cached() != 4 || u.CompletionTokensDetails.ReasoningTokens != 6 {
 		t.Fatalf("usage: %+v", u)
 	}
 }

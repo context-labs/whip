@@ -24,6 +24,7 @@ func TestUsagePresenceAndValidation(t *testing.T) {
 		{"overflow total", `{"prompt_tokens":9223372036854775807,"completion_tokens":1}`, true, false},
 		{"cache exceeds prompt", `{"prompt_tokens":1,"completion_tokens":0,"prompt_tokens_details":{"cached_tokens":2}}`, true, false},
 		{"reasoning exceeds output", `{"prompt_tokens":0,"completion_tokens":1,"completion_tokens_details":{"reasoning_tokens":2}}`, true, false},
+		{"negative reasoning", `{"prompt_tokens":0,"completion_tokens":1,"completion_tokens_details":{"reasoning_tokens":-1}}`, true, false},
 		{"negative cost", `{"cost":-0.1}`, false, false},
 		{"free cost", `{"cost":0}`, false, true},
 		{"empty usage", `{}`, false, true},
@@ -67,6 +68,21 @@ func TestUsagePresenceAndValidation(t *testing.T) {
 	}
 }
 
+func TestUsageOpenAICompatibleValidation(t *testing.T) {
+	usage := Usage{
+		Reported: true, PromptTokens: 2, CompletionTokens: 1,
+		CompletionTokensDetails: &struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		}{5},
+	}
+	if err := usage.Validate(); err == nil {
+		t.Fatal("strict validation accepted independent reasoning tokens")
+	}
+	if err := usage.ValidateOpenAICompatible(); err != nil {
+		t.Fatalf("compatible validation rejected usage: %v", err)
+	}
+}
+
 func TestPricingActualCost(t *testing.T) {
 	usage := Usage{
 		PromptTokens: 100, CompletionTokens: 20,
@@ -86,6 +102,13 @@ func TestPricingActualCost(t *testing.T) {
 		known   bool
 	}{
 		{"cache and reasoning subsets", priced, usage, 180, true},
+		{
+			"independent reasoning", priced,
+			Usage{PromptTokens: 1, CompletionTokens: 1, CompletionTokensDetails: &struct {
+				ReasoningTokens int `json:"reasoning_tokens"`
+			}{3}},
+			7, true,
+		},
 		{"explicit free cache", Pricing{Prompt: "0.000002", Completion: "0.000005", InputCacheRead: "0"}, usage, 140, true},
 		{"missing cache full input", Pricing{Prompt: "0.000002", Completion: "0.000005"}, usage, 300, true},
 		{"free model", Pricing{Prompt: "0", Completion: "0"}, usage, 0, true},
@@ -421,5 +444,17 @@ func TestUsageAggregatePreservesSettledAttempts(t *testing.T) {
 	total.add(first)
 	if total.Cost != nil || total.PromptTokens != 15 || total.CompletionTokens != 9 {
 		t.Fatalf("incomplete aggregate=%+v", total)
+	}
+}
+
+func TestUsageAggregatePreservesIndependentReasoning(t *testing.T) {
+	var total Usage
+	for range 2 {
+		total.add(Usage{Reported: true, PromptTokens: 4, CompletionTokens: 1, CompletionTokensDetails: &struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		}{3}})
+	}
+	if total.CompletionTokens != 2 || total.CompletionTokensDetails.ReasoningTokens != 6 {
+		t.Fatalf("aggregate=%+v", total)
 	}
 }

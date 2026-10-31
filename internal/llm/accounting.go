@@ -81,6 +81,16 @@ func (u Usage) HasUsage() bool {
 }
 
 func (u Usage) Validate() error {
+	return u.validate(true)
+}
+
+// ValidateOpenAICompatible accepts reasoning counts independently from visible
+// completion tokens. Some OpenAI-compatible providers report them separately.
+func (u Usage) ValidateOpenAICompatible() error {
+	return u.validate(false)
+}
+
+func (u Usage) validate(requireReasoningSubset bool) error {
 	if u.PromptTokens < 0 || u.CompletionTokens < 0 || u.Cached() < 0 || u.Cached() > u.PromptTokens {
 		return errors.New("invalid model token usage")
 	}
@@ -90,7 +100,10 @@ func (u Usage) Validate() error {
 	if int64(u.PromptTokens) > math.MaxInt64-int64(u.CompletionTokens) {
 		return errors.New("model token usage overflows int64")
 	}
-	if u.CompletionTokensDetails != nil && (u.CompletionTokensDetails.ReasoningTokens < 0 || u.CompletionTokensDetails.ReasoningTokens > u.CompletionTokens) {
+	if u.CompletionTokensDetails != nil && u.CompletionTokensDetails.ReasoningTokens < 0 {
+		return errors.New("invalid model reasoning token usage")
+	}
+	if requireReasoningSubset && u.CompletionTokensDetails != nil && u.CompletionTokensDetails.ReasoningTokens > u.CompletionTokens {
 		return errors.New("invalid model reasoning token usage")
 	}
 	if u.Cost != nil && (math.IsNaN(*u.Cost) || math.IsInf(*u.Cost, 0) || *u.Cost < 0) {
@@ -177,7 +190,8 @@ func (u *Usage) add(other Usage) {
 				ReasoningTokens int `json:"reasoning_tokens"`
 			}{}
 		}
-		u.CompletionTokensDetails.ReasoningTokens += min(other.CompletionTokensDetails.ReasoningTokens, completion)
+		remaining := math.MaxInt - u.CompletionTokensDetails.ReasoningTokens
+		u.CompletionTokensDetails.ReasoningTokens += min(other.CompletionTokensDetails.ReasoningTokens, remaining)
 	}
 }
 
@@ -300,7 +314,7 @@ func (p Pricing) CostBreakdown(u Usage) (CostBreakdown, error) {
 // ActualCost prefers the provider's charge, including an explicit zero. Token
 // pricing is only a fallback, and cached/reasoning tokens are never added twice.
 func (p Pricing) ActualCost(u Usage) (int64, bool, error) {
-	if err := u.Validate(); err != nil {
+	if err := u.ValidateOpenAICompatible(); err != nil {
 		return 0, false, err
 	}
 	if u.Cost != nil {
