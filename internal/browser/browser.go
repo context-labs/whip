@@ -267,6 +267,7 @@ func openRod(ctx context.Context, mode Mode, sessionName string, env []string, p
 		}
 		newLauncher := func() *launcher.Launcher {
 			l := launcher.New().
+				Revision(rodChromiumRevision).
 				UserDataDir(profileDir).
 				Set("remote-debugging-port", "0"). // random free port — a squatter on 9222 is irrelevant
 				Leakless(true).
@@ -336,6 +337,15 @@ func stopLauncher(l *launcher.Launcher) error {
 	}
 	return fmt.Errorf("browser process group %d did not stop", l.PID())
 }
+
+// rodChromiumRevision pins the Chromium snapshot rod auto-downloads when no
+// ROD_BROWSER_BIN is set. rod v0.116.2's default (1321438, Chrome ~128) predates
+// the macOS GPU-process TCC-disclaim fix (crrev main@{#1695786},
+// CVE-2026-106378): a compromised GPU process could inherit the launching
+// terminal/IDE's Accessibility permission and inject keystrokes. Any snapshot
+// past #1695786 carries the fix; 1732400 is published for Mac, Mac_Arm,
+// Linux_x64 and Win_x64. Bump deliberately; never below 1695786.
+const rodChromiumRevision = 1732400
 
 // launchDedicated launches a dedicated/headless Chrome, recovering from a
 // wedged prior instance. On launch failure it first kills any *live* Chrome
