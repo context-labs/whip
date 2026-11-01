@@ -289,7 +289,7 @@ func (a *Agent) drainPending() []pendingSteer {
 // requests (see lastPrompt). Zero (provider reported no usage) is ignored so
 // the previous real value keeps driving the trigger.
 func (a *Agent) notePrompt(u llm.Usage) {
-	if u.PromptTokens <= 0 || u.Validate() != nil {
+	if u.PromptTokens <= 0 || u.ValidateOpenAICompatible() != nil {
 		return
 	}
 	a.usageMu.Lock()
@@ -309,7 +309,7 @@ func (a *Agent) AddUsage(u llm.Usage) {
 func addUsage(dst *llm.Usage, u llm.Usage) {
 	// Durable per-attempt accounting records malformed reports conservatively.
 	// Do not let invalid values corrupt the presentation-only token totals.
-	if u.Validate() != nil || u.PromptTokens > math.MaxInt-dst.PromptTokens || u.CompletionTokens > math.MaxInt-dst.CompletionTokens {
+	if u.ValidateOpenAICompatible() != nil || u.PromptTokens > math.MaxInt-dst.PromptTokens || u.CompletionTokens > math.MaxInt-dst.CompletionTokens {
 		return
 	}
 	dst.PromptTokens += u.PromptTokens

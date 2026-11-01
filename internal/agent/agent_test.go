@@ -916,6 +916,30 @@ func TestSetAndResetUsage(t *testing.T) {
 	}
 }
 
+func TestUsageBookkeepingAcceptsIndependentReasoningTokens(t *testing.T) {
+	ag := newTestAgent(nil, "m", 100, "sys")
+	usage := llm.Usage{
+		Reported: true, PromptTokens: 12, CompletionTokens: 1,
+		CompletionTokensDetails: &struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		}{3},
+	}
+	if usage.Validate() == nil {
+		t.Fatal("strict accounting validation should retain the reasoning subset rule")
+	}
+
+	ag.AddUsage(usage)
+	ag.notePrompt(usage)
+
+	got := ag.Usage()
+	if got.PromptTokens != 12 || got.CompletionTokens != 1 {
+		t.Fatalf("usage totals should accept independent reasoning tokens: %+v", got)
+	}
+	if ag.lastPrompt != 12 {
+		t.Fatalf("lastPrompt should accept independent reasoning tokens, got %d", ag.lastPrompt)
+	}
+}
+
 // TurnWithImages is an authored submission carrying vision parts.
 func TestTurnWithImagesMarksAuthoredAndCarriesParts(t *testing.T) {
 	srv := textServer(t, func(n int, req llm.Request) string { return "done" })
