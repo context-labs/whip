@@ -1010,7 +1010,7 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 		if usageErr != nil {
 			return msg, usage, nonRetryable{usageErr}
 		}
-		if err := usage.Validate(); err != nil {
+		if err := usage.ValidateOpenAICompatible(); err != nil {
 			return msg, usage, nonRetryable{err}
 		}
 		if ch.Error != nil {
@@ -1133,9 +1133,6 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 	if usageErr != nil {
 		return text, usage, nonRetryable{usageErr}
 	}
-	if err := usage.Validate(); err != nil {
-		return text, usage, nonRetryable{err}
-	}
 	if out.Error != nil {
 		return text, usage, providerError(out.Error.Message, text != "")
 	}
@@ -1227,7 +1224,7 @@ func decodeUsage(data json.RawMessage) (Usage, error) {
 	var usage Usage
 	tokenErr := json.Unmarshal(tokens, &usage)
 	if tokenErr == nil {
-		tokenErr = usage.Validate()
+		tokenErr = usage.ValidateOpenAICompatible()
 	}
 	if tokenErr != nil {
 		usage = Usage{}

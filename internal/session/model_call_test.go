@@ -172,6 +172,52 @@ func TestModelSettlementOverageAndIdempotence(t *testing.T) {
 	}
 }
 
+func TestModelSettlementAcceptsIndependentReasoningTokens(t *testing.T) {
+	store, root, agent := newSwarmFixture(t)
+	if err := store.SetBudgetLimit(t.Context(), root, "", BudgetTokens, 100); err != nil {
+		t.Fatal(err)
+	}
+	permit, err := store.AdmitModelCall(t.Context(), root, agent, modelAttempt("openrouter", 2, 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := llm.ModelAttemptResult{
+		Dispatched: true,
+		Elapsed:    time.Millisecond,
+		Usage: llm.Usage{
+			Reported: true, PromptTokens: 4, CompletionTokens: 1,
+			CompletionTokensDetails: &struct {
+				ReasoningTokens int `json:"reasoning_tokens"`
+			}{5},
+		},
+	}
+	settled, err := store.SettleModelCall(t.Context(), root, permit.ID, result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ModelCallSettlement{
+		Status: "succeeded", UsageSource: "reported", CostSource: "estimated",
+		PromptTokens: 4, CompletionTokens: 1, ReasoningTokens: 5,
+		CostMicros: 6, CostInputMicros: 4, CostOutputMicros: 2, ElapsedMillis: 1,
+	}
+	if settled != want {
+		t.Fatalf("settlement=%+v want=%+v", settled, want)
+	}
+	if tokens := budgetState(t, store, root, agent, BudgetTokens); tokens.Used != 5 || tokens.Reserved != 0 {
+		t.Fatalf("token budget=%+v", tokens)
+	}
+	accounting, err := store.ModelAccounting(t.Context(), root, agent, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accounting.ReportedCalls != 1 || accounting.ReportedCostMicros != 0 || accounting.EstimatedCostCalls != 1 || accounting.EstimatedCostMicros != 6 || accounting.EstimatedCalls != 0 || accounting.PendingCalls != 0 {
+		t.Fatalf("accounting=%+v", accounting)
+	}
+	if replay, err := store.SettleModelCall(t.Context(), root, permit.ID, result); err != nil || replay != settled {
+		t.Fatalf("replay settlement=%+v err=%v", replay, err)
+	}
+}
+
 func TestModelAdmissionClampsOutputAndElapsed(t *testing.T) {
 	store, root, agent := newSwarmFixture(t)
 	for kind, limit := range map[BudgetKind]int64{BudgetTokens: 20, BudgetCost: 18, BudgetElapsed: 5} {
