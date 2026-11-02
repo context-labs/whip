@@ -1,7 +1,6 @@
 /** @jest-environment node */
 import { installAbortCheckpoint, installAbortReason } from './polyfills';
 import { AbortController as NativeAbortController, AbortSignal as NativeAbortSignal } from 'abort-controller';
-import { installAbortSignalPatch } from 'expo/src/winter/AbortSignal';
 import { createWhipClient } from '@whip/sdk';
 
 const NativeController = NativeAbortController as unknown as typeof AbortController;
@@ -40,17 +39,25 @@ test('reason patch is idempotent and leaves complete native implementations unch
   installAbortReason(NativeController); expect(NativeController.prototype.abort).toBe(patched);
 });
 
-test('Expo composition and timeout listeners see reasons during native abort dispatch', () => {
-  jest.useFakeTimers(); globalThis.AbortController = NativeController;
-  installAbortReason(NativeController); installAbortSignalPatch(NativeSignal);
-  const first = new NativeController(); const second = new NativeController();
-  const combined = NativeSignal.any([first.signal, second.signal]);
+// Expo 58 dropped its AbortSignal.any/timeout patch: React Native 0.88 ships spec
+// AbortController/AbortSignal (react-native/Libraries/Core/setUpXHR.js). Pin that the
+// runtime composition the app now relies on publishes reasons during dispatch and that
+// the reason polyfill leaves it untouched.
+test('React Native composition and timeout listeners see reasons during abort dispatch', () => {
+  const { AbortController: RNController } = jest.requireActual('react-native/src/private/webapis/dom/abort-api/AbortController') as { AbortController: typeof AbortController };
+  const { AbortSignal: RNSignal } = jest.requireActual('react-native/src/private/webapis/dom/abort-api/AbortSignal') as { AbortSignal: typeof AbortSignal };
+  const native = RNController.prototype.abort;
+  installAbortReason(RNController); expect(RNController.prototype.abort).toBe(native);
+  installAbortCheckpoint(RNSignal.prototype); expect(typeof RNSignal.prototype.throwIfAborted).toBe('function');
+  jest.useFakeTimers();
+  const first = new RNController(); const second = new RNController();
+  const combined = RNSignal.any([first.signal, second.signal]);
   const reason = new Error('pause local observation'); let observed: unknown;
   combined.addEventListener('abort', () => { observed = combined.reason; });
   first.abort(reason); second.abort(new Error('later'));
   expect(observed).toBe(reason); expect(combined.reason).toBe(reason);
-  expect(NativeSignal.any([first.signal]).reason).toBe(reason);
-  const timed = NativeSignal.timeout(5); let timedReason: unknown;
+  expect(RNSignal.any([first.signal]).reason).toBe(reason);
+  const timed = RNSignal.timeout(5); let timedReason: unknown;
   timed.addEventListener('abort', () => { timedReason = timed.reason; });
   jest.advanceTimersByTime(5);
   expect(timedReason).toEqual(expect.objectContaining({ name: 'TimeoutError' }));

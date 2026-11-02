@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PropsWithChildren, type ReactNode } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, findNodeHandle, Platform, Pressable, ScrollView, StyleSheet, Switch, Text as NativeText, TextInput, View, type TextProps, type TextInputProps, type ViewProps } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, findNodeHandle, Platform, Pressable, ScrollView, StyleSheet, Switch, Text as NativeText, TextInput, View, type TextInstance, type TextProps, type TextInputProps, type ViewProps } from 'react-native';
 import { BottomSheet, RNHostView } from '@expo/ui';
 import { FlashList } from '@shopify/flash-list';
 import { ArrowLeft, Check, ChevronRight, Search, X } from 'lucide-react-native';
@@ -53,7 +53,7 @@ export function Notice({ children, danger = false }: PropsWithChildren<{ danger?
 export function Loading({ label = 'Loading…' }: { label?: string }) { const { colors } = useTheme(); return <Stack style={{ padding: 24, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /><Text muted>{label}</Text></Stack>; }
 export function EmptyState({ title, description, icon, action }: { title: string; description: string; icon?: ReactNode; action?: ButtonProps }) { return <Stack style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 16 }}>{icon}<Text variant="heading" style={{ textAlign: 'center' }}>{title}</Text><Text muted style={{ textAlign: 'center', maxWidth: 320 }}>{description}</Text>{action && <View style={{ marginTop: 8 }}><Button {...action} /></View>}</Stack>; }
 export function Sheet({ title, visible, onClose, children, full = false }: PropsWithChildren<{ title: string; visible: boolean; onClose(): void; full?: boolean }>) {
-  const theme = useTheme(); const display = useDisplay(); const heading = useRef<NativeText>(null);
+  const theme = useTheme(); const display = useDisplay(); const heading = useRef<TextInstance>(null);
   useEffect(() => { if (!visible) return; const timer = setTimeout(() => { const tag = findNodeHandle(heading.current); if (tag) AccessibilityInfo.setAccessibilityFocus(tag); }, 350); return () => clearTimeout(timer); }, [visible]);
   return <BottomSheet isPresented={visible} onDismiss={onClose} snapPoints={full ? ['full'] : ['half', 'full']} contentPadding={0} containerColor={theme.colors.panel}><RNHostView><View accessibilityViewIsModal style={{ flex: 1, backgroundColor: theme.colors.panel }}><View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', padding: 20 }}><NativeText ref={heading} accessibilityRole="header" style={{ flex: 1, color: theme.colors.foreground, fontSize: 20 * display.textScale!, fontFamily: display.semibold }}>{title}</NativeText><IconButton label={`Close ${title}`} onPress={onClose}><X size={22} color={theme.colors.foreground} /></IconButton></View>{children}</View></RNHostView></BottomSheet>;
 }

@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useQuery } from '@tanstack/react-query';
 import { useRecyclingState } from '@shopify/flash-list';
@@ -40,7 +40,7 @@ export const ConversationRow = memo(function ConversationRow({ row, onInspect, o
 /** A single sheet owns the only explicit content body query (256 KiB maximum). */
 export function BodyInspector({ row, rootId, agentId }: { row: TimelineRow; rootId: string; agentId: string }) {
   const runtime = useRuntime(); const { client, host, ready, active } = useRuntimeState();
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   const result = useQuery({ queryKey: [host?.runtimeId, rootId, agentId, 'body', row.body?.reference_id], enabled: !!row.body && ready && active && !!client,
     queryFn: ({ signal }) => client!.content(row.body!, { rootId, agentId }).readJSON({ maxBytes: 256 << 10, signal }),
   });
