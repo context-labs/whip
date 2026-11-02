@@ -186,7 +186,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('button', { name: 'Search sessions', exact: true }).click();
     const search = page.getByRole('dialog', { name: 'Search sessions', exact: true });
     await search.getByRole('textbox', { name: 'Search sessions across hosts', exact: true }).fill('Shared title');
-    for (const host of hosts) await search.getByRole('region', { name: `${host.name} search results`, exact: true }).getByRole('link', { name: new RegExp(`^Shared title ${host.name} · ${host.name}`) }).waitFor();
+    for (const host of hosts) await search.getByRole('region', { name: `${host.name} search results`, exact: true }).getByRole('link', { name: new RegExp(`^Shared title ${host.name}( [^·]+)? · ${host.name}`) }).waitFor();
     await select('Search host', 'Remote B');
     assert.equal(await search.getByRole('region', { name: 'Remote A search results', exact: true }).count(), 0);
     await search.getByRole('button', { name: 'Close', exact: true }).click();

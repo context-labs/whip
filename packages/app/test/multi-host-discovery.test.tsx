@@ -71,8 +71,8 @@ it('observes catalogs and loads all-status pages only while search is open, rout
   for (const host of [f.local, f.remote]) {
     expect(host.search).toHaveBeenCalledExactlyOnceWith({ search: '', status: 'all', cursor: undefined, limit: 64, max_bytes: 256 << 10 }, { signal: expect.any(AbortSignal) });
   }
-  expect((await screen.findByRole('link', { name: 'Local landing · Local · /repo' })).getAttribute('href')).toBe('/h/local-runtime/s/same-root');
-  const remote = await screen.findByRole('link', { name: 'Kuzco landing · Kuzco · /repo' });
+  expect((await screen.findByRole('link', { name: /^Local landing( [^·]+)? · Local · \/repo$/ })).getAttribute('href')).toBe('/h/local-runtime/s/same-root');
+  const remote = await screen.findByRole('link', { name: /^Kuzco landing( [^·]+)? · Kuzco · \/repo$/ });
   expect(remote.getAttribute('href')).toBe('/h/remote-runtime/s/same-root');
   fireEvent.click(remote);
   expect(f.openTab).toHaveBeenCalledExactlyOnceWith('remote-runtime', 'same-root', 'Kuzco landing');
@@ -82,8 +82,8 @@ it('observes catalogs and loads all-status pages only while search is open, rout
   f.local.search.mockImplementation(() => new Promise(() => {}));
   f.remote.search.mockImplementation(() => new Promise(() => {}));
   view.rerender(<SessionSearchDialog open onOpenChange={close} finalFocus={false} />);
-  expect(screen.getByRole('link', { name: 'Local landing · Local · /repo' }).getAttribute('href')).toBe('/h/local-runtime/s/same-root');
-  expect(screen.getByRole('link', { name: 'Kuzco landing · Kuzco · /repo' }).getAttribute('href')).toBe('/h/remote-runtime/s/same-root');
+  expect(screen.getByRole('link', { name: /^Local landing( [^·]+)? · Local · \/repo$/ }).getAttribute('href')).toBe('/h/local-runtime/s/same-root');
+  expect(screen.getByRole('link', { name: /^Kuzco landing( [^·]+)? · Kuzco · \/repo$/ }).getAttribute('href')).toBe('/h/remote-runtime/s/same-root');
   expect(f.local.search).toHaveBeenCalledTimes(2); expect(f.remote.search).toHaveBeenCalledTimes(2);
   expect(f.local.client.session).not.toHaveBeenCalled(); expect(f.remote.client.session).not.toHaveBeenCalled();
 });
@@ -91,16 +91,16 @@ it('observes catalogs and loads all-status pages only while search is open, rout
 it('keeps pagination and search failures independent across hosts without hydrating roots', async () => {
   const f = fixture();
   f.render(<SessionSearchDialog open onOpenChange={() => {}} finalFocus={false} />);
-  await screen.findByRole('link', { name: 'Kuzco landing · Kuzco · /repo' });
+  await screen.findByRole('link', { name: /^Kuzco landing( [^·]+)? · Kuzco · \/repo$/ });
   f.remote.search.mockRejectedValueOnce(new Error('Kuzco unavailable'));
   fireEvent.change(screen.getByRole('textbox', { name: 'Search sessions across hosts' }), { target: { value: 'match' } });
-  await screen.findByRole('link', { name: 'Local match · Local · /repo' });
+  await screen.findByRole('link', { name: /^Local match( [^·]+)? · Local · \/repo$/ });
   expect(screen.getByRole('alert').textContent).toContain('Kuzco unavailable');
   fireEvent.click(screen.getByRole('button', { name: 'Retry Kuzco' }));
-  await screen.findByRole('link', { name: 'Kuzco match · Kuzco · /repo' });
+  await screen.findByRole('link', { name: /^Kuzco match( [^·]+)? · Kuzco · \/repo$/ });
   fireEvent.click(screen.getByRole('button', { name: 'Load more sessions on Local' }));
-  await screen.findByRole('link', { name: 'Local next · Local · /repo' });
-  expect(screen.getByRole('link', { name: 'Kuzco match · Kuzco · /repo' })).toBeTruthy();
+  await screen.findByRole('link', { name: /^Local next( [^·]+)? · Local · \/repo$/ });
+  expect(screen.getByRole('link', { name: /^Kuzco match( [^·]+)? · Kuzco · \/repo$/ })).toBeTruthy();
   expect(f.remote.search).toHaveBeenCalledTimes(3);
   expect(f.local.search.mock.lastCall?.[0]).toEqual({ search: 'match', status: 'all', cursor: { revision: '1', offset: 'local-runtime-cursor' }, limit: 64, max_bytes: 256 << 10 });
   expect(f.local.client.session).not.toHaveBeenCalled(); expect(f.remote.client.session).not.toHaveBeenCalled();
@@ -111,10 +111,10 @@ it('aborts pending search reads on close and preserves healthy results when anot
   f.remote.search.mockImplementation((_params, options) => { signal = options.signal; return new Promise(() => {}); });
   const view = f.render(<SessionSearchDialog open onOpenChange={() => {}} finalFocus={false} />);
   fireEvent.change(screen.getByRole('textbox', { name: 'Search sessions across hosts' }), { target: { value: 'match' } });
-  await screen.findByRole('link', { name: 'Local match · Local · /repo' });
+  await screen.findByRole('link', { name: /^Local match( [^·]+)? · Local · \/repo$/ });
   await waitFor(() => expect(signal).toBeDefined());
   act(() => f.disconnect());
-  expect(screen.getByRole('link', { name: 'Local match · Local · /repo' })).toBeTruthy();
+  expect(screen.getByRole('link', { name: /^Local match( [^·]+)? · Local · \/repo$/ })).toBeTruthy();
   expect(screen.queryByRole('alert')).toBeNull();
   expect(screen.getByText('Sessions unavailable while Kuzco is offline.')).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Manage servers' }).getAttribute('href')).toBe('/settings');
@@ -139,7 +139,7 @@ it('aggregates attention with host-scoped links, independent pages and visible p
   expect(within(local).getByRole('link').getAttribute('href')).toBe('/h/local-runtime/s/same-root');
   expect(within(remote).getByRole('link').getAttribute('href')).toBe('/h/remote-runtime/s/same-root');
   fireEvent.click(within(remote).getByRole('button', { name: 'Next sessions on Kuzco' }));
-  await within(remote).findByRole('link', { name: 'Kuzco next request · Kuzco' });
+  await within(remote).findByRole('link', { name: /^Kuzco next request( [^·]+)? · Kuzco$/ });
   expect(f.local.index).toHaveBeenCalledTimes(1);
   expect(f.remote.index.mock.lastCall?.[0]).toEqual({ after_id: 'remote-runtime-after', limit: 64, max_bytes: 256 << 10 });
   act(() => f.disconnect());
@@ -157,26 +157,26 @@ it('shows healthy attention requests when another daemon lacks the optional read
   f.render(<Attention />);
   await screen.findByRole('button', { name: /Attention · 1 session/ });
   fireEvent.click(screen.getByRole('button', { name: /Attention ·/ }));
-  expect(screen.getByRole('link', { name: 'Local request · Local' })).toBeTruthy();
+  expect(screen.getByRole('link', { name: /^Local request( [^·]+)? · Local$/ })).toBeTruthy();
   expect(screen.getByRole('alert').textContent).toContain('host.attention is unsupported');
   fireEvent.click(screen.getByRole('combobox', { name: 'Attention host' }));
   const option = await screen.findByRole('option', { name: 'Local' }); fireEvent.pointerDown(option); fireEvent.click(option);
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Kuzco attention' })).toBeNull());
-  expect(screen.getByRole('link', { name: 'Local request · Local' })).toBeTruthy();
+  expect(screen.getByRole('link', { name: /^Local request( [^·]+)? · Local$/ })).toBeTruthy();
 });
 
 
 it('keeps the highlighted session on its host when an earlier host finishes searching', async () => {
   const f = fixture(); let finish: (value: SessionCatalogPage) => void = () => {};
   f.render(<SessionSearchDialog open onOpenChange={() => {}} finalFocus={false} />);
-  await screen.findByRole('link', { name: 'Local landing · Local · /repo' });
+  await screen.findByRole('link', { name: /^Local landing( [^·]+)? · Local · \/repo$/ });
   f.local.search.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const input = screen.getByRole('textbox', { name: 'Search sessions across hosts' });
   fireEvent.change(input, { target: { value: 'match' } });
-  const remote = await screen.findByRole('link', { name: 'Kuzco match · Kuzco · /repo' });
+  const remote = await screen.findByRole('link', { name: /^Kuzco match( [^·]+)? · Kuzco · \/repo$/ });
   fireEvent.pointerMove(remote.closest('[data-search-index]')!);
   await act(async () => finish(page('Local match')));
-  await screen.findByRole('link', { name: 'Local match · Local · /repo' });
+  await screen.findByRole('link', { name: /^Local match( [^·]+)? · Local · \/repo$/ });
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(f.openTab).toHaveBeenCalledExactlyOnceWith('remote-runtime', 'same-root', 'Kuzco match');
 });

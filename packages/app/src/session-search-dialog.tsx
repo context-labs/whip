@@ -128,13 +128,13 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
             return <ContextMenu key={session.id} items={menuItems} onOpenChange={actions.prepare}><div data-search-index={index} {...stylex.props(styles.result, sessionMarker, index === current && styles.highlighted)}
               onPointerMove={() => setSelected(items[index]!.key)} onFocus={() => setSelected(items[index]!.key)}>
               <Link to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
-                title={`${host.name}\n${session.title || 'Untitled session'}\n${session.cwd}`} aria-label={`${session.title || 'Untitled session'} · ${host.name}${session.cwd ? ` · ${session.cwd}` : ''}`}
+                title={`${host.name}\n${session.title || 'Untitled session'}\n${session.cwd}`} aria-label={`${[`${session.title || 'Untitled session'}${session.archived ? ' · Archived' : ''}`, index === current ? '' : updatedLabel(session.updated_at)].filter(Boolean).join(' ')} · ${host.name}${session.cwd ? ` · ${session.cwd}` : ''}`}
                 {...stylex.props(styles.link)} onClick={event => {
                   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                   try { runtime.tabs.open(runtimeId, session.id, session.title); close(); }
                   catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${session.id}`, error }); }
                 }}>
-                <Code2 size={18} aria-hidden="true" /><span {...stylex.props(layout.grow, layout.ellipsis)}>{session.title || 'Untitled session'}{session.archived ? ' · Archived' : ''}</span>
+                <Code2 size={18} aria-hidden="true" /><span {...stylex.props(layout.grow, layout.ellipsis)}>{session.title || 'Untitled session'}{session.archived ? ' · Archived' : ''}</span>{' '}
                 {index === current ? <CornerDownLeft size={16} aria-hidden="true" /> : <span {...stylex.props(styles.date)}>{updatedLabel(session.updated_at)}</span>}
               </Link>
               <Menu trigger={<IconButton label={`Actions for ${session.title || 'Untitled session'} on ${host.name}`} variant="ghost" xstyle={[sidebarStyles.icon, sidebarStyles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
