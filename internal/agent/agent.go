@@ -297,6 +297,18 @@ func (a *Agent) notePrompt(u llm.Usage) {
 	a.usageMu.Unlock()
 }
 
+// fitOutput caps a conversation request's output so its input plus the
+// requested output fits ContextLimit. The configured MaxTokens may be as large
+// as the whole window (the fallback when no output cap is advertised), which
+// providers reject once any prompt sits beside it. The last provider-reported
+// prompt is a floor for this request: the conversation only grew since.
+func (a *Agent) fitOutput(request llm.Request) int {
+	a.usageMu.Lock()
+	reported := a.lastPrompt
+	a.usageMu.Unlock()
+	return a.Client.FitOutput(request, a.ContextLimit, reported)
+}
+
 // AddUsage folds one of this agent's own requests into its totals and, on a
 // subagent, forwards it to the parent's sub-usage ledger.
 func (a *Agent) AddUsage(u llm.Usage) {
@@ -537,6 +549,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			TopP:            a.TopP,
 			MaxTokens:       a.MaxTokens,
 		}
+		request.MaxTokens = a.fitOutput(request)
 		request.Accounting = a.CallAccounting("turn")
 		client := *a.Client
 		client.OnRetry = ev.OnRetry
@@ -1253,7 +1266,7 @@ func (a *Agent) cappedAnswer(ctx context.Context, ev Events) (string, error) {
 		llm.Message{Role: "system", Content: "You have reached the tool-call limit. Do NOT request any more tools. Give your final answer now using only what you have already gathered."})
 	client := *a.Client
 	client.OnRetry = ev.OnRetry
-	msg, usage, err := client.Stream(ctx, llm.Request{
+	request := llm.Request{
 		Model:           a.Model,
 		Messages:        msgs,
 		Tools:           nil, // no tools — force a text answer
@@ -1262,7 +1275,9 @@ func (a *Agent) cappedAnswer(ctx context.Context, ev Events) (string, error) {
 		ReasoningEffort: a.Effort,
 		Temperature:     a.Temperature,
 		TopP:            a.TopP,
-	}, ev.OnText, ev.OnThink, ev.OnToolCall)
+	}
+	request.MaxTokens = a.fitOutput(request)
+	msg, usage, err := client.Stream(ctx, request, ev.OnText, ev.OnThink, ev.OnToolCall)
 	a.AddUsage(usage)
 	a.notePrompt(usage)
 	if ev.OnUsage != nil {
