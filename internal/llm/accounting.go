@@ -371,6 +371,31 @@ func requestTokens(req Request) (int64, error) {
 	return input + toolTokens, nil
 }
 
+// FitOutput returns req.MaxTokens capped so the request's input plus its
+// requested output stays inside contextLimit. Providers count the output
+// reservation against the same window as the prompt, so asking for a whole
+// window of output beside a non-empty prompt is rejected outright.
+// reportedInput is a provider-measured prompt size known to be part of this
+// request (zero when unknown); the larger of it and the local estimate is
+// used. The cap is left unchanged when the window or the cap is unknown, when
+// the transport has a fixed natural output limit it cannot lower, and when the
+// input already fills the window (the provider's rejection then drives the
+// reactive compaction instead of a meaningless zero-output request).
+func (c *Client) FitOutput(req Request, contextLimit, reportedInput int) int {
+	if contextLimit <= 0 || req.MaxTokens <= 0 || c.NaturalOutputLimit(req.Model) > 0 {
+		return req.MaxTokens
+	}
+	input, err := requestTokens(req)
+	if err != nil {
+		return req.MaxTokens
+	}
+	input = max(input, int64(reportedInput))
+	if input >= int64(contextLimit) {
+		return req.MaxTokens
+	}
+	return int(min(int64(req.MaxTokens), int64(contextLimit)-input))
+}
+
 // defaultCallTimeout is the per-attempt ceiling. Accounting needs a finite
 // reservation timeout for terminal recovery; the stall deadline in stall.go is
 // what ends a quiet stream in practice.

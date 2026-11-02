@@ -581,6 +581,7 @@ func (session *AgentSession) complete(ctx context.Context, prompt string, maxTok
 		Model:               session.agent.Model, MaxTokens: maxTokens,
 		Messages: []llm.Message{{Role: "user", Content: prompt}},
 	}
+	request.MaxTokens = session.agent.Client.FitOutput(request, session.agent.ContextLimit, 0)
 	request.Accounting = session.agent.CallAccounting("helper")
 	output, usage, err := session.agent.Client.Complete(ctx, request)
 	if llm.IsAccountingError(err) {
