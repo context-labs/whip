@@ -117,8 +117,6 @@ func (b *chromedpBackend) bound(ctx context.Context) (context.Context, context.C
 	return b.targetCtx, func() {}
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func (b *chromedpBackend) Info(ctx context.Context) (PageInfo, error) {
 	var rawJSON string
 	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
@@ -180,8 +178,8 @@ func (b *chromedpBackend) Eval(ctx context.Context, expression string) (string, 
 	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
 		r, err := cdp.Call(ctx, t, runtime.Evaluate, runtime.EvaluateParams{
 			Expression:    expression,
-			ReturnByValue: ptr(true),
-			AwaitPromise:  ptr(true),
+			ReturnByValue: new(true),
+			AwaitPromise:  new(true),
 		})
 		res, exp = r.Result, r.ExceptionDetails
 		return err
@@ -385,7 +383,7 @@ func (b *chromedpBackend) WaitElement(ctx context.Context, selector string, visi
 func (b *chromedpBackend) Screenshot(ctx context.Context, maxDim int) ([]byte, error) {
 	var data []byte
 	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
-		params := page.CaptureScreenshotParams{Format: page.CaptureScreenshotFormatJpeg, Quality: ptr[int64](80)}
+		params := page.CaptureScreenshotParams{Format: page.CaptureScreenshotFormatJpeg, Quality: new(int64(80))}
 		if maxDim > 0 {
 			metrics, err := cdp.Call(ctx, t, page.GetLayoutMetrics, cdp.Empty{})
 			if cssLayout := metrics.CSSLayoutViewport; err == nil && cssLayout != nil {
@@ -506,7 +504,7 @@ func (b *chromedpBackend) UseTab(ctx context.Context, targetID string) error {
 func (b *chromedpBackend) UploadFiles(ctx context.Context, selector string, paths []string) error {
 	var nodeID cdp.NodeID
 	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
-		doc, err := cdp.Call(ctx, t, dom.GetDocument, dom.GetDocumentParams{Depth: ptr[int64](-1)})
+		doc, err := cdp.Call(ctx, t, dom.GetDocument, dom.GetDocumentParams{Depth: new(int64(-1))})
 		if err != nil {
 			return err
 		}
