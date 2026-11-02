@@ -125,7 +125,8 @@ it.each([false, true])('sets up a clean Mac without an error and enters the exis
   expect(screen.getByRole('button', { name: 'Advanced', exact: true }).getAttribute('aria-expanded')).toBe('false');
   await act(async () => { fireEvent.click(setup); });
   expect(screen.getByRole('button', { name: /Setting up…/ })).toHaveProperty('disabled', true);
-  expect(screen.getByRole('button', { name: 'Advanced', exact: true }).getAttribute('aria-disabled')).toBe('true');
+  // Base UI >= 1.9 disables the Collapsible trigger natively instead of with aria-disabled.
+  expect(screen.getByRole('button', { name: 'Advanced', exact: true }).matches(':disabled, [aria-disabled="true"]')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
   expect(screen.getByRole('button', { name: 'Advanced', exact: true }).getAttribute('aria-expanded')).toBe('false');
   expect(platform.resolveConnection).not.toHaveBeenCalled();
