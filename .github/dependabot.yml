@@ -38,6 +38,20 @@ updates:
       day: monday
       time: "06:00"
     open-pull-requests-limit: 5
+    # Native modules whose versions the Expo SDK pins (apps/mobile; checked by
+    # `expo-doctor` in mobile.yml). Bumping them past the SDK's pins fails
+    # mobile / checks and red-lights the whole grouped PR, so they move only
+    # with an Expo SDK upgrade (`npx expo install --fix`), not via Dependabot.
+    ignore:
+      - dependency-name: "@shopify/flash-list"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-gesture-handler"
+      - dependency-name: "react-native-keyboard-controller"
+      - dependency-name: "react-native-reanimated"
+      - dependency-name: "react-native-safe-area-context"
+      - dependency-name: "react-native-screens"
+      - dependency-name: "react-native-svg"
+      - dependency-name: "react-native-worklets"
     groups:
       npm-minor-patch:
         applies-to: version-updates
