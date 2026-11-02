@@ -19,7 +19,7 @@ test('embedded Markdown images and raw HTML remain selectable source without inv
 });
 
 test('native Markdown disables previews and unsafe link callbacks cannot open a URL', async () => {
-  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   try {
     await render(<Markdown text="[safe link](https://example.test)" />);
     const props = mockNativeMarkdown.mock.calls.at(-1)![0];

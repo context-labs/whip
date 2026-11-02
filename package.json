@@ -51,7 +51,7 @@
     "test:docs:dev": "npm run test:dev -w @whip/docs"
   },
   "devDependencies": {
-    "@playwright/test": "1.63.0",
+    "@playwright/test": "1.64.1",
     "@storybook/addon-a11y": "10.6.0",
     "@storybook/react-vite": "10.6.0",
     "@stylexjs/unplugin": "0.19.0",
@@ -59,16 +59,16 @@
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.7",
     "@types/node": "24.13.3",
-    "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.7",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "esbuild": "0.28.2",
     "jsdom": "29.1.1",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "storybook": "10.6.0",
     "typescript": "5.9.3",
-    "vite": "8.2.2",
+    "vite": "8.3.5",
     "vitest": "5.0.0"
   },
   "overrides": {

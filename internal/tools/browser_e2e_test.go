@@ -17,9 +17,9 @@ import (
 // End-to-end through the tool: browser_exec drives a real headless Chrome.
 func TestBrowserExecE2E(t *testing.T) {
 	home, _ := os.UserHomeDir()
-	bin := home + "/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell"
+	bin := home + "/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell"
 	if _, err := os.Stat(bin); err != nil {
-		bin = home + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"
+		bin = home + "/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome"
 	}
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("no chromium on this box")

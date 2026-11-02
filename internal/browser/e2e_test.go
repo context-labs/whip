@@ -23,8 +23,8 @@ import (
 )
 
 var chromiumCandidates = []string{
-	"~/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
-	"~/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell",
+	"~/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome",
+	"~/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell",
 	// macOS dev boxes: rod launches these headed/headless itself.
 	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 	"/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -36,7 +36,7 @@ var chromiumCandidates = []string{
 // Google Chrome ignores it). Used by the extension E2E; "" when absent.
 func chromeForTestingPath() string {
 	home, _ := os.UserHomeDir()
-	p := filepath.Join(home, "Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
+	p := filepath.Join(home, "Library/Caches/ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
 	if _, err := os.Stat(p); err == nil {
 		return p
 	}
