@@ -7,11 +7,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // End-to-end through the tool: browser_exec drives a real headless Chrome.
@@ -48,6 +51,28 @@ func TestBrowserExecE2E(t *testing.T) {
 	defer mgr.CloseAll()
 	services := NewServices()
 	services.SetBrowser(mgr, true)
+	// Host tools run only on services bound to a dispatcher authority; an
+	// unbound Services rejects every call before the browser is touched.
+	st, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"), capability.NewWorkspaces())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() { _ = processes.Close() })
+	rootID, err := st.Create(session.SessionKindAgent, t.TempDir(), "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateAllowOnce, "" })
+	if err := services.BindDispatcher(st, st.Workspaces(), processes, authority); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(services.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
