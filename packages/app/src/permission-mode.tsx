@@ -107,7 +107,7 @@ export function PermissionModeControl({ value: current, disabled, onChange, pres
       trigger={
         <Button
           variant={presentation === 'settings' ? 'secondary' : 'ghost'}
-          aria-label={label}
+          aria-label={`${label}: ${active ? active.label : 'Permissions unavailable'}`}
           disabled={disabled || pending}
           title={active ? `Permissions: ${active.label}` : 'Permission approval mode'}
           xstyle={[styles.trigger, presentation === 'settings' && styles.settingsTrigger, active?.danger && styles.danger]}

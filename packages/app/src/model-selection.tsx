@@ -52,7 +52,7 @@ export function effortLabel(level: string): string {
 export function DraftEffortPicker({ value, levels, disabled, onChange }: {
   value: string; levels: readonly string[]; disabled: boolean; onChange(value: string): void;
 }) {
-  return <Menu trigger={<Button variant="ghost" aria-label="Reasoning effort" disabled={disabled} xstyle={styles.trigger}>
+  return <Menu trigger={<Button variant="ghost" aria-label={`Reasoning effort: ${effortLabel(value)}`} disabled={disabled} xstyle={styles.trigger}>
     {effortLabel(value)}<ChevronDown size={14} />
   </Button>} items={levels.map(level => ({ id: level, label: effortLabel(level), disabled,
     icon: level === value ? <Check size={14} /> : undefined, onSelect: () => onChange(level) }))} />;
@@ -72,7 +72,7 @@ export function EffortPicker({ view, root, connected }: ModelProps) {
   const levels = modelEfforts(models, root.meta.model);
   const current = root.meta.effort;
   return <Popover open={open} onOpenChange={value => { if (!pending) setOpen(value); }} xstyle={styles.popup}
-    trigger={<Button variant="ghost" aria-label="Reasoning effort" disabled={!connected || !idle || pending}
+    trigger={<Button variant="ghost" aria-label={`Reasoning effort: ${effortLabel(current)}`} disabled={!connected || !idle || pending}
       title={idle ? 'Reasoning effort' : 'Wait for active turns to finish before changing reasoning'}
       xstyle={styles.trigger}>
       <span {...stylex.props(layout.ellipsis)}>{effortLabel(current)}</span>
@@ -156,7 +156,7 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
     finally { if (id === generation.current) setPending(false); }
   };
   return <Popover open={open} onOpenChange={value => { if (!pending) { setOpen(value); if (value) onOpen?.(); } }} xstyle={styles.popupWide}
-    trigger={<Button variant={settings ? "secondary" : "ghost"} aria-label={label} disabled={disabled || pending}
+    trigger={<Button variant={settings ? "secondary" : "ghost"} aria-label={`${label}: ${[usingDefault ? defaultChoice.label : model || 'Choose model', showProvider && !usingDefault ? provider || 'host-resolved' : ''].filter(Boolean).join(' ')}`} disabled={disabled || pending}
       title={routeLabel} aria-description={routeLabel}
       xstyle={[styles.trigger, xstyle]}>
       {!usingDefault && <ProviderLogo id={provider} size={14} />}

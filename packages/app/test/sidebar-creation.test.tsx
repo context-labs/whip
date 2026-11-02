@@ -68,7 +68,7 @@ function fixture(ready = true, entries = [provider('inference-net', ready), prov
   return { runtime, client, inventory, run, drafts, query, tabs, first, focus: (value: boolean) => { focused = value; view.rerender(tree()); }, select: (id: string) => { active = id; view.rerender(tree()); }, ...view, rerender: () => view.rerender(tree()) };
 }
 async function openSessionOptions() {
-  fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Model: / }));
   fireEvent.click(await screen.findByRole('button', { name: 'Session options', exact: true }));
 }
 it('keeps independent drafts and setup through tab and host switches without sending', async () => {

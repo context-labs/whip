@@ -261,7 +261,7 @@ async function selfTest() {
       assert(observed.session && observed.transcript && observed.noNotice && observed.painted);
       dom.window.document.body.insertAdjacentHTML('beforeend', '<div role="alert">Connection failed</div>');
       assert.equal((await dom.window.eval(capturedScript)).noNotice, false);
-      dom.window.document.body.innerHTML = '<aside aria-label="Session navigation"><button aria-label="Manage servers">Servers</button></aside><form><textarea data-whip-composer aria-label="Your first message"></textarea><button aria-label="Model" disabled>Model</button></form>';
+      dom.window.document.body.innerHTML = '<aside aria-label="Session navigation"><button aria-label="Manage servers">Servers</button></aside><form><textarea data-whip-composer aria-label="Your first message"></textarea><button aria-label="Model: model" disabled>model</button></form>';
       assert.equal((await dom.window.eval(capturedScript)).home, false, 'A first-message draft does not prove its host is connected');
       dom.window.document.querySelector('button[disabled]').disabled = false;
       observed = await dom.window.eval(capturedScript);

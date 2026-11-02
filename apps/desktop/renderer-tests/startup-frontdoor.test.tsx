@@ -155,7 +155,7 @@ it.each([false, true])('warms first New Chat before any tabs open (configured=%s
   await waitFor(() => expect(app.runtime.tabs.workspace().tabs).toHaveLength(1));
   expect(screen.queryByText(/Loading host permission defaults/)).toBeNull();
   expect(screen.queryByText(/Checking providers on/)).toBeNull();
-  if (configured) expect(screen.getByRole('button', { name: 'Model' }).textContent).toContain('gpt-6-astra');
+  if (configured) expect(screen.getByRole('button', { name: /^Model: / }).textContent).toContain('gpt-6-astra');
   else expect(screen.getByRole('button', { name: 'Connect OpenAI', exact: true })).toBeTruthy();
 });
 
@@ -178,7 +178,7 @@ it.each([false, true])('reopens New Chat from zero tabs without a loading layout
   expect(document.querySelector('[data-picker-skeleton]')).toBeNull();
   if (configured) {
     expect(screen.getByRole('textbox', { name: 'Your first message' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Model' }).textContent).toContain('gpt-6-astra');
+    expect(screen.getByRole('button', { name: /^Model: / }).textContent).toContain('gpt-6-astra');
   } else {
     expect(screen.getByRole('button', { name: 'Connect OpenAI', exact: true })).toBeTruthy();
     expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();

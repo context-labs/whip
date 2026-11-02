@@ -195,7 +195,7 @@ try {
       await eventually(async () => (await composer.boundingBox()).height > emptyHeight + 100);
       await composer.fill('Keep this draft while changing the model');
       await eventually(async () => (await composer.boundingBox()).height === emptyHeight);
-      const modelTrigger = page.getByRole('button', { name: 'Model', exact: true });
+      const modelTrigger = page.getByRole('button', { name: /^Model: / });
       await modelTrigger.click();
       const modelSearch = page.getByRole('textbox', { name: 'Search models', exact: true });
       await modelSearch.fill('replacement');
@@ -206,7 +206,7 @@ try {
       // Wait for the displayed model and popup focus return before another click.
       await eventually(async () => (await modelTrigger.innerText()).includes('replacement'), { description: 'browser renders the selected model' });
       await eventually(() => modelTrigger.evaluate(element => document.activeElement === element), { description: 'model picker returns focus to its trigger' });
-      const effortTrigger = page.getByRole('button', { name: 'Reasoning effort', exact: true });
+      const effortTrigger = page.getByRole('button', { name: /^Reasoning effort: / });
       await effortTrigger.click();
       await page.getByRole('option', { name: 'Medium', exact: true }).click();
       await eventually(async () => (await session.snapshot()).meta.effort === 'medium');

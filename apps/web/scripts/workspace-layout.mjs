@@ -85,8 +85,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
     await panel(duplicate).getByLabel('Message this agent', { exact: true }).waitFor();
     await panel(duplicate).getByTitle('Child-agent models are set when the agent is created').waitFor();
-    assert.equal(await panel(duplicate).getByRole('button', { name: 'Model', exact: true }).count(), 0, 'Child composer offered to change the root model');
-    assert.equal(await panel(duplicate).getByRole('button', { name: 'Reasoning effort', exact: true }).count(), 0, 'Child composer offered to change root reasoning');
+    assert.equal(await panel(duplicate).getByRole('button', { name: /^Model: / }).count(), 0, 'Child composer offered to change the root model');
+    assert.equal(await panel(duplicate).getByRole('button', { name: /^Reasoning effort: / }).count(), 0, 'Child composer offered to change root reasoning');
     assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).count(), 1);
     assert.equal(await panel(root).getByText(/perf-child-000 message/).count(), 0);
     await panel(duplicate).locator('[data-session-info-bar]').getByRole('button', { name: 'Session actions', exact: true }).click();

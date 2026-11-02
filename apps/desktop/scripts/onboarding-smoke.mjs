@@ -160,7 +160,7 @@ async function firstMessageScenario() {
     assert.equal(requests.filter(entry => entry.kind !== 'models').length, 0, 'Setup must not send a hidden inference request');
     await electron.evaluate(({ dialog }, directory) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] }); }, work);
     await page.getByRole('button', { name: 'Choose folder…', exact: true }).click();
-    await page.getByRole('button', { name: 'Permission approval mode', exact: true }).click();
+    await page.getByRole('button', { name: /^Permission approval mode: / }).click();
     await page.getByRole('option', { name: /Full Access/ }).click();
     await capture(page, 'desktop-ready-first-message');
     const submitted = performance.now();
@@ -191,7 +191,7 @@ async function firstMessageScenario() {
     await composer.fill(draft);
     await page.reload();
     await expect(page.getByRole('textbox', { name: 'Message WHIP', exact: true })).toHaveValue(draft);
-    await expect(page.getByRole('button', { name: 'Permission approval mode', exact: true })).toContainText('Full Access');
+    await expect(page.getByRole('button', { name: /^Permission approval mode: / })).toContainText('Full Access');
     assert.equal(new URL(page.url()).pathname.split('/s/')[1], rootId);
     await capture(page, 'desktop-first-message-reloaded');
     client.close(); client = undefined;
@@ -202,7 +202,7 @@ async function firstMessageScenario() {
     const resumed = await electron.firstWindow();
     resumed.on('pageerror', error => errors.push(error.message));
     await expect(resumed.getByRole('textbox', { name: 'Message WHIP', exact: true })).toHaveValue(draft, { timeout: 30_000 });
-    await expect(resumed.getByRole('button', { name: 'Permission approval mode', exact: true })).toContainText('Full Access');
+    await expect(resumed.getByRole('button', { name: /^Permission approval mode: / })).toContainText('Full Access');
     const restarted = await status();
     client = createWhipClient({ endpoint: unixSocket(restarted.socket), clientId: `resumed-${crypto.randomUUID()}`, clientKind: 'human' });
     await client.connect();
