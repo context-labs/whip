@@ -381,7 +381,7 @@ jobs:
           xvfb-run -a go test -count=1 -v -timeout=15m ./internal/browser/... 2>&1 | tee browser-e2e.log
           xvfb-run -a go test -count=1 -v -run '^(TestBrowserExecE2E|TestBrowserExecReachesModel)$' \
             ./internal/tools/ ./internal/agent/ 2>&1 | tee -a browser-e2e.log
-          for name in TestE2EHeadless TestE2EDedicated TestE2ELiveAttach TestDriverParity TestBrowserExecE2E TestBrowserExecReachesModel; do
+          for name in TestE2EHeadless TestE2EDedicated TestE2ELiveAttach TestDriverParity TestChromedpBackendE2E TestChromedpDedicatedAndLive TestBrowserExecE2E TestBrowserExecReachesModel; do
             grep -q -- "--- PASS: ${name} " browser-e2e.log || { echo "${name} did not run and pass"; exit 1; }
           done
 
