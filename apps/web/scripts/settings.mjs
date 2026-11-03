@@ -93,7 +93,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     checks.push('Back after reload restores the exact session and unsent draft');
     await page.locator('#whip-settings-link').click();
     await category('Providers & models').click();
-    const model = page.getByRole('button', { name: 'Default model', exact: true });
+    const model = page.getByRole('button', { name: /^Default model: / });
     await model.click();
     await page.getByRole('option', { name: 'unsaved-settings-model · openrouter', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Reasoning effort' })).toContainText('Model default');
@@ -114,7 +114,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
       await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: /^Attention ·/ })).toHaveCount(0);
       if (label === 'Agents & execution') {
-        const model = page.getByRole('button', { name: 'Summary model', exact: true });
+        const model = page.getByRole('button', { name: /^Summary model: / });
         const percentage = page.getByRole('combobox', { name: 'Compact at', exact: true });
         await expect(model).toHaveText('Conversation Model');
         await expect(percentage).toHaveText('50%');
@@ -372,7 +372,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     checks.push('1024/768/767/390/320 widths, narrow category search keyboard focus, and maximum UI size reflow');
     await page.getByRole('button', { name: 'Appearance', exact: true }).click();
     await page.getByRole('dialog', { name: 'Settings', exact: true }).getByRole('button', { name: 'Agents & execution', exact: true }).click();
-    const compactModel = page.getByRole('button', { name: 'Summary model', exact: true });
+    const compactModel = page.getByRole('button', { name: /^Summary model: / });
     await expect(compactModel).toHaveText('Conversation Model');
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Compaction large text overflow at 320px');
     await page.locator('#compact_model').scrollIntoViewIfNeeded();
@@ -387,7 +387,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     const inspector = page.getByRole('dialog', { name: 'Session details', exact: true });
     await expect(inspector).toBeVisible();
     await select('Context settings section', 'Compaction');
-    await expect(inspector.getByRole('button', { name: 'Summary model', exact: true })).toHaveText('Conversation Model');
+    await expect(inspector.getByRole('button', { name: /^Summary model: / })).toHaveText('Conversation Model');
     await expect(inspector.getByRole('combobox', { name: 'Compact at', exact: true })).toHaveText('50%');
     await expect(inspector.getByText(/shared host defaults/)).toBeVisible();
     assert.ok(await inspector.evaluate(element => element.scrollWidth <= element.clientWidth), 'Compaction inspector overflows');

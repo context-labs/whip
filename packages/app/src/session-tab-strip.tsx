@@ -275,8 +275,8 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   return <div {...stylex.props(styles.workspace)}>
     {compact && <header {...stylex.props(styles.mobileBar)}>
       {utilities}
-      <Button variant="ghost" xstyle={styles.mobileSelector} aria-label={`Open sessions: ${active ? title(active) : 'New session'}, ${tabs.length} tabs`} onClick={() => { setSearch(''); setPicker(true); }}>
-        {active && icon(active)}<span {...stylex.props(layout.ellipsis, layout.grow)}>{active ? `${title(active)}${viewSuffix(active.kind)}` : 'New session'}</span><span {...stylex.props(styles.count)}>{tabs.length}</span><ChevronDown size={14}/>
+      <Button variant="ghost" xstyle={styles.mobileSelector} aria-label={`Open sessions: ${active ? `${title(active)}${viewSuffix(active.kind)}` : 'New session'} ${tabs.length} tabs`} onClick={() => { setSearch(''); setPicker(true); }}>
+        {active && icon(active)}<span {...stylex.props(layout.ellipsis, layout.grow)}>{active ? `${title(active)}${viewSuffix(active.kind)}` : 'New session'}</span>{' '}<span {...stylex.props(styles.count)}>{tabs.length}</span><ChevronDown size={14}/>
       </Button>{add}
     </header>}
     {notices}

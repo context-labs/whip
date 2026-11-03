@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { matchesKeyboardEvent, type Hotkey } from '@tanstack/react-hotkeys';
+import { matchesKeyboardEvent, type HotkeyChord } from '@tanstack/react-hotkeys';
 import * as stylex from '@stylexjs/stylex';
 import { Button, ContextMenu } from '@whip/ui';
 import { colors, surface, typography } from '@whip/ui/tokens.stylex';
@@ -123,8 +123,8 @@ export function dragSelection(from: { x: number; y: number }, to: { x: number; y
 }
 
 /** App shortcuts the shell must not swallow; everything else reaches the PTY. */
-export function passesToApp(event: KeyboardEvent, shortcuts: readonly string[]): boolean {
-  return shortcuts.some(shortcut => matchesKeyboardEvent(event, shortcut as Hotkey));
+export function passesToApp(event: KeyboardEvent, shortcuts: readonly HotkeyChord[]): boolean {
+  return shortcuts.some(shortcut => matchesKeyboardEvent(event, shortcut));
 }
 
 /**

@@ -22,7 +22,7 @@ async function observe(mutate?: (document: Document) => void) {
 }
 async function home(ready = false) {
   const f = fixture(false, ready); f.render();
-  const control = await screen.findByRole('button', { name: ready ? 'Model' : 'Connect OpenAI', exact: true });
+  const control = await screen.findByRole('button', { name: ready ? /^Model: / : 'Connect OpenAI', exact: !ready });
   expect((control as HTMLButtonElement).disabled).toBe(false);
   return f;
 }
@@ -68,7 +68,7 @@ it('does not accept an unrelated enabled Connect Remote control', async () => {
 });
 it('rejects an editable composer with a disabled Model control', async () => {
   await home(true);
-  expect(await observe(d => { d.querySelector<HTMLButtonElement>('[aria-label="Model"]')!.disabled = true; }))
+  expect(await observe(d => { d.querySelector<HTMLButtonElement>('[aria-label^="Model: "]')!.disabled = true; }))
     .toMatchObject({ home: false, painted: false });
 });
 it('requires the provider choice to belong to the visible setup region', async () => {
@@ -78,7 +78,7 @@ it('requires the provider choice to belong to the visible setup region', async (
 });
 it('requires the Model control to belong to the first-message form', async () => {
   await home(true);
-  expect(await observe(d => d.body.append(d.querySelector('[aria-label="Model"]')!)))
+  expect(await observe(d => d.body.append(d.querySelector('[aria-label^="Model: "]')!)))
     .toMatchObject({ home: false, painted: false });
 });
 it('rejects a disabled composer even with an enabled Model control', async () => {

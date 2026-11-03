@@ -119,7 +119,7 @@ it.each(['/project/whip', ''])('does not complete skills with an unknown permiss
   expect(screen.queryByRole('listbox', { name: 'Skills' })).toBeNull();
   expect(f.call).not.toHaveBeenCalled();
   act(() => { f.runtime.queries.setQueryData(['runtime-configuration', 'host'], { default_permission_mode: 'automatic' }); });
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Permission approval mode' }).textContent).toContain('Full Access'));
+  await waitFor(() => expect(screen.getByRole('button', { name: /^Permission approval mode: / }).textContent).toContain('Full Access'));
   await typeSlash('/pon');
   await screen.findByRole('option', { name: /ponytail/ });
   expect(f.call).toHaveBeenCalledWith('host.skills.complete', expect.objectContaining({ permission_mode: 'automatic' }), { signal: expect.any(AbortSignal) });

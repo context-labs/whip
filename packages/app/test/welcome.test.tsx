@@ -80,9 +80,9 @@ it('keeps the ready composer focused and saves model/effort choices to this draf
   expect(screen.queryByLabelText('Execution language')).toBeNull();
   expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
   fireEvent.change(input, { target: { value: 'Explain the code' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Model: / }));
   fireEvent.click(await screen.findByRole('option', { name: /gpt-5.5/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Reasoning effort' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Reasoning effort: / }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'High' }));
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ model: 'gpt-5.5', provider: 'openai', effort: 'high' });
   expect(f.raw.configuration.update).not.toHaveBeenCalled();
@@ -147,11 +147,11 @@ it('keeps an unsupported saved effort visible and requires an explicit replaceme
   fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Use my saved choice' } });
   act(() => { f.runtime.queries.setQueryData(['provider-catalogs', 'host'], { result: { models: {}, providers: {}, catalogs: {} } }); });
   await screen.findByText('Choose an available reasoning effort for this model before sending.');
-  expect(screen.getByRole('button', { name: 'Reasoning effort' }).textContent).toContain('High');
+  expect(screen.getByRole('button', { name: /^Reasoning effort: / }).textContent).toContain('High');
   fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your first message' }), { key: 'Enter' });
   expect(f.raw.sessions.create).not.toHaveBeenCalled();
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ effort: 'high' });
-  fireEvent.click(screen.getByRole('button', { name: 'Reasoning effort' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Reasoning effort: / }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Default' }));
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
   await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledOnce());
@@ -217,7 +217,7 @@ it('keeps the composer footprint while the provider inventory is pending, then d
   expect(screen.getByRole('heading', { name: 'What do you want to work on?', level: 1 })).toBeTruthy();
   expect(screen.queryByText('Connect a provider')).toBeNull();
   expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Reasoning effort' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Reasoning effort: / })).toBeNull();
   expect(document.querySelectorAll('[data-picker-skeleton]')).toHaveLength(2);
   await act(async () => { resolveList(f.inventory); });
   await screen.findByRole('heading', { name: 'Connect a provider to get started', level: 1 });
