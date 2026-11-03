@@ -69,7 +69,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await ready(); const first = id();
     assert.match(new URL(page.url()).pathname, /^\/new\//);
     await draft().fill('First independent unsent task.');
-    await page.getByRole('button', { name: 'Permission approval mode', exact: true }).click();
+    await page.getByRole('button', { name: /^Permission approval mode: / }).click();
     await page.getByRole('option', { name: /^Full Access/ }).click();
     assert.equal(await page.getByRole('button', { name: 'New session tab', exact: true }).count(), 0);
     await page.getByRole('button', { name: 'Pane 1 actions', exact: true }).click();
@@ -79,10 +79,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await draft().fill('Second independent unsent task.');
     await tab(first).click(); await ready();
     assert.equal(await draft().inputValue(), 'First independent unsent task.');
-    assert.match(await page.getByRole('button', { name: 'Permission approval mode', exact: true }).innerText(), /Full Access/);
+    assert.match(await page.getByRole('button', { name: /^Permission approval mode: / }).innerText(), /Full Access/);
     await tab(second).click(); await ready();
     assert.equal(await draft().inputValue(), 'Second independent unsent task.');
-    assert.match(await page.getByRole('button', { name: 'Permission approval mode', exact: true }).innerText(), /Ask for approval/);
+    assert.match(await page.getByRole('button', { name: /^Permission approval mode: / }).innerText(), /Ask for approval/);
     await page.reload(); await ready();
     assert.equal(id(), second); assert.equal(await draft().inputValue(), 'Second independent unsent task.');
     const restored = allTabs((await workspace()).workspace.layout);

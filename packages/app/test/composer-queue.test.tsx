@@ -84,8 +84,12 @@ it('does not retarget a steer when its turn ends', async () => {
 });
 
 it('bounds mounted rows for a long queue without losing the total or message identities', () => {
-  const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function(this: HTMLElement) { return this.tagName === 'OL' ? 144 : 44; });
-  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(400);
+  // The virtualizer measures the scroll element with clientWidth/clientHeight
+  // (virtual-core >= 3.19) and rows with offsetHeight; jsdom reports 0 for both.
+  const sizes = (['client', 'offset'] as const).flatMap(box => [
+    vi.spyOn(HTMLElement.prototype, `${box}Height`, 'get').mockImplementation(function(this: HTMLElement) { return this.tagName === 'OL' ? 144 : 44; }),
+    vi.spyOn(HTMLElement.prototype, `${box}Width`, 'get').mockReturnValue(400),
+  ]);
   const rows = Array.from({ length: 128 }, (_, i) => ({ ...row(String(i + 1)), text: `Message ${i + 1}` }));
   const f = fixture(rows);
   const rendered = render(f.app());
@@ -94,7 +98,7 @@ it('bounds mounted rows for a long queue without losing the total or message ide
   expect(mounted.length).toBeLessThan(16);
   expect(mounted[0]?.getAttribute('aria-setsize')).toBe('128');
   expect(screen.getByRole('status').textContent).toContain('128 queued messages');
-  height.mockRestore(); width.mockRestore();
+  for (const size of sizes) size.mockRestore();
 });
 
 it('retains the queue and draft when the action fails', async () => {

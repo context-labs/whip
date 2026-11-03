@@ -19,7 +19,7 @@ const snapshotScript = String.raw`(async () => {
     const session = enabled(composer) && enabled(composer?.closest('form')?.querySelector('[aria-label="Add context"]'));
     const firstMessage = document.querySelector('[data-whip-composer][aria-label="Your first message"]');
     const providerSetup = [...document.querySelectorAll('[aria-label="Provider setup"]')].find(visible);
-    const home = (enabled(firstMessage) && enabled(firstMessage?.closest('form')?.querySelector('[aria-label="Model"]'))) ||
+    const home = (enabled(firstMessage) && enabled(firstMessage?.closest('form')?.querySelector('[aria-label^="Model: "]'))) ||
       (!!providerSetup && [...providerSetup.querySelectorAll('[data-provider-choice]')].some(enabled));
     const observation = typeof window.whipStartupSnapshot === 'function' ? window.whipStartupSnapshot() : undefined;
     const sdkState = ['connecting', 'connected', 'reconnecting', 'incompatible', 'paused', 'closed', 'unverified'].includes(observation?.sdkState) ? observation.sdkState : 'unknown';

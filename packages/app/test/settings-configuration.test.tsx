@@ -36,7 +36,7 @@ function fixture() {
 }
 
 async function chooseModel(model: string, provider = 'openrouter') {
-  fireEvent.click(await screen.findByRole('button', { name: 'Default model', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Default model: / }));
   fireEvent.click(await screen.findByRole('option', { name: `${model} · ${provider}`, exact: true }));
 }
 
@@ -94,7 +94,7 @@ it('does not save disconnected host drafts and cancels a local wait when the for
   await chooseModel('model-b');
   view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled={false} category="providers" />));
   expect((screen.getByRole('button', { name: 'Save host defaults' }) as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByLabelText('Default model').textContent).toContain('model-b');
+  expect(screen.getByLabelText(/^Default model: /).textContent).toContain('model-b');
   view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled category="providers" />));
   f.update.mockImplementationOnce(() => new Promise(() => {}));
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
@@ -161,7 +161,7 @@ it('preserves an unavailable saved effort during catalog refresh and displays th
   f.changeServer({ ...initial, default_provider: '', default_effort: 'max' });
   render(f.wrapper(<ConfigurationSettings client={f.client} enabled category="providers" defaultProvider="openrouter" />));
   expect(await screen.findByText('model-a')).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Default model' }).title).toBe('model-a · openrouter');
+  expect(screen.getByRole('button', { name: /^Default model: / }).title).toBe('model-a · openrouter');
   await screen.findByText('Max (unavailable)');
   expect((screen.getByRole('button', { name: 'Save host defaults' }) as HTMLButtonElement).disabled).toBe(true);
   expect(f.update).not.toHaveBeenCalled();
@@ -184,14 +184,14 @@ it('classifies invalid defaults as validation and preserves the draft without wr
 
 
 async function choosePermission(name: string) {
-  fireEvent.click(await screen.findByRole('button', { name: 'Default permission level' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Default permission level: / }));
   fireEvent.click(await screen.findByRole('option', { name: new RegExp(name) }));
 }
 
 it('places the shared permission control below effort and saves it only on Save host defaults', async () => {
   const f = fixture(); f.changeServer({ ...initial, default_permission_mode: 'prompt' });
   const view = f.render('providers');
-  const control = await screen.findByRole('button', { name: 'Default permission level' });
+  const control = await screen.findByRole('button', { name: /^Default permission level: / });
   expect(control.textContent).toContain('Ask for approval');
   const rows = [...view.container.querySelectorAll('[role="group"]')].map(row => row.id);
   expect(rows.indexOf('default_permission_mode')).toBe(rows.indexOf('default_effort') + 1);
@@ -207,8 +207,8 @@ it('places the shared permission control below effort and saves it only on Save 
 
 it('keeps legacy hosts on Ask without offering an unsupported setting save', async () => {
   const f = fixture(); f.render('providers');
-  expect(await screen.findByRole('button', { name: 'Default permission level' })).toHaveProperty('disabled', true);
-  expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Ask for approval');
+  expect(await screen.findByRole('button', { name: /^Default permission level: / })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: /^Default permission level: / }).textContent).toContain('Ask for approval');
   await chooseModel('model-b');
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
@@ -221,9 +221,9 @@ it('retains a permission draft through revision conflicts and resets only when r
   f.changeServer({ ...initial, revision: 'v2', default_permission_mode: 'prompt' });
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Configuration revision conflict');
-  expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Full Access');
+  expect(screen.getByRole('button', { name: /^Default permission level: / }).textContent).toContain('Full Access');
   fireEvent.click(await screen.findByRole('button', { name: 'Discard edits and load current defaults' }));
-  expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Ask for approval');
+  expect(screen.getByRole('button', { name: /^Default permission level: / }).textContent).toContain('Ask for approval');
   expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
 });
 
@@ -243,25 +243,25 @@ it('isolates permission drafts and saved defaults when switching execution hosts
   const hostB = { ...f.client, getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-b' } }),
     configuration: { get: vi.fn(async () => ({ ...initial, revision: 'b1', default_permission_mode: 'prompt' })), update: vi.fn() } } as unknown as WhipClient;
   view.rerender(f.wrapper(<ConfigurationSettings client={hostB} enabled category="providers" />));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Ask for approval'));
+  await waitFor(() => expect(screen.getByRole('button', { name: /^Default permission level: / }).textContent).toContain('Ask for approval'));
   expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
   expect(hostB.configuration.update).not.toHaveBeenCalled();
   expect(f.update).not.toHaveBeenCalled();
   view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled category="providers" />));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Default permission level' }).textContent).toContain('Ask for approval'));
+  await waitFor(() => expect(screen.getByRole('button', { name: /^Default permission level: / }).textContent).toContain('Ask for approval'));
 });
 
 it('disables permission changes while disconnected or saving', async () => {
   const f = fixture(); f.changeServer({ ...initial, default_permission_mode: 'prompt' });
   const view = f.render('providers'); await choosePermission('Full Access');
   view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled={false} category="providers" />));
-  expect(screen.getByRole('button', { name: 'Default permission level' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: /^Default permission level: / })).toHaveProperty('disabled', true);
   expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
   view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled category="providers" />));
   f.update.mockImplementationOnce(() => new Promise(() => {}));
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await waitFor(() => expect(f.update).toHaveBeenCalledTimes(1));
-  expect(screen.getByRole('button', { name: 'Default permission level' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: /^Default permission level: / })).toHaveProperty('disabled', true);
 });
 
 
@@ -270,7 +270,7 @@ async function chooseThreshold(percent: number) {
   await userEvent.click(await screen.findByRole('option', { name: percent + '%', exact: true }));
 }
 async function chooseSummary(name: string) {
-  fireEvent.click(await screen.findByRole('button', { name: 'Summary model', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Summary model: / }));
   fireEvent.click(await screen.findByRole('option', { name, exact: true }));
 }
 
@@ -278,14 +278,14 @@ it('shows two compaction controls and only loads connected model routes on deman
   const f = fixture(); f.changeServer({ ...initial, compact_model: '', compact_provider: '', compact_percent: 0 });
   f.render('execution');
   const group = await screen.findByRole('region', { name: 'Context compaction' });
-  expect(within(group).getByRole('button', { name: 'Summary model' }).textContent).toBe('Conversation Model');
+  expect(within(group).getByRole('button', { name: /^Summary model: / }).textContent).toBe('Conversation Model');
   expect(within(group).getByRole('combobox', { name: 'Compact at' }).textContent).toBe('50%');
   expect(within(group).queryByText(/Advanced/)).toBeNull();
   expect(within(group).queryByText('Summarize older context while keeping the full conversation history.')).toBeNull();
   expect(within(group).queryByRole('spinbutton')).toBeNull();
   expect(within(group).getByText(/requires an up-to-date execution host/)).toBeDefined();
   expect(f.client.providers.catalogs).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Summary model' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Summary model: / }));
   expect(await screen.findByRole('option', { name: 'model-a · subscription' })).toBeDefined();
   expect(screen.queryByRole('option', { name: 'offline-model · offline' })).toBeNull();
   expect(screen.queryByRole('option', { name: 'unknown-model · unknown' })).toBeNull();
@@ -294,8 +294,8 @@ it('shows two compaction controls and only loads connected model routes on deman
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
   expect(f.update.mock.calls[0]![0]).toMatchObject({ compact_model: 'model-a', compact_provider: 'subscription' });
-  expect(screen.getByRole('button', { name: 'Summary model' }).title).toBe('model-a · subscription');
-  expect(screen.getByRole('button', { name: 'Summary model' }).textContent).toContain('subscription');
+  expect(screen.getByRole('button', { name: /^Summary model: / }).title).toBe('model-a · subscription');
+  expect(screen.getByRole('button', { name: /^Summary model: / }).textContent).toContain('subscription');
   expect(screen.queryByRole('textbox', { name: /provider/i })).toBeNull();
   await chooseSummary('Conversation Model');
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
@@ -353,7 +353,7 @@ it('replaces a clamped legacy threshold when its effective value is explicitly s
 
 it('preserves a provider-only legacy value until Conversation Model is explicitly selected', async () => {
   const f = fixture(); f.changeServer({ ...initial, compact_model: '', compact_provider: 'inference', compact_percent: 0 }); f.render('execution');
-  expect((await screen.findByRole('button', { name: 'Summary model' })).textContent).toBe('Conversation Model');
+  expect((await screen.findByRole('button', { name: /^Summary model: / })).textContent).toBe('Conversation Model');
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Retry limit' }), { target: { value: '4' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
@@ -366,7 +366,7 @@ it('preserves a provider-only legacy value until Conversation Model is explicitl
 
 it('keeps Conversation Model available during a failed catalog fetch and an unmatched search', async () => {
   const f = fixture(); vi.mocked(f.client.providers.catalogs).mockRejectedValue(new Error('Offline')); f.render('execution');
-  fireEvent.click(await screen.findByRole('button', { name: 'Summary model' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Summary model: / }));
   await screen.findByText('Could not load models');
   fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), { target: { value: 'nonexistent' } });
   fireEvent.click(screen.getByRole('option', { name: 'Conversation Model' }));

@@ -62,7 +62,7 @@ it('switches the provider when the selected model name is unchanged', async () =
   </QueryClientProvider> });
   const router = createRouter({ routeTree: route, history: createMemoryHistory() });
   render(<RouterProvider router={router} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Model: / }));
   const current = await screen.findByRole('option', { name: 'gpt-5.5 · openrouter' });
   expect(current.getAttribute('aria-selected')).toBe('true');
   expect(screen.queryByRole('option', { name: 'Conversation Model' })).toBeNull();
@@ -80,7 +80,7 @@ it('shows the routing provider logo and updates it when choosing another provide
     return <CatalogModelPicker {...route} settings catalog={catalog} onChange={(model, provider) => setRoute({ model, provider })} />;
   }
   render(<ThemeProvider initialTheme="light"><UIProvider><Picker /></UIProvider></ThemeProvider>);
-  const trigger = screen.getByRole('button', { name: 'Model', exact: true });
+  const trigger = screen.getByRole('button', { name: /^Model: / });
   expect(trigger.querySelector('use')?.getAttribute('href')).toMatch(/#openrouter$/);
   expect(trigger.textContent).toBe('gpt-5.5');
   fireEvent.click(trigger);
@@ -109,7 +109,7 @@ it.each(['pointer', 'keyboard'])('closes the model picker when opening session o
   const route = createRootRoute({ component: () => <ThemeProvider initialTheme="light"><UIProvider><Picker /></UIProvider></ThemeProvider> });
   const router = createRouter({ routeTree: route, history: createMemoryHistory() });
   render(<RouterProvider router={router} />);
-  await user.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  await user.click(await screen.findByRole('button', { name: /^Model: / }));
   const options = await screen.findByRole('button', { name: 'Session options' });
   if (interaction === 'keyboard') {
     options.focus();
@@ -124,14 +124,14 @@ it.each(['pointer', 'keyboard'])('closes the model picker when opening session o
   await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
   await user.keyboard('{Escape}');
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Session options' })).toBeNull());
-  await user.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  await user.click(screen.getByRole('button', { name: /^Model: / }));
   expect(await screen.findByRole('textbox', { name: 'Search models' })).toBeTruthy();
 });
 
 it('preserves the model selection popup for an action failure and closes on successful retry', async () => {
   const change = vi.fn().mockRejectedValueOnce(new Error('Model change rejected')).mockResolvedValue(undefined);
   render(<ThemeProvider initialTheme="light"><UIProvider><CatalogModelPicker model="gpt-5.5" provider="openrouter" settings catalog={catalog} onChange={change} /></UIProvider></ThemeProvider>);
-  fireEvent.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Model: / }));
   fireEvent.click(await screen.findByRole('option', { name: 'gpt-5.5 · openai-codex' }));
   const alert = await screen.findByRole('alert');
   expect(alert.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');

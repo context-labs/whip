@@ -144,13 +144,13 @@ try {
     report.push('Submission uncertainty: lost acknowledgement reconciles original identity without automatic replay.');
 
     await scenario('resource');
-    await page.getByRole('button', { name: 'Model', exact: true }).click();
+    await page.getByRole('button', { name: /^Model: / }).click();
     await expect(notice('resource')).toHaveCount(1);
     await expect(notice('application')).toHaveCount(0);
     await capture('resource');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Restore', exact: true }).click();
-    await page.getByRole('button', { name: 'Model', exact: true }).click();
+    await page.getByRole('button', { name: /^Model: / }).click();
     await notice('resource').getByRole('button', { name: 'Retry', exact: true }).click();
     await expect(notice('resource')).toHaveCount(0);
     await capture('resource-restored');
