@@ -22,6 +22,7 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
+	"github.com/chromedp/chromedp/remote"
 )
 
 // chromedpBackend holds a chromedp allocator (browser-level) plus a
@@ -30,8 +31,15 @@ type chromedpBackend struct {
 	mode      Mode
 	allocCtx  context.Context
 	allocStop context.CancelFunc
+	// browserCtx is the first chromedp context: it owns the browser
+	// connection, so cancelling it closes the browser (or the launched
+	// process). It lives until Close.
+	browserCtx context.Context
+	browserOff context.CancelFunc
+	// targetCtx drives the controlled tab: browserCtx itself, or a child
+	// bound to the tab UseTab picked (tabOff detaches that child).
 	targetCtx context.Context
-	targetOff context.CancelFunc
+	tabOff    context.CancelFunc
 	closed    bool
 	obtained  Obtained
 }
@@ -54,7 +62,7 @@ func openChromedp(ctx context.Context, mode Mode, sessionName string, env []stri
 			}
 			return openChromedp(ctx, ModeDedicated, sessionName, env) // fallback
 		}
-		allocCtx, cancel = chromedp.NewRemoteAllocator(ctx, ws)
+		allocCtx, cancel = remote.NewAllocator(ctx, ws)
 		b.obtained = ObtainedLive
 	case ModeDedicated, ModeHeadless:
 		if env != nil {
@@ -67,6 +75,9 @@ func openChromedp(ctx context.Context, mode Mode, sessionName string, env []stri
 		opts := append(chromedp.DefaultExecAllocatorOptions[:],
 			chromedp.Flag("headless", mode == ModeHeadless),
 			chromedp.Flag("remote-debugging-port", "0"), // string — int hits "invalid exec pool flag"
+			// chromedp >= 0.21 defaults to a pipe; a debugging port needs the
+			// websocket transport, which keeps the 0.16 launch behavior.
+			remote.WebSocket,
 		)
 		if home, err := os.UserHomeDir(); err == nil {
 			opts = append(opts, chromedp.UserDataDir(dedicatedProfileDir(home, sessionName)))
@@ -81,31 +92,38 @@ func openChromedp(ctx context.Context, mode Mode, sessionName string, env []stri
 	}
 	b.allocCtx, b.allocStop = allocCtx, cancel
 
-	targetCtx, targetOff := chromedp.NewContext(allocCtx)
-	b.targetCtx, b.targetOff = targetCtx, targetOff
+	browserCtx, browserOff := chromedp.NewContext(allocCtx)
+	b.browserCtx, b.browserOff, b.targetCtx = browserCtx, browserOff, browserCtx
 	// Ensure the browser + first tab exist.
-	if err := chromedp.Run(targetCtx); err != nil {
+	if err := chromedp.Do(browserCtx); err != nil {
 		_ = b.Close()
 		return nil, fmt.Errorf("chromedp connect: %w", err)
 	}
 	return b, nil
 }
 
-func (b *chromedpBackend) run(ctx context.Context, actions ...chromedp.Action) error {
-	// chromedp.Run executes on the target-bound context; the caller's ctx
-	// bounds it via a deadline wrap when present.
-	c := b.targetCtx
+func (b *chromedpBackend) run(ctx context.Context, f func(ctx context.Context, t *chromedp.Target) error) error {
+	c, off := b.bound(ctx)
+	defer off()
+	return chromedp.Do(c, chromedp.Func(f))
+}
+
+// bound is the target-bound context that chromedp actions execute on; the
+// caller's ctx bounds it via a deadline wrap when present.
+func (b *chromedpBackend) bound(ctx context.Context) (context.Context, context.CancelFunc) {
 	if d, ok := ctx.Deadline(); ok {
-		var off context.CancelFunc
-		c, off = context.WithDeadline(b.targetCtx, d)
-		defer off()
+		return context.WithDeadline(b.targetCtx, d)
 	}
-	return chromedp.Run(c, actions...)
+	return b.targetCtx, func() {}
 }
 
 func (b *chromedpBackend) Info(ctx context.Context) (PageInfo, error) {
 	var rawJSON string
-	err := b.run(ctx, chromedp.Evaluate(`JSON.stringify({url:location.href,title:document.title,w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})`, &rawJSON))
+	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		var err error
+		rawJSON, err = chromedp.Evaluate[string](`JSON.stringify({url:location.href,title:document.title,w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})`)(ctx, t)
+		return err
+	})
 	if err != nil {
 		return PageInfo{}, err
 	}
@@ -122,7 +140,9 @@ func (b *chromedpBackend) Info(ctx context.Context) (PageInfo, error) {
 }
 
 func (b *chromedpBackend) Navigate(ctx context.Context, url string) error {
-	if err := b.run(ctx, chromedp.Navigate(url)); err != nil {
+	c, off := b.bound(ctx)
+	defer off()
+	if err := chromedp.Do(c, chromedp.Navigate(url)); err != nil {
 		return err
 	}
 	return b.WaitLoad(ctx)
@@ -131,14 +151,14 @@ func (b *chromedpBackend) Navigate(ctx context.Context, url string) error {
 func (b *chromedpBackend) Back(ctx context.Context) error {
 	var entries []*page.NavigationEntry
 	var current int
-	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		cur, ents, err := page.GetNavigationHistory().Do(ctx)
+	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		res, err := cdp.Call(ctx, t, page.GetNavigationHistory, cdp.Empty{})
 		if err != nil {
 			return err
 		}
-		current, entries = int(cur), ents
+		current, entries = int(res.CurrentIndex), res.Entries
 		return nil
-	}))
+	})
 	if err != nil {
 		return err
 	}
@@ -146,33 +166,37 @@ func (b *chromedpBackend) Back(ctx context.Context) error {
 		return nil
 	}
 	prev := entries[current-1]
-	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		return page.NavigateToHistoryEntry(prev.ID).Do(ctx)
-	}))
+	return b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, page.NavigateToHistoryEntry, page.NavigateToHistoryEntryParams{EntryID: prev.ID})
+		return err
+	})
 }
 
 func (b *chromedpBackend) Eval(ctx context.Context, expression string) (string, error) {
 	var res *runtime.RemoteObject
 	var exp *runtime.ExceptionDetails
-	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		var err error
-		res, exp, err = runtime.Evaluate(expression).
-			WithReturnByValue(true).
-			WithAwaitPromise(true).
-			Do(ctx)
+	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		r, err := cdp.Call(ctx, t, runtime.Evaluate, runtime.EvaluateParams{
+			Expression:    expression,
+			ReturnByValue: new(true),
+			AwaitPromise:  new(true),
+		})
+		res, exp = r.Result, r.ExceptionDetails
 		return err
-	}))
+	})
 	if err != nil {
-		// browser-harness's js() retries illegal top-level return in an IIFE.
-		if strings.Contains(err.Error(), "Illegal return statement") {
-			return b.Eval(ctx, "(function(){"+expression+"})()")
-		}
 		return "", err
 	}
 	if exp != nil {
 		desc := exp.Text
 		if exp.Exception != nil && exp.Exception.Description != "" {
 			desc = exp.Exception.Description
+		}
+		// browser-harness's js() retries illegal top-level return in an IIFE,
+		// as the rod backend does. Chrome reports the SyntaxError as exception
+		// details, not as a protocol error.
+		if strings.Contains(desc, "Illegal return statement") && !strings.HasPrefix(expression, "(function(){") {
+			return b.Eval(ctx, "(function(){"+expression+"})()")
 		}
 		return "", fmt.Errorf("JavaScript evaluation failed: %s; expression: %.160s", desc, expression)
 	}
@@ -183,22 +207,23 @@ func (b *chromedpBackend) Eval(ctx context.Context, expression string) (string, 
 }
 
 func (b *chromedpBackend) ClickAt(ctx context.Context, x, y float64) error {
-	press := input.DispatchMouseEvent(input.MousePressed, x, y).
-		WithButton(input.Left).WithClickCount(1)
-	release := input.DispatchMouseEvent(input.MouseReleased, x, y).
-		WithButton(input.Left).WithClickCount(1)
-	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		if err := press.Do(ctx); err != nil {
+	press := input.DispatchMouseEventParams{Type: chromedp.MousePressed, X: x, Y: y, Button: input.MouseButtonLeft, ClickCount: 1}
+	release := press
+	release.Type = chromedp.MouseReleased
+	return b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		if _, err := cdp.Call(ctx, t, input.DispatchMouseEvent, press); err != nil {
 			return err
 		}
-		return release.Do(ctx)
-	}))
+		_, err := cdp.Call(ctx, t, input.DispatchMouseEvent, release)
+		return err
+	})
 }
 
 func (b *chromedpBackend) TypeText(ctx context.Context, text string) error {
-	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.InsertText(text).Do(ctx)
-	}))
+	return b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, input.InsertText, input.InsertTextParams{Text: text})
+		return err
+	})
 }
 
 // cdKeys mirrors the rod backend's keyDefs table.
@@ -223,39 +248,41 @@ var cdKeys = map[string]struct {
 	"PageDown":   {"PageDown", 34, ""},
 }
 
-func (b *chromedpBackend) PressKey(ctx context.Context, key string) error {
-	def, ok := cdKeys[key]
-	if !ok && len(key) == 1 {
+func (b *chromedpBackend) PressKey(ctx context.Context, name string) error {
+	def, ok := cdKeys[name]
+	if !ok && len(name) == 1 {
 		def = struct {
 			code string
 			key  int64
 			text string
-		}{key, int64(key[0]), key}
+		}{name, int64(name[0]), name}
 		ok = true
 	}
 	if !ok {
-		return fmt.Errorf("unknown key %q", key)
+		return fmt.Errorf("unknown key %q", name)
 	}
-	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		down := &input.DispatchKeyEventParams{
-			Type:                  input.KeyDown,
-			Key:                   key,
+	return b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		key := func(p input.DispatchKeyEventParams) error {
+			_, err := cdp.Call(ctx, t, input.DispatchKeyEvent, p)
+			return err
+		}
+		down := input.DispatchKeyEventParams{
+			Type:                  input.DispatchKeyEventTypeKeyDown,
+			Key:                   name,
 			Code:                  def.code,
 			WindowsVirtualKeyCode: def.key,
 			NativeVirtualKeyCode:  def.key,
 		}
-		if err := down.Do(ctx); err != nil {
+		if err := key(down); err != nil {
 			return err
 		}
 		if def.text != "" {
-			ch := &input.DispatchKeyEventParams{Type: input.KeyChar, Text: def.text, Key: key, Code: def.code}
-			if err := ch.Do(ctx); err != nil {
+			if err := key(input.DispatchKeyEventParams{Type: input.DispatchKeyEventTypeChar, Text: def.text, Key: name, Code: def.code}); err != nil {
 				return err
 			}
 		}
-		up := &input.DispatchKeyEventParams{Type: input.KeyUp, Key: key, Code: def.code, WindowsVirtualKeyCode: def.key, NativeVirtualKeyCode: def.key}
-		return up.Do(ctx)
-	}))
+		return key(input.DispatchKeyEventParams{Type: input.DispatchKeyEventTypeKeyUp, Key: name, Code: def.code, WindowsVirtualKeyCode: def.key, NativeVirtualKeyCode: def.key})
+	})
 }
 
 func (b *chromedpBackend) Fill(ctx context.Context, selector, text string) error {
@@ -282,16 +309,30 @@ func (b *chromedpBackend) Fill(ctx context.Context, selector, text string) error
 	return err
 }
 
+// wheelParams is Input.dispatchMouseEvent for a wheel. Chrome requires both
+// deltas on a mouseWheel, but cdproto's DispatchMouseEventParams tags them
+// omitzero, so a vertical-only scroll (deltaX 0) is rejected with "'deltaX'
+// and 'deltaY' are expected for mouseWheel event".
+type wheelParams struct {
+	Type   input.DispatchMouseEventType `json:"type"`
+	X      float64                      `json:"x"`
+	Y      float64                      `json:"y"`
+	DeltaX float64                      `json:"deltaX"`
+	DeltaY float64                      `json:"deltaY"`
+}
+
+var wheelEvent = cdp.Command[wheelParams, cdp.Empty]{Method: input.CommandDispatchMouseEvent}
+
 func (b *chromedpBackend) Scroll(ctx context.Context, dy float64) error {
 	info, err := b.Info(ctx)
 	if err != nil {
 		return err
 	}
 	x, y := float64(info.Width)/2, float64(info.Height)/2
-	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		p := &input.DispatchMouseEventParams{Type: input.MouseWheel, X: x, Y: y, DeltaX: 0, DeltaY: dy}
-		return p.Do(ctx)
-	}))
+	return b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, wheelEvent, wheelParams{Type: chromedp.MouseWheel, X: x, Y: y, DeltaX: 0, DeltaY: dy})
+		return err
+	})
 }
 
 func (b *chromedpBackend) WaitLoad(ctx context.Context) error {
@@ -341,32 +382,32 @@ func (b *chromedpBackend) WaitElement(ctx context.Context, selector string, visi
 
 func (b *chromedpBackend) Screenshot(ctx context.Context, maxDim int) ([]byte, error) {
 	var data []byte
-	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		params := page.CaptureScreenshot().WithFormat(page.CaptureScreenshotFormatJpeg).WithQuality(80)
+	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		params := page.CaptureScreenshotParams{Format: page.CaptureScreenshotFormatJpeg, Quality: new(int64(80))}
 		if maxDim > 0 {
-			_, _, _, cssLayout, _, _, err := page.GetLayoutMetrics().Do(ctx)
-			if err == nil && cssLayout != nil {
+			metrics, err := cdp.Call(ctx, t, page.GetLayoutMetrics, cdp.Empty{})
+			if cssLayout := metrics.CSSLayoutViewport; err == nil && cssLayout != nil {
 				w, h := float64(cssLayout.ClientWidth), float64(cssLayout.ClientHeight)
 				if max(w, h) > float64(maxDim) {
 					scale := float64(maxDim) / max(w, h)
-					params = params.WithClip(&page.Viewport{X: 0, Y: 0, Width: w, Height: h, Scale: scale})
+					params.Clip = &page.Viewport{X: 0, Y: 0, Width: w, Height: h, Scale: scale}
 				}
 			}
 		}
-		var err error
-		data, err = params.Do(ctx)
+		res, err := cdp.Call(ctx, t, page.CaptureScreenshot, params)
+		data = res.Data
 		return err
-	}))
+	})
 	return data, err
 }
 
 func (b *chromedpBackend) AXTree(ctx context.Context) (string, error) {
 	var nodes []*accessibility.Node
-	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		var err error
-		nodes, err = accessibility.GetFullAXTree().Do(ctx)
+	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		res, err := cdp.Call(ctx, t, accessibility.GetFullAXTree, accessibility.GetFullAXTreeParams{})
+		nodes = res.Nodes
 		return err
-	}))
+	})
 	if err != nil {
 		return "", err
 	}
@@ -382,10 +423,10 @@ func (b *chromedpBackend) AXTree(ctx context.Context) (string, error) {
 		}
 		nn := node{BackendNodeID: int(n.BackendDOMNodeID)}
 		if n.Role != nil {
-			nn.Role = fmt.Sprint(n.Role.Value)
+			nn.Role = axString(n.Role.Value)
 		}
 		if n.Name != nil {
-			nn.Name = fmt.Sprint(n.Name.Value)
+			nn.Name = axString(n.Name.Value)
 		}
 		if nn.Role == "" && nn.Name == "" {
 			continue
@@ -396,13 +437,24 @@ func (b *chromedpBackend) AXTree(ctx context.Context) (string, error) {
 	return string(data), err
 }
 
+// axString renders an AX value the way the rod backend does: a JSON string
+// unquoted, anything else as its JSON text. fmt.Sprint of the raw value kept
+// the quotes, so roles read "\"button\"" instead of "button".
+func axString(v []byte) string {
+	var str string
+	if json.Unmarshal(v, &str) == nil {
+		return str
+	}
+	return string(v)
+}
+
 func (b *chromedpBackend) BoxModel(ctx context.Context, backendNodeID int) (float64, float64, error) {
 	var model *dom.BoxModel
-	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		var err error
-		model, err = dom.GetBoxModel().WithBackendNodeID(cdp.BackendNodeID(backendNodeID)).Do(ctx)
+	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		res, err := cdp.Call(ctx, t, dom.GetBoxModel, dom.GetBoxModelParams{BackendNodeID: cdp.BackendNodeID(backendNodeID)})
+		model = res.Model
 		return err
-	}))
+	})
 	if err != nil {
 		return 0, 0, err
 	}
@@ -416,12 +468,9 @@ func (b *chromedpBackend) BoxModel(ctx context.Context, backendNodeID int) (floa
 }
 
 func (b *chromedpBackend) Tabs(ctx context.Context) ([]Tab, error) {
-	var infos []*target.Info
-	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		var err error
-		infos, err = target.GetTargets().Do(ctx)
-		return err
-	}))
+	c, off := b.bound(ctx)
+	defer off()
+	infos, err := chromedp.Targets(c)
 	if err != nil {
 		return nil, err
 	}
@@ -436,31 +485,43 @@ func (b *chromedpBackend) Tabs(ctx context.Context) ([]Tab, error) {
 }
 
 func (b *chromedpBackend) UseTab(ctx context.Context, targetID string) error {
-	b.targetOff()
-	targetCtx, targetOff := chromedp.NewContext(b.allocCtx, chromedp.WithTargetID(target.ID(targetID)))
-	b.targetCtx, b.targetOff = targetCtx, targetOff
-	return chromedp.Run(targetCtx)
+	// A child of browserCtx shares its browser. Deriving from allocCtx (and
+	// cancelling the old target context first) closed the browser and then
+	// looked the id up in a fresh one: "No target with given id found".
+	// Detach on cancel so switching away leaves the previous tab open.
+	targetCtx, tabOff := chromedp.NewContext(b.browserCtx, chromedp.WithTargetID(target.ID(targetID)), chromedp.WithDetachOnCancel())
+	if err := chromedp.Do(targetCtx); err != nil {
+		tabOff()
+		return err
+	}
+	if b.tabOff != nil {
+		b.tabOff()
+	}
+	b.targetCtx, b.tabOff = targetCtx, tabOff
+	return nil
 }
 
 func (b *chromedpBackend) UploadFiles(ctx context.Context, selector string, paths []string) error {
 	var nodeID cdp.NodeID
-	err := b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		doc, err := dom.GetDocument().WithDepth(-1).Do(ctx)
+	err := b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		doc, err := cdp.Call(ctx, t, dom.GetDocument, dom.GetDocumentParams{Depth: new(int64(-1))})
 		if err != nil {
 			return err
 		}
-		nodeID, err = dom.QuerySelector(doc.NodeID, selector).Do(ctx)
+		res, err := cdp.Call(ctx, t, dom.QuerySelector, dom.QuerySelectorParams{NodeID: doc.Root.NodeID, Selector: selector})
+		nodeID = res.NodeID
 		return err
-	}))
+	})
 	if err != nil {
 		return err
 	}
 	if nodeID == 0 {
 		return fmt.Errorf("upload: element not found: %s", selector)
 	}
-	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		return dom.SetFileInputFiles(paths).WithNodeID(nodeID).Do(ctx)
-	}))
+	return b.run(ctx, func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, dom.SetFileInputFiles, dom.SetFileInputFilesParams{Files: paths, NodeID: nodeID})
+		return err
+	})
 }
 
 // chromedp's ExecAllocator kills Chrome when its context is cancelled —
@@ -474,8 +535,11 @@ func (b *chromedpBackend) Close() error {
 		return nil
 	}
 	b.closed = true
-	if b.targetOff != nil {
-		b.targetOff()
+	if b.tabOff != nil {
+		b.tabOff()
+	}
+	if b.browserOff != nil {
+		b.browserOff()
 	}
 	if b.allocStop != nil {
 		b.allocStop() // cancels + Allocator.Wait
@@ -498,7 +562,8 @@ func (b *chromedpBackend) Obtained() Obtained { return b.obtained }
 // HandleDialog answers a pending native dialog. chromedp surfaces dialogs
 // through page events; answer the current one if any.
 func (b *chromedpBackend) HandleDialog(accept bool, promptText string) error {
-	return b.run(context.Background(), chromedp.ActionFunc(func(ctx context.Context) error {
-		return page.HandleJavaScriptDialog(accept).WithPromptText(promptText).Do(ctx)
-	}))
+	return b.run(context.Background(), func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, page.HandleJavaScriptDialog, page.HandleJavaScriptDialogParams{Accept: accept, PromptText: promptText})
+		return err
+	})
 }

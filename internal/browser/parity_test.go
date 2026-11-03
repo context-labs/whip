@@ -85,8 +85,8 @@ func TestDriverParity(t *testing.T) {
 		})
 		op("AXTree", func() error {
 			tree, err := b.AXTree(ctx)
-			if err == nil && !strings.Contains(tree, "hello") {
-				return errors.New("ax missing heading")
+			if err == nil && !strings.Contains(tree, `"role":"heading","name":"hello"`) {
+				return fmt.Errorf("ax missing plain heading role/name: %.200s", tree)
 			}
 			return err
 		})
@@ -150,6 +150,15 @@ func TestDriverParity(t *testing.T) {
 	for _, op := range ops {
 		r, c := table["rod"][op], table["chromedp"][op]
 		fmt.Printf("%-12s | %-18s | %-18s\n", op, cell(r.ok, r.ms, r.err), cell(c.ok, c.ms, c.err))
+	}
+	// Parity means every op works on both drivers; the table alone let a
+	// broken chromedp op pass unnoticed.
+	for _, drv := range drivers {
+		for _, op := range ops {
+			if res, ok := table[drv][op]; !ok || !res.ok {
+				t.Errorf("%s %s failed: %s", drv, op, res.err)
+			}
+		}
 	}
 }
 
