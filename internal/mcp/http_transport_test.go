@@ -404,6 +404,41 @@ func TestRemoteRedirectSameOriginKeepsHeaders(t *testing.T) {
 	}
 }
 
+// TestRemoteTransportUserAgent: remote servers see whip's agent identity by
+// default; a configured User-Agent header still wins.
+func TestRemoteTransportUserAgent(t *testing.T) {
+	seen := make(chan string, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	for _, test := range []struct {
+		name    string
+		headers headerTransport
+		want    string
+	}{
+		{"default", headerTransport{}, "whip"},
+		{"configured", headerTransport{"User-Agent": "custom-agent"}, "custom-agent"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := test.headers.RoundTrip(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if ua := <-seen; ua != test.want {
+				t.Fatalf("User-Agent = %q, want %q", ua, test.want)
+			}
+		})
+	}
+}
+
 // heldStreamFixture serves MCP over the SDK's streamable handler but answers
 // the standalone GET the way Executor 1.0.0 does: status line and headers
 // without the terminating blank line, held open until the test completes it.

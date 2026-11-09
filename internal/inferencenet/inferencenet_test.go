@@ -75,7 +75,12 @@ func stubRelay(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/rest/api-keys/key-1", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "key-1", "enabled": false})
 	})
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("User-Agent") != "whip" {
+			t.Errorf("%s sent User-Agent %q", r.URL.Path, r.Header.Get("User-Agent"))
+		}
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -174,6 +179,9 @@ func TestAuthStoreRoundTrip(t *testing.T) {
 
 func TestValidateKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("User-Agent") != "whip" {
+			t.Errorf("ValidateKey sent User-Agent %q", r.Header.Get("User-Agent"))
+		}
 		if r.Header.Get("Authorization") == "Bearer good" {
 			w.WriteHeader(http.StatusOK)
 			return

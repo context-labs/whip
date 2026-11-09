@@ -170,6 +170,7 @@ func checkWebAssets(ctx context.Context, endpoint string) error {
 	if err != nil {
 		return err
 	}
+	request.Header.Set("User-Agent", "whip")
 	client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(request)
 	if err != nil {

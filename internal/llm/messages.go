@@ -218,6 +218,7 @@ func (c *Client) messagesOnce(ctx context.Context, body []byte, onText, onThink 
 		return Message{}, Usage{}, err
 	}
 	hr.Header.Set("Content-Type", "application/json")
+	hr.Header.Set("User-Agent", "whip")
 	if c.APIKey != "" {
 		// Bearer is the gateway's auth (inference.net validates it before
 		// dispatching to the Anthropic backend); x-api-key is the native

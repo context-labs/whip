@@ -242,6 +242,7 @@ func doJSONStatus(ctx context.Context, method, url string, body any, headers map
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Set("User-Agent", "whip")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}

@@ -17,6 +17,7 @@ func ValidateKey(ctx context.Context, key string) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("User-Agent", "whip")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err

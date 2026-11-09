@@ -20,6 +20,9 @@ func TestAstraAPIResponsesToolRoundTripAndBudget(t *testing.T) {
 		if r.URL.String() != "https://api.openai.com/v1/responses" || r.Header.Get("Authorization") != "Bearer fixture-only-key" || r.Header.Get("Chatgpt-Account-Id") != "" {
 			t.Fatal("API credentials used the wrong destination or subscription headers")
 		}
+		if r.Header.Get("User-Agent") != "whip" {
+			t.Fatal("missing whip User-Agent header")
+		}
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatal(err)

@@ -787,6 +787,7 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	hr.Header.Set("User-Agent", "whip")
 	if c.APIKey != "" {
 		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
@@ -1157,6 +1158,7 @@ func (c *Client) newRequest(ctx context.Context, body []byte) (*http.Request, er
 		if (request.URL.Scheme != "http" && request.URL.Scheme != "https") || request.URL.Host == "" {
 			return nil, errors.New("invalid model provider URL")
 		}
+		request.Header.Set("User-Agent", "whip")
 		return request, nil
 	}
 	return httpRequest(ctx, c.BaseURL, body)
@@ -1170,6 +1172,7 @@ func httpRequest(ctx context.Context, baseURL string, body []byte) (*http.Reques
 	if (request.URL.Scheme != "http" && request.URL.Scheme != "https") || request.URL.Host == "" {
 		return nil, errors.New("invalid model provider URL")
 	}
+	request.Header.Set("User-Agent", "whip")
 	return request, nil
 }
 

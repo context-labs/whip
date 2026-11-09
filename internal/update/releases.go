@@ -122,6 +122,7 @@ func fetchReleasePage(ctx context.Context, token string, page int) ([]githubRele
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "whip")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

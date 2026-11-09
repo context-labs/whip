@@ -72,6 +72,9 @@ func TestOpenRouterSetupAuthenticatesBeforeSavingKey(t *testing.T) {
 				if r.URL.Host != "openrouter.ai" || r.Header.Get("Authorization") != "Bearer submitted-key" {
 					t.Fatal("incorrect authentication destination or credential")
 				}
+				if r.Header.Get("User-Agent") != "whip" {
+					t.Fatalf("%s sent User-Agent %q", r.URL.Path, r.Header.Get("User-Agent"))
+				}
 				paths = append(paths, r.URL.Path)
 				code, body := http.StatusOK, `{"data":[{"id":"z-ai/glm-5.3"}]}`
 				switch r.URL.Path {

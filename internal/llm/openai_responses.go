@@ -38,6 +38,7 @@ func (c *Client) apiResponsesOnce(
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
+	request.Header.Set("User-Agent", "whip")
 	if c.APIKey != "" {
 		request.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
