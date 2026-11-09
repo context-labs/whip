@@ -15,15 +15,15 @@
     "@stylexjs/stylex": "0.19.1",
     "@tanstack/markdown": "0.0.13",
     "@tanstack/react-form": "1.33.5",
-    "@tanstack/react-hotkeys": "0.18.0",
-    "@tanstack/react-query": "5.105.0",
+    "@tanstack/react-hotkeys": "0.22.0",
+    "@tanstack/react-query": "5.106.1",
     "@tanstack/react-router": "1.170.46",
-    "@tanstack/react-virtual": "3.14.24",
+    "@tanstack/react-virtual": "3.14.26",
     "@whip/protocol": "3.0.0",
     "@whip/sdk": "0.1.0",
     "@whip/ui": "0.1.0",
     "ghostty-web": "github:anomalyco/ghostty-web#83c0a07b8628b748aed073b232cb4b52a6ca11c1",
-    "lucide-react": "1.65.0"
+    "lucide-react": "1.70.0"
   },
   "peerDependencies": {
     "react": "^19.0.0",
