@@ -19,6 +19,9 @@ func TestGenericRequestsWithoutAuthentication(t *testing.T) {
 				} else if r.Header.Get("Authorization") != "Bearer "+key {
 					t.Error("authenticated request omitted its credential")
 				}
+				if r.Header.Get("User-Agent") != "whip" {
+					t.Errorf("%s %s sent User-Agent %q", r.Method, r.URL.Path, r.Header.Get("User-Agent"))
+				}
 				if r.URL.Path == "/models" {
 					_, _ = w.Write([]byte(`{"data":[{"id":"m"}]}`))
 					return

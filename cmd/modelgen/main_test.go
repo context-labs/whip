@@ -143,7 +143,10 @@ func TestFetchBoundsAndHTTPFailures(t *testing.T) {
 		{"success", http.StatusOK, `{}`, false}, {"unauthorized", http.StatusUnauthorized, `private upstream body`, true}, {"too large", http.StatusOK, strings.Repeat("x", maxInput+1), true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("User-Agent") != "whip" {
+					t.Errorf("fetch sent User-Agent %q", r.Header.Get("User-Agent"))
+				}
 				w.WriteHeader(test.status)
 				_, _ = io.WriteString(w, test.body)
 			}))

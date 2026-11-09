@@ -54,6 +54,9 @@ func TestWebCLIExplicitURLNeverStartsRuntime(t *testing.T) {
 		if r.URL.Path != "/api/v3/web" {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
+		if r.Header.Get("User-Agent") != "whip" {
+			t.Errorf("discovery sent User-Agent %q", r.Header.Get("User-Agent"))
+		}
 		fmt.Fprintf(w, `{"available":true,"protocol_major":%d,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, protocol.Major)
 	}))
 	defer server.Close()

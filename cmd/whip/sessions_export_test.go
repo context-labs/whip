@@ -55,7 +55,7 @@ func TestPushOTLPPostsGzipBatchesWithTheBearerToken(t *testing.T) {
 	var spans atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		if r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Content-Encoding") != "gzip" || r.Header.Get("Authorization") != "Bearer secret" {
+		if r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Content-Encoding") != "gzip" || r.Header.Get("Authorization") != "Bearer secret" || r.Header.Get("User-Agent") != "whip" {
 			http.Error(w, "bad headers", http.StatusBadRequest)
 			return
 		}

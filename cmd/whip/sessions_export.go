@@ -146,6 +146,7 @@ func pushOTLPWithBatchSize(ctx context.Context, endpoint, token string, data []b
 		}
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Content-Encoding", "gzip")
+		request.Header.Set("User-Agent", "whip")
 		if token != "" {
 			request.Header.Set("Authorization", "Bearer "+token)
 		}

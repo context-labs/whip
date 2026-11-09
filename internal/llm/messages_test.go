@@ -509,6 +509,9 @@ func TestMessagesClientTargetsMessagesEndpoint(t *testing.T) {
 		if r.Header.Get("Anthropic-Version") == "" {
 			t.Fatal("missing Anthropic-Version header")
 		}
+		if r.Header.Get("User-Agent") != "whip" {
+			t.Fatal("missing whip User-Agent header")
+		}
 		return sseResponse(
 			event("message_start", nil),
 			event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "text_delta", "text": "hi"}}),

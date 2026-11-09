@@ -148,6 +148,7 @@ func fetch(ctx context.Context, client *http.Client, endpoint string) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", "whip")
 	response, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download Models.dev: %w", err)

@@ -59,6 +59,9 @@ func TestFetchReleasePages(t *testing.T) {
 				if r.Header.Get("Authorization") != "Bearer test-token" {
 					t.Error("missing token")
 				}
+				if r.Header.Get("User-Agent") != "whip" {
+					t.Error("missing whip User-Agent")
+				}
 				if r.URL.Query().Get("per_page") != "100" {
 					t.Error("missing page size")
 				}

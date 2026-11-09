@@ -1368,6 +1368,9 @@ func (h headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	for k, v := range h {
 		req.Header.Set(k, v)
 	}
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "whip")
+	}
 	return http.DefaultTransport.RoundTrip(req)
 }
 

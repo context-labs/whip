@@ -184,6 +184,7 @@ func validateProviderModels(ctx context.Context, baseURL, key string) ([]llm.Mod
 			return nil, err
 		}
 		request.Header.Set("Authorization", "Bearer "+key)
+		request.Header.Set("User-Agent", "whip")
 		response, err := client.HTTP.Do(request)
 		if err != nil {
 			return nil, err
