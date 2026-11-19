@@ -2137,8 +2137,10 @@ Tab creation, selection, reorder, close, and reopen are local navigation actions
 
 Desktop tabs retain their original rounded upper corners and curved lower
 shoulders in the 48px strip; selected tabs join the content canvas. Theme tokens
-also style the matching contoured drag preview. Tabs keep 144–224px widths in a
-horizontal scroller without inline ellipsis buttons. Titles clip through a subtle
+also style the matching contoured drag preview. Each tab names its project
+directory beside the title so sessions in different folders remain
+distinguishable; the session header keeps the full path. Tabs keep 144–224px
+widths in a horizontal scroller without inline ellipsis buttons. Titles clip through a subtle
 16px inline-end fade instead of a text ellipsis, including in drag previews;
 full labels remain available to assistive technology and in tooltips. The fade
 reverses in RTL and is disabled for forced colors and print. Right-click or Shift+F10
