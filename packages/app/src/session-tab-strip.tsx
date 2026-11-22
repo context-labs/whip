@@ -311,7 +311,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     <Sheet open={picker} onOpenChange={setPicker} title="Open sessions" description="Closing a tab leaves its session, drafts, and agents on the host.">
       <Input aria-label="Find an open session" placeholder="Find a session or project…" value={search} onChange={event => setSearch(event.target.value)}/>
       <div {...stylex.props(styles.pickerList)}>
-        {tabs.filter(tab => `${title(tab)} ${hostName(tab)} ${item(tab)?.cwd ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(tab => <div key={tab.id} {...stylex.props(styles.pickerRow, active?.id === tab.id && styles.selected)}>
+        {tabs.filter(tab => `${title(tab)} ${hostName(tab)} ${tabCwd(tab) ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(tab => <div key={tab.id} {...stylex.props(styles.pickerRow, active?.id === tab.id && styles.selected)}>
           <button {...stylex.props(styles.pickerSelect)} onClick={() => go(tab.id)}>{icon(tab)}<span {...stylex.props(layout.column, styles.pickerText)}><strong>{title(tab)}{viewSuffix(tab.kind)}</strong><span {...stylex.props(layout.muted)}>{panes.length > 1 ? `Pane ${panes.indexOf(sessionViewPane(workspace, tab.id)!) + 1} · ` : ''}{hostName(tab)} · {project(tab)}{project(tab) ? ' · ' : ''}{kindLabel(tab)}{hasDraft(tab) ? ' · Unsent draft' : ''}</span></span></button>
           <Menu trigger={<IconButton variant="ghost" label={`Tab actions for ${title(tab)}`}><MoreHorizontal size={15}/></IconButton>} items={actions(tab)}/>
           <IconButton variant="ghost" label={`Close ${title(tab)}`} onClick={() => close([tab.id])}><X size={16}/></IconButton>
