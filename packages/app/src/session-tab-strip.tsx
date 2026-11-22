@@ -103,7 +103,8 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const title = (tab: SessionTab) => tab.kind === 'new' ? 'New Chat' : tab.kind === 'browser' ? tab.titleHint || 'Browser' : tab.kind === 'terminal' ? tab.titleHint || 'Terminal' : item(tab)?.title || tab.titleHint || 'Untitled session';
   // The sidebar's catalog already holds a session's directory before the first summaries poll, so an opening tab can show its project at first paint.
   const knownCwd = (tab: SessionTab) => !isSessionTab(tab) ? undefined : item(tab)?.cwd ?? hosts.find(host => host.runtimeId === tab.runtimeId)?.list?.getSnapshot().page?.items?.find(session => session.id === tab.rootId)?.cwd;
-  const project = (tab: SessionTab) => (tab.kind === 'new' || tab.kind === 'terminal' ? tab.cwd : item(tab)?.cwd)?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
+  const tabCwd = (tab: SessionTab) => tab.kind === 'new' || tab.kind === 'terminal' ? tab.cwd : knownCwd(tab);
+  const project = (tab: SessionTab) => tabCwd(tab)?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
   const hasDraft = (tab: SessionTab) => isSessionTab(tab) && runtime.hasSessionDraft(tab.runtimeId, tab.rootId);
   const kindLabel = (tab: SessionTab) => tab.kind === 'new' ? 'Not sent yet' : tab.kind === 'browser' ? 'Browser' : tab.kind === 'terminal' ? 'Terminal' : summaryDescription(item(tab), stale(tab));
   const icon = (tab: SessionTab) => tab.kind === 'browser' ? <Globe size={13} aria-hidden="true"/> : tab.kind === 'new' ? <MessageSquare size={13} aria-hidden="true"/> : tab.kind === 'terminal' ? <SquareTerminal size={13} aria-hidden="true"/> : <Status item={item(tab)} stale={stale(tab)}/>;
@@ -264,9 +265,9 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       ...panes.filter(p => p.id !== pane.id).map(p => ({ id: `focus-${p.id}`, label: `Focus pane ${panes.indexOf(p) + 1}`, onSelect: () => { if (p.selected) { go(p.selected); requestAnimationFrame(() => document.getElementById(workspacePanelId(p.selected!))?.focus()); } } })),
       ] : []),
     ]}/>}
-    items={pane.tabs.map(tab => ({ value: tab.id, label: title(tab), accessibleLabel: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${panes.length > 1 ? ` · Pane ${panes.indexOf(pane) + 1}` : ''}${isSessionTab(tab) && tab.location.agent ? ` · Agent ${tab.location.agent}` : ''} · ${kindLabel(tab)}${hasDraft(tab) ? ' · Unsent draft' : ''}`,
+    items={pane.tabs.map(tab => ({ value: tab.id, label: title(tab), accessibleLabel: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${project(tab) ? ` · ${project(tab)}` : ''}${panes.length > 1 ? ` · Pane ${panes.indexOf(pane) + 1}` : ''}${isSessionTab(tab) && tab.location.agent ? ` · Agent ${tab.location.agent}` : ''} · ${kindLabel(tab)}${hasDraft(tab) ? ' · Unsent draft' : ''}`,
       render: <Link {...tabDestination(tab)} />,
-      status: icon(tab), metadata: <>{viewSuffix(tab.kind).replace(' · ', '')}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${project(tab) ? ` · ${project(tab)}` : ''}`,
+      status: icon(tab), metadata: <>{[project(tab), viewSuffix(tab.kind).replace(' · ', '')].filter(Boolean).join(' · ')}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${viewSuffix(tab.kind)}${project(tab) ? ` · ${project(tab)}` : ''}`,
       wrap: (element: ReactElement) => <ContextMenu items={actions(tab)}>{element}</ContextMenu>,
     }))}/>;
   const visiblePanes = matched ? panes.filter(p => !(compact || small) || p.id === workspace.focusedPaneId) : [];
@@ -310,7 +311,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     <Sheet open={picker} onOpenChange={setPicker} title="Open sessions" description="Closing a tab leaves its session, drafts, and agents on the host.">
       <Input aria-label="Find an open session" placeholder="Find a session or project…" value={search} onChange={event => setSearch(event.target.value)}/>
       <div {...stylex.props(styles.pickerList)}>
-        {tabs.filter(tab => `${title(tab)} ${hostName(tab)} ${item(tab)?.cwd ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(tab => <div key={tab.id} {...stylex.props(styles.pickerRow, active?.id === tab.id && styles.selected)}>
+        {tabs.filter(tab => `${title(tab)} ${hostName(tab)} ${tabCwd(tab) ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(tab => <div key={tab.id} {...stylex.props(styles.pickerRow, active?.id === tab.id && styles.selected)}>
           <button {...stylex.props(styles.pickerSelect)} onClick={() => go(tab.id)}>{icon(tab)}<span {...stylex.props(layout.column, styles.pickerText)}><strong>{title(tab)}{viewSuffix(tab.kind)}</strong><span {...stylex.props(layout.muted)}>{panes.length > 1 ? `Pane ${panes.indexOf(sessionViewPane(workspace, tab.id)!) + 1} · ` : ''}{hostName(tab)} · {project(tab)}{project(tab) ? ' · ' : ''}{kindLabel(tab)}{hasDraft(tab) ? ' · Unsent draft' : ''}</span></span></button>
           <Menu trigger={<IconButton variant="ghost" label={`Tab actions for ${title(tab)}`}><MoreHorizontal size={15}/></IconButton>} items={actions(tab)}/>
           <IconButton variant="ghost" label={`Close ${title(tab)}`} onClick={() => close([tab.id])}><X size={16}/></IconButton>
